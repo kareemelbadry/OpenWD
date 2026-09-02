@@ -1,0 +1,30 @@
+17 09 05
+A	1	2	2.90e+03	M1
+A	1	2	1.58e-01	E2
+A	1	6	7.30e+09	E1
+A	1	10	5.40e+09	E1
+A	1	16	9.00e+12	E1
+A	2	6	1.60e+08	E1
+A	2	7	4.90e+09	E1
+A	2	10	3.40e+10	E1
+A	2	16	1.70e+12	E1
+A	2	17	1.00e+13	E1
+A	3	4	5.72e+02	M1
+A	3	11	7.40e+09	E1
+A	4	5	5.79e+02	M1
+A	4	11	1.25e+10	E1
+A	5	11	1.64e+10	E1
+A	6	12	6.90e+09	E1
+A	6	13	1.98e+09	E1
+A	6	14	2.18e+10	E1
+A	6	15	3.84e+09	E1
+A	7	12	3.54e+09	E1
+A	7	13	1.04e+10	E1
+A	7	15	1.21e+10	E1
+A	10	12	6.50e+07	E1
+A	10	13	2.78e+09	E1
+A	10	14	2.30e+09	E1
+A	10	15	1.40e+10	E1
+**********
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling
+#Reference: Kramida A., Ralchenko Yu., Reader J., and NIST ASD Team (2020). https://physics.nist.gov/asd (NIST Atomic Spectra Database) (ver. 5.8)

@@ -1,0 +1,27 @@
+17 09 05
+A	1	2	3.90e-01	M1
+A	2	3	1.39e-01	M1
+A	5	6	1.97e-03	M1
+A	6	7	3.53e-03	M1
+A	10	11	1.88e-01	M1
+A	11	12	1.69e-01	M1
+A	12	13	8.49e-02	M1
+A	13	14	2.56e-02	M1
+A	15	16	2.99e-01	M1
+A	16	17	1.21e-01	M1
+A	18	19	1.75e-03	M1
+A	19	20	2.93e-02	M1
+A	21	22	1.69e-02	M1
+A	22	23	4.99e-02	M1
+A	24	29	3.56e-01	M1
+A	25	28	3.57e-02	M1
+A	25	30	3.37e+00	M1
+A	26	29	1.09e-01	M1
+A	31	33	1.83e-02	M1
+A	32	36	7.41e-02	M1
+A	33	35	6.16e-02	M1
+A	36	37	8.99e-01	M1
+A	40	41	5.73e-04	M1
+A	41	42	2.13e-03	M1
+**********
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling

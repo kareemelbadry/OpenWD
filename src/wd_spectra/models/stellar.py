@@ -1,0 +1,1123 @@
+"""High-level DA, DB, DAB, and DZ model presets."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Callable, Literal, Mapping
+
+import numpy as np
+from numpy.typing import ArrayLike
+
+from ..atmosphere import (
+    Atmosphere,
+    radiative_equilibrium_helium_atmosphere,
+    radiative_equilibrium_hydrogen_atmosphere,
+    radiative_equilibrium_hydrogen_helium_atmosphere,
+)
+from ..cool_da import (
+    atmosphere_with_tremblay_2013_mean_3d_temperature_difference,
+)
+from ..dense_eos import read_helium_reos3_table
+from ..helium_ii_stark import read_helium_ii_stark_table
+from ..helium_stark import read_helium_stark_table
+from ..metals import (
+    NIST_ASD_STRONG_ION_FILES,
+    read_barklem_neutral_hydrogen_broadening,
+    read_ca_i_he_profile_table,
+    read_mg_he_red_wing_table,
+    read_nist_asd_strong_atomic_database,
+    read_stout_atomic_database,
+    read_verner_photoionization_database,
+)
+from ..molecules import read_borysow_h2_h2_cia_table
+from ..quasimolecular import (
+    AllardUnifiedLymanTable,
+    read_allard_temperature_dependent_tables,
+    read_allard_tlusty205_tables,
+)
+from ..spectrum import (
+    synthesize_helium_spectrum,
+    synthesize_hydrogen_helium_spectrum,
+    synthesize_hydrogen_spectrum,
+)
+from .common import (
+    ModelData,
+    ModelResult,
+    Quality,
+    numerical_resolution,
+    validate_wavelength,
+)
+
+
+@dataclass(frozen=True)
+class DAConfig:
+    """Best current homogeneous hydrogen-atmosphere preset."""
+
+    effective_temperature: float = 12_000.0
+    logg: float = 8.0
+    quality: Quality = "standard"
+    lyman_profile_source: Literal["allard", "stark"] = "allard"
+    allard_minimum_effective_temperature: float = 9_000.0
+    include_molecules: bool | None = None
+    h3plus_partition_model: Literal[
+        "neale-tennyson-1995", "none"
+    ] = "neale-tennyson-1995"
+    mixing_length_alpha: float | None = 0.7
+    use_cool_mean_3d_temperature_differential: bool = False
+    balmer_self_broadening_prescription: str | None = None
+    balmer_self_broadening_truncation_closure: str = "stark-core"
+    atmosphere_solver: Literal["adaptive-newton", "lambda"] = (
+        "adaptive-newton"
+    )
+    multigrid_initialization: bool = False
+
+
+@dataclass(frozen=True)
+class DBConfig:
+    """Best current homogeneous LTE helium-atmosphere preset."""
+
+    effective_temperature: float = 20_000.0
+    logg: float = 8.0
+    quality: Quality = "standard"
+    mixing_length_alpha: float = 1.25
+    atmosphere_solver: Literal["adaptive-newton", "lambda"] = "adaptive-newton"
+    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
+
+
+@dataclass(frozen=True)
+class DABConfig:
+    """Best current homogeneous atomic H/He atmosphere preset."""
+
+    effective_temperature: float = 20_000.0
+    logg: float = 8.0
+    log_hydrogen_to_helium: float = -2.0
+    quality: Quality = "standard"
+    mixing_length_alpha: float = 1.25
+    atmosphere_solver: Literal["adaptive-newton", "lambda"] = "adaptive-newton"
+    lyman_profile_source: Literal["allard", "stark"] = "allard"
+    allard_minimum_effective_temperature: float = 9_000.0
+    balmer_self_broadening_prescription: str | None = None
+    balmer_self_broadening_truncation_closure: str = "stark-core"
+    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
+
+
+GD40_ABUNDANCES = MappingProxyType(
+    {
+        "C": -7.20,
+        "O": -5.61,
+        "Mg": -6.24,
+        "Si": -6.76,
+        "Ca": -6.88,
+        "Ti": -8.61,
+        "Cr": -8.31,
+        "Mn": -8.62,
+        "Fe": -6.48,
+    }
+)
+
+
+
+@dataclass(frozen=True)
+class DZConfig:
+    """Warm helium-dominated polluted atmosphere preset.
+
+    The defaults reproduce the published GD 40 composition used by the
+    multi-object SPY validation suite.  Abundances are log10 number ratios to
+    helium.
+    """
+
+    effective_temperature: float = 15_300.0
+    logg: float = 8.0
+    abundances: Mapping[str, float] = field(
+        default_factory=lambda: dict(GD40_ABUNDANCES)
+    )
+    log_hydrogen_abundance: float | None = -6.16
+    quality: Quality = "standard"
+    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
+    mixing_length_alpha: float = 1.25
+    atmosphere_solver: Literal["adaptive-newton", "lambda"] = "adaptive-newton"
+    maximum_metal_charge: int = 3
+    structure_maximum_metal_lines: int | None = None
+    formal_maximum_metal_lines: int | None = None
+    lyman_profile_source: Literal["allard", "stark"] = "allard"
+    allard_minimum_effective_temperature: float = 9_000.0
+    balmer_self_broadening_prescription: str | None = None
+    balmer_self_broadening_truncation_closure: str = "stark-core"
+    ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = (
+        "chianti-reduced"
+    )
+    unified_metal_helium_profiles: Literal[
+        "production", "legacy", "off"
+    ] = "production"
+    dense_helium_eos: Literal["reos3", "ideal"] = "ideal"
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
+
+
+_DA_ALI_GRIEM_TEMPERATURE_CUTOFF_K = 10_000.0
+_ALLARD_MINIMUM_EFFECTIVE_TEMPERATURE_K = 9_000.0
+_ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K = 13_000.0
+
+
+def _metal_structure_line_budget(
+    quality: Quality,
+    abundances: Mapping[str, float],
+    requested: int | None,
+) -> tuple[int, str, float]:
+    """Resolve a composition-aware structural metal-line budget.
+
+    Ordinary trace-polluted atmospheres retain the established 1000-line
+    standard budget.  Only mixtures whose summed metal number fraction makes
+    line blanketing intrinsically non-trace receive a larger budget.  The
+    thresholds are global composition criteria, not target names or fit
+    residuals; an explicit caller value remains available for convergence
+    studies.
+    """
+
+    metal_number_fraction = float(
+        sum(10.0 ** float(value) for value in abundances.values())
+    )
+    if requested is not None:
+        budget = int(requested)
+        policy = "explicit override"
+    elif quality == "quick":
+        budget = 300
+        policy = "quick fixed budget"
+    elif metal_number_fraction >= 1.0e-4:
+        budget = 8_000
+        policy = "adaptive: extreme pollution"
+    elif metal_number_fraction >= 3.0e-5:
+        budget = 4_000
+        policy = "adaptive: strong pollution"
+    else:
+        budget = 1_000
+        policy = "adaptive: trace pollution"
+    if budget < 1:
+        raise ValueError("metal line limits must be positive")
+    return budget, policy, metal_number_fraction
+
+
+def _da_self_broadening_prescription(
+    effective_temperature: float, requested: str | None
+) -> str:
+    """Resolve the public DA neutral-broadening policy.
+
+    Observed cool-DA profiles favor Ali--Griem below 10,000 K.  The Balmer
+    lines become weak at the very cool end, while the neutral-H contribution
+    becomes negligible toward the warm regime.  Keep Barklem at and above the
+    boundary, and retain an explicit caller override for controlled tests.
+    """
+
+    if requested is not None:
+        return requested
+    return (
+        "ali-griem"
+        if effective_temperature < _DA_ALI_GRIEM_TEMPERATURE_CUTOFF_K
+        else "barklem"
+    )
+
+
+def _is_composition_matched_metal_restart(
+    atmosphere: Atmosphere | None,
+    abundances: Mapping[str, float],
+    *,
+    host: Literal["H", "He"],
+    log_hydrogen_abundance: float | None = None,
+) -> bool:
+    """Return whether a supplied structure is a proven same-mixture restart.
+
+    An interpolated pure-H or pure-He grid is a useful warm start for a
+    polluted atmosphere, but it should still receive the local convective
+    preconditioner.  Only a checkpoint that explicitly verified its
+    composition, or an atmosphere returned by the same metal solver with an
+    identical abundance dictionary, can safely resume directly in the formal
+    flux phase.
+    """
+
+    if atmosphere is None:
+        return False
+    metadata = atmosphere.metadata
+    if bool(metadata.get("checkpoint_composition_verified", False)):
+        return True
+    expected_composition = (
+        "metal-polluted-hydrogen" if host == "H" else "metal-polluted-helium"
+    )
+    if metadata.get("composition") != expected_composition:
+        return False
+    recorded_abundances = metadata.get("metal_abundances")
+    if not isinstance(recorded_abundances, Mapping):
+        return False
+    if dict(recorded_abundances) != dict(abundances):
+        return False
+    if host == "He":
+        recorded_hydrogen = metadata.get(
+            "radiative_equilibrium_hydrogen_abundance"
+        )
+        if log_hydrogen_abundance is None:
+            return recorded_hydrogen is None
+        return recorded_hydrogen is not None and np.isclose(
+            float(recorded_hydrogen),
+            float(log_hydrogen_abundance),
+            rtol=0.0,
+            atol=1.0e-12,
+        )
+    return True
+
+
+def _allard_lyman_profiles_for_effective_temperature(
+    effective_temperature: float,
+    data: ModelData,
+    *,
+    minimum_effective_temperature: float = (
+        _ALLARD_MINIMUM_EFFECTIVE_TEMPERATURE_K
+    ),
+    use_fixed_low_temperature_profile: bool = True,
+):
+    """Resolve the validated temperature-dependent Lyman-profile policy.
+
+    The current Ly-alpha delivery begins at 9000 K.  Clamping cooler models
+    to that file and extending its final tabulated point through the optical
+    suppresses the independently calibrated cool neutral-H wing and produces
+    an artificial optical colour term.  Returning ``None`` below the stated
+    boundary leaves the cool H--H/H2 treatment active.
+
+    For the DA preset, between 9000 and 13,000 K use the checksum-pinned
+    TLUSTY205 Allard Ly-alpha profile alone. Direct fixed-structure controls
+    against the Koester DA grid show that the delivered cool Ly-alpha
+    generation over-absorbs the 1300--1600 A wing, while the delivered
+    Ly-beta and Ly-gamma grids do not extend through this regime. Mixed H/He
+    atmospheres instead set ``use_fixed_low_temperature_profile=False``:
+    their Warwick/Montreal reference grid uses the delivered Allard profiles,
+    including the explicitly tabulated 9000-K Ly-alpha calculation. At and
+    above 13,000 K, both presets use the temperature-dependent delivery.
+    """
+
+    if (
+        not np.isfinite(minimum_effective_temperature)
+        or minimum_effective_temperature <= 0.0
+    ):
+        raise ValueError(
+            "allard_minimum_effective_temperature must be finite and positive"
+        )
+    if effective_temperature < minimum_effective_temperature:
+        return None
+    if (
+        use_fixed_low_temperature_profile
+        and effective_temperature < _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K
+    ):
+        return _low_temperature_allard_lyman_table(data)
+    data.require(data.allard_lyman)
+    return read_allard_temperature_dependent_tables(data.allard_lyman)
+
+
+def _low_temperature_allard_lyman_table(
+    data: ModelData,
+) -> AllardUnifiedLymanTable:
+    """Return fixed Allard Ly-alpha with Stark-only higher Lyman members."""
+
+    data.require(
+        data.allard_tlusty205,
+        fetch_command="python scripts/fetch_allard_tlusty205.py",
+    )
+    complete = read_allard_tlusty205_tables(data.allard_tlusty205)
+    transition = (1, 2)
+    return AllardUnifiedLymanTable(
+        lines={transition: complete.lines[transition]},
+        source_directory=complete.source_directory,
+        source_sha256={transition: complete.source_sha256[transition]},
+    )
+
+
+def _helium_tables(data: ModelData):
+    data.require(
+        data.helium_i_stark,
+        data.helium_ii_stark,
+        fetch_command="python scripts/fetch_helium_stark.py",
+    )
+    return (
+        read_helium_stark_table(data.helium_i_stark),
+        read_helium_ii_stark_table(data.helium_ii_stark),
+    )
+
+
+def compute_da(
+    config: DAConfig = DAConfig(),
+    wavelength: ArrayLike | None = None,
+    *,
+    data: ModelData | None = None,
+    initial_atmosphere: Atmosphere | None = None,
+    relax_atmosphere: bool = True,
+    iteration_callback: Callable[
+        [int, Atmosphere, Mapping[str, float | int | bool]], None
+    ]
+    | None = None,
+) -> ModelResult:
+    """Calculate one DA atmosphere and spectrum with accepted DA physics."""
+
+    data = ModelData.default() if data is None else data
+    resolution = numerical_resolution(config.quality)
+    wave = validate_wavelength(wavelength)
+    allard = None
+    if config.lyman_profile_source == "allard":
+        allard = _allard_lyman_profiles_for_effective_temperature(
+            config.effective_temperature,
+            data,
+            minimum_effective_temperature=(
+                config.allard_minimum_effective_temperature
+            ),
+        )
+    elif config.lyman_profile_source != "stark":
+        raise ValueError("lyman_profile_source must be 'allard' or 'stark'")
+    molecules = (
+        config.effective_temperature <= 12_000.0
+        if config.include_molecules is None
+        else config.include_molecules
+    )
+    self_broadening_prescription = _da_self_broadening_prescription(
+        config.effective_temperature, config.balmer_self_broadening_prescription
+    )
+    cia = None
+    if molecules:
+        data.require(
+            data.h2_h2_cia,
+            fetch_command="python scripts/fetch_molecular_data.py",
+        )
+        cia = read_borysow_h2_h2_cia_table(data.h2_h2_cia)
+    h3plus_partition_model = (
+        None
+        if config.h3plus_partition_model == "none"
+        else config.h3plus_partition_model
+    )
+    if not relax_atmosphere and initial_atmosphere is None:
+        raise ValueError("relax_atmosphere=False requires initial_atmosphere")
+    atmosphere = initial_atmosphere
+    atmosphere_initialization = (
+        "caller checkpoint" if initial_atmosphere is not None else "gray"
+    )
+    if relax_atmosphere:
+        relaxation_kwargs = dict(
+            include_series_pseudocontinuum=True,
+            correlated_microfields=True,
+            include_molecules=molecules,
+            include_negative_hydrogen=molecules,
+            trihydrogen_ion_partition_model=h3plus_partition_model,
+            h2_h2_cia_table=cia,
+            unified_allard_table=allard,
+            mixing_length_alpha=config.mixing_length_alpha,
+            balmer_self_broadening_prescription=(
+                self_broadening_prescription
+            ),
+            balmer_self_broadening_truncation_closure=(
+                config.balmer_self_broadening_truncation_closure
+            ),
+            structure_solver=config.atmosphere_solver,
+        )
+        full_depth = (
+            100 if config.quality == "production" else resolution.n_depth
+        )
+        if (
+            initial_atmosphere is None
+            and config.multigrid_initialization
+            and config.atmosphere_solver == "adaptive-newton"
+            and full_depth > 12
+            and config.quality != "quick"
+        ):
+            coarse_depths = tuple(depth for depth in (12,) if depth < full_depth)
+            for coarse_depth in coarse_depths:
+                def coarse_callback(
+                    iteration,
+                    current_atmosphere,
+                    status,
+                    *,
+                    _depth=coarse_depth,
+                ):
+                    if iteration_callback is None:
+                        return
+                    record = dict(status)
+                    record["coarse_grid"] = True
+                    record["multigrid_depth"] = _depth
+                    iteration_callback(iteration, current_atmosphere, record)
+
+                atmosphere = radiative_equilibrium_hydrogen_atmosphere(
+                    config.effective_temperature,
+                    config.logg,
+                    n_depth=coarse_depth,
+                    n_continuum_wavelength=min(
+                        120 if coarse_depth == 12 else 300,
+                        resolution.n_continuum,
+                    ),
+                    max_iterations=min(
+                        60 if coarse_depth == 12 else 120,
+                        resolution.maximum_iterations,
+                    ),
+                    n_angle=min(
+                        resolution.n_angle,
+                        2 if coarse_depth == 12 else 3,
+                    ),
+                    initial_temperature=(
+                        None if atmosphere is None else atmosphere.temperature
+                    ),
+                    initial_column_mass=(
+                        None if atmosphere is None else atmosphere.column_mass
+                    ),
+                    iteration_callback=coarse_callback,
+                    **relaxation_kwargs,
+                )
+            atmosphere_initialization = (
+                "automatic same-physics "
+                + "/".join(str(depth) for depth in coarse_depths)
+                + "-depth multigrid seed"
+            )
+
+        def full_callback(iteration, current_atmosphere, status):
+            if iteration_callback is None:
+                return
+            record = dict(status)
+            record["coarse_grid"] = False
+            iteration_callback(iteration, current_atmosphere, record)
+
+        atmosphere = radiative_equilibrium_hydrogen_atmosphere(
+            config.effective_temperature,
+            config.logg,
+            n_depth=full_depth,
+            n_continuum_wavelength=resolution.n_continuum,
+            max_iterations=resolution.maximum_iterations,
+            n_angle=min(resolution.n_angle, 3),
+            initial_temperature=(
+                None if atmosphere is None else atmosphere.temperature
+            ),
+            initial_column_mass=(
+                None if atmosphere is None else atmosphere.column_mass
+            ),
+            iteration_callback=full_callback,
+            **relaxation_kwargs,
+        )
+    assert atmosphere is not None
+    if config.use_cool_mean_3d_temperature_differential:
+        atmosphere = (
+            atmosphere_with_tremblay_2013_mean_3d_temperature_difference(
+                atmosphere,
+                neutral_radius_scale=0.5,
+            )
+        )
+    spectrum = synthesize_hydrogen_spectrum(
+        atmosphere,
+        wave,
+        include_molecular_absorption=molecules,
+        h2_h2_cia_table=cia,
+        include_series_pseudocontinuum=True,
+        unified_allard_table=allard,
+        balmer_self_broadening_prescription=(
+            self_broadening_prescription
+        ),
+        balmer_self_broadening_truncation_closure=(
+            config.balmer_self_broadening_truncation_closure
+        ),
+        n_angle=resolution.n_angle,
+    )
+    low_temperature_allard = (
+        allard is not None
+        and config.effective_temperature
+        < _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K
+    )
+    return ModelResult(
+        "DA",
+        atmosphere,
+        spectrum,
+        config,
+        {
+            "preset": "DA-production-v3",
+            "microfields": "Q-MHD",
+            "hydrogen_series": "Lyman through Brackett with dissolution",
+            "balmer_self_broadening": (
+                self_broadening_prescription
+            ),
+            "balmer_self_broadening_policy": (
+                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                if config.balmer_self_broadening_prescription is None
+                else "explicit override"
+            ),
+            "balmer_self_broadening_truncation_closure": (
+                config.balmer_self_broadening_truncation_closure
+            ),
+            "lyman_profiles": (
+                (
+                    "TLUSTY205 Allard Lyalpha + charged-particle Stark "
+                    "higher Lyman series"
+                    if low_temperature_allard
+                    else (
+                        "temperature-dependent Allard separate-perturber "
+                        "+ half Stark"
+                    )
+                )
+                if allard is not None
+                else (
+                    "cool neutral-H/H2 Lyalpha wing + "
+                    "Tremblay-Bergeron charged-particle Stark"
+                    if config.lyman_profile_source == "allard"
+                    else "Tremblay-Bergeron charged-particle Stark"
+                )
+            ),
+            "allard_profiles_active": allard is not None,
+            "allard_profile_policy": (
+                "fixed TLUSTY205 Lyalpha below 13000 K; temperature-dependent "
+                "Allard Lyalpha--Lygamma at and above 13000 K"
+            ),
+            "allard_temperature_dependent_cutoff_K": (
+                _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K
+            ),
+            "allard_minimum_effective_temperature_K": (
+                config.allard_minimum_effective_temperature
+            ),
+            "molecular_equilibrium": molecules,
+            "negative_hydrogen_in_charge_equilibrium": molecules,
+            "h3plus_partition_model": h3plus_partition_model,
+            "h3plus_spectral_opacity": "not included",
+            "convection": (
+                "ML2/alpha=" + f"{config.mixing_length_alpha:g}"
+                if config.mixing_length_alpha is not None
+                else "suppressed; radiative equilibrium"
+            ),
+            "atmosphere_mode": (
+                "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
+            ),
+            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_initialization": atmosphere_initialization,
+            "cool_mean_3d_temperature_differential": (
+                "Tremblay et al. 2013 Fig. 7 at fixed gas pressure; "
+                "Montreal HM neutral radius rB=0.5"
+                if config.use_cool_mean_3d_temperature_differential
+                else None
+            ),
+        },
+    )
+
+
+def compute_db(
+    config: DBConfig = DBConfig(),
+    wavelength: ArrayLike | None = None,
+    *,
+    data: ModelData | None = None,
+    initial_atmosphere: Atmosphere | None = None,
+    relax_atmosphere: bool = True,
+    iteration_callback: Callable[
+        [int, Atmosphere, Mapping[str, object]], None
+    ]
+    | None = None,
+) -> ModelResult:
+    """Calculate one DB atmosphere and spectrum with Beauchamp25-LD lines."""
+
+    data = ModelData.default() if data is None else data
+    resolution = numerical_resolution(config.quality)
+    wave = validate_wavelength(wavelength)
+    he_i, he_ii = _helium_tables(data)
+    if not relax_atmosphere and initial_atmosphere is None:
+        raise ValueError("relax_atmosphere=False requires initial_atmosphere")
+    atmosphere = initial_atmosphere
+    if relax_atmosphere:
+        atmosphere = radiative_equilibrium_helium_atmosphere(
+            config.effective_temperature,
+            config.logg,
+            stark_table=he_i,
+            helium_ii_stark_table=he_ii,
+            n_depth=resolution.n_depth,
+            n_continuum_wavelength=resolution.n_continuum,
+            max_iterations=resolution.maximum_iterations,
+            structure_solver=config.atmosphere_solver,
+            n_angle=min(resolution.n_angle, 3),
+            correlated_microfields=True,
+            mixing_length_alpha=config.mixing_length_alpha,
+            neutral_line_broadening=config.neutral_broadening,
+            initial_temperature=(
+                None if initial_atmosphere is None else initial_atmosphere.temperature
+            ),
+            initial_column_mass=(
+                None if initial_atmosphere is None else initial_atmosphere.column_mass
+            ),
+            initial_gas_pressure=(
+                None if initial_atmosphere is None else initial_atmosphere.gas_pressure
+            ),
+            initial_rosseland_optical_depth=(
+                None
+                if initial_atmosphere is None
+                else initial_atmosphere.rosseland_optical_depth
+            ),
+            iteration_callback=iteration_callback,
+        )
+    assert atmosphere is not None
+    spectrum = synthesize_helium_spectrum(
+        atmosphere,
+        wave,
+        stark_table=he_i,
+        helium_ii_stark_table=he_ii,
+        neutral_broadening=config.neutral_broadening,
+        n_angle=resolution.n_angle,
+    )
+    return ModelResult(
+        "DB",
+        atmosphere,
+        spectrum,
+        config,
+        {
+            "preset": "DB-production-v4",
+            "helium_i_profiles": "Beauchamp25-LD semi-analytical",
+            "helium_ii_profiles": "Schoning/SYNSPEC table",
+            "neutral_broadening": config.neutral_broadening,
+            "convection": f"ML2/alpha={config.mixing_length_alpha:g}",
+            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_mode": (
+                "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
+            ),
+        },
+    )
+
+
+def compute_dab(
+    config: DABConfig = DABConfig(),
+    wavelength: ArrayLike | None = None,
+    *,
+    data: ModelData | None = None,
+    initial_atmosphere: Atmosphere | None = None,
+    relax_atmosphere: bool = True,
+    iteration_callback: Callable[
+        [int, Atmosphere, Mapping[str, object]], None
+    ]
+    | None = None,
+) -> ModelResult:
+    """Calculate one homogeneous atomic DAB/DBA atmosphere and spectrum."""
+
+    data = ModelData.default() if data is None else data
+    resolution = numerical_resolution(config.quality)
+    wave = validate_wavelength(wavelength)
+    he_i, he_ii = _helium_tables(data)
+    if config.lyman_profile_source == "allard":
+        allard = _allard_lyman_profiles_for_effective_temperature(
+            config.effective_temperature,
+            data,
+            minimum_effective_temperature=(
+                config.allard_minimum_effective_temperature
+            ),
+            use_fixed_low_temperature_profile=False,
+        )
+    elif config.lyman_profile_source == "stark":
+        allard = None
+    else:
+        raise ValueError("lyman_profile_source must be 'allard' or 'stark'")
+    self_broadening_prescription = _da_self_broadening_prescription(
+        config.effective_temperature,
+        config.balmer_self_broadening_prescription,
+    )
+    if not relax_atmosphere and initial_atmosphere is None:
+        raise ValueError("relax_atmosphere=False requires initial_atmosphere")
+    atmosphere = initial_atmosphere
+    if relax_atmosphere:
+        atmosphere = radiative_equilibrium_hydrogen_helium_atmosphere(
+            config.effective_temperature,
+            config.logg,
+            config.log_hydrogen_to_helium,
+            stark_table=he_i,
+            helium_ii_stark_table=he_ii,
+            n_depth=resolution.n_depth,
+            n_continuum_wavelength=resolution.n_continuum,
+            max_iterations=resolution.maximum_iterations,
+            structure_solver=config.atmosphere_solver,
+            n_angle=min(resolution.n_angle, 3),
+            unified_allard_table=allard,
+            allard_stark_weight=1.0,
+            mixing_length_alpha=config.mixing_length_alpha,
+            neutral_line_broadening=config.neutral_broadening,
+            hydrogen_self_broadening_prescription=(
+                self_broadening_prescription
+            ),
+            hydrogen_self_broadening_truncation_closure=(
+                config.balmer_self_broadening_truncation_closure
+            ),
+            initial_temperature=(
+                None if initial_atmosphere is None else initial_atmosphere.temperature
+            ),
+            initial_column_mass=(
+                None if initial_atmosphere is None else initial_atmosphere.column_mass
+            ),
+            iteration_callback=iteration_callback,
+        )
+    assert atmosphere is not None
+    spectrum = synthesize_hydrogen_helium_spectrum(
+        atmosphere,
+        wave,
+        stark_table=he_i,
+        helium_ii_stark_table=he_ii,
+        unified_allard_table=allard,
+        allard_stark_weight=1.0,
+        neutral_broadening=config.neutral_broadening,
+        hydrogen_self_broadening_prescription=(
+            self_broadening_prescription
+        ),
+        hydrogen_self_broadening_truncation_closure=(
+            config.balmer_self_broadening_truncation_closure
+        ),
+        n_angle=resolution.n_angle,
+    )
+    return ModelResult(
+        "DAB",
+        atmosphere,
+        spectrum,
+        config,
+        {
+            "preset": "DAB-production-v5",
+            "composition": "homogeneous atomic H/He LTE",
+            "microfields": "Q-MHD for H and He",
+            "lyman_profiles": (
+                "temperature-regime Allard + full charged Stark "
+                "(Warwick convention)"
+                if allard is not None
+                else "charged-particle Stark"
+            ),
+            "allard_profiles_active": allard is not None,
+            "allard_profile_policy": (
+                "delivered temperature-indexed Lyalpha--Lygamma at and above "
+                "the configured minimum temperature"
+            ),
+            "allard_minimum_effective_temperature_K": (
+                config.allard_minimum_effective_temperature
+            ),
+            "balmer_self_broadening": self_broadening_prescription,
+            "balmer_self_broadening_policy": (
+                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                if config.balmer_self_broadening_prescription is None
+                else "explicit override"
+            ),
+            "balmer_self_broadening_truncation_closure": (
+                config.balmer_self_broadening_truncation_closure
+            ),
+            "convection": f"ML2/alpha={config.mixing_length_alpha:g}",
+            "neutral_broadening": config.neutral_broadening,
+            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_mode": (
+                "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
+            ),
+        },
+    )
+
+
+def compute_dz(
+    config: DZConfig = DZConfig(),
+    wavelength: ArrayLike | None = None,
+    *,
+    data: ModelData | None = None,
+    initial_atmosphere: Atmosphere | None = None,
+    relax_atmosphere: bool = True,
+    iteration_callback: Callable[
+        [int, Atmosphere, Mapping[str, object]], None
+    ]
+    | None = None,
+) -> ModelResult:
+    """Calculate one warm DZ/DBZ atmosphere with metal structural feedback."""
+
+    data = ModelData.default() if data is None else data
+    resolution = numerical_resolution(config.quality)
+    wave = validate_wavelength(wavelength)
+    he_i, he_ii = _helium_tables(data)
+    data.require(
+        data.stout,
+        data.verner_photoionization,
+        fetch_command="python scripts/fetch_metal_data.py",
+    )
+    if config.dense_helium_eos not in ("reos3", "ideal"):
+        raise ValueError("dense_helium_eos must be 'reos3' or 'ideal'")
+    helium_reos3 = None
+    if config.dense_helium_eos == "reos3":
+        data.require(
+            data.helium_reos3,
+            fetch_command="python scripts/fetch_metal_data.py",
+        )
+        helium_reos3 = read_helium_reos3_table(data.helium_reos3)
+    if config.maximum_metal_charge < 1:
+        raise ValueError("maximum_metal_charge must be positive")
+    elements = tuple(config.abundances)
+    if config.ca_ii_resonance_source not in ("chianti-reduced", "lte"):
+        raise ValueError(
+            "ca_ii_resonance_source must be 'chianti-reduced' or 'lte'"
+        )
+    use_reduced_ca_ii_source = (
+        "Ca" in elements
+        and config.ca_ii_resonance_source == "chianti-reduced"
+    )
+    if use_reduced_ca_ii_source:
+        data.require(
+            data.ca_ii_chianti_collisions,
+            fetch_command="python scripts/fetch_metal_data.py",
+        )
+    atomic = read_stout_atomic_database(
+        data.stout,
+        elements=elements,
+        maximum_charge=config.maximum_metal_charge,
+    )
+    if config.strong_line_atomic_data not in ("stout", "nist-asd"):
+        raise ValueError(
+            "strong_line_atomic_data must be 'stout' or 'nist-asd'"
+        )
+    if config.strong_line_atomic_data == "nist-asd":
+        nist_paths = [
+            data.nist_asd_strong / filename
+            for filename, (_, _, element, charge) in (
+                NIST_ASD_STRONG_ION_FILES.items()
+            )
+            if element in elements and charge <= config.maximum_metal_charge
+        ]
+        if nist_paths:
+            data.require(
+                *nist_paths,
+                fetch_command="python scripts/fetch_metal_data.py",
+            )
+            atomic = read_nist_asd_strong_atomic_database(nist_paths, atomic)
+    photo = read_verner_photoionization_database(
+        data.verner_photoionization,
+        elements=elements,
+        maximum_charge=config.maximum_metal_charge,
+    )
+    topbase_photoionization = None
+    if config.unified_metal_helium_profiles not in (
+        "production", "legacy", "off"
+    ):
+        raise ValueError(
+            "unified_metal_helium_profiles must be 'production', 'legacy', or 'off'"
+        )
+    if config.unified_metal_helium_profiles != "off" and "Mg" in elements:
+        data.require(
+            data.mg_he_red_wing,
+            *(
+                (data.mg_i_he_density_profiles,)
+                if config.unified_metal_helium_profiles == "production"
+                else ()
+            ),
+            fetch_command="python scripts/fetch_metal_data.py",
+        )
+        mg_he = read_mg_he_red_wing_table(
+            data.mg_he_red_wing,
+            (
+                data.mg_i_he_density_profiles
+                if config.unified_metal_helium_profiles == "production"
+                else None
+            ),
+        )
+    else:
+        mg_he = None
+    if config.unified_metal_helium_profiles == "production" and "Ca" in elements:
+        data.require(
+            data.ca_i_he_density_profiles,
+            data.ca_i_he_temperature_profiles,
+            fetch_command="python scripts/fetch_metal_data.py",
+        )
+        ca_i_he = read_ca_i_he_profile_table(
+            data.ca_i_he_density_profiles,
+            data.ca_i_he_temperature_profiles,
+        )
+    else:
+        ca_i_he = None
+    structure_lines, structure_line_policy, metal_number_fraction = (
+        _metal_structure_line_budget(
+            config.quality,
+            config.abundances,
+            config.structure_maximum_metal_lines,
+        )
+    )
+    formal_lines = (
+        1000 if config.quality == "quick" else 20_000
+    ) if config.formal_maximum_metal_lines is None else int(
+        config.formal_maximum_metal_lines
+    )
+    if formal_lines < 1:
+        raise ValueError("metal line limits must be positive")
+    if config.lyman_profile_source == "allard":
+        allard = (
+            _allard_lyman_profiles_for_effective_temperature(
+                config.effective_temperature,
+                data,
+                minimum_effective_temperature=(
+                    config.allard_minimum_effective_temperature
+                ),
+                use_fixed_low_temperature_profile=False,
+            )
+            if config.log_hydrogen_abundance is not None
+            else None
+        )
+    elif config.lyman_profile_source == "stark":
+        allard = None
+    else:
+        raise ValueError("lyman_profile_source must be 'allard' or 'stark'")
+    self_broadening_prescription = _da_self_broadening_prescription(
+        config.effective_temperature,
+        config.balmer_self_broadening_prescription,
+    )
+    if not relax_atmosphere and initial_atmosphere is None:
+        raise ValueError("relax_atmosphere=False requires initial_atmosphere")
+    atmosphere = initial_atmosphere
+    if relax_atmosphere:
+        composition_matched_restart = _is_composition_matched_metal_restart(
+            initial_atmosphere,
+            config.abundances,
+            host="He",
+            log_hydrogen_abundance=config.log_hydrogen_abundance,
+        )
+        atmosphere = radiative_equilibrium_helium_atmosphere(
+            config.effective_temperature,
+            config.logg,
+            stark_table=he_i,
+            helium_ii_stark_table=he_ii,
+            n_depth=resolution.n_depth,
+            n_continuum_wavelength=resolution.n_continuum,
+            max_iterations=resolution.maximum_iterations,
+            structure_solver=config.atmosphere_solver,
+            n_angle=min(resolution.n_angle, 3),
+            correlated_microfields=True,
+            mixing_length_alpha=config.mixing_length_alpha,
+            neutral_line_broadening=config.neutral_broadening,
+            metal_database=atomic,
+            metal_abundances=config.abundances,
+            log_hydrogen_abundance=config.log_hydrogen_abundance,
+            metal_photoionization_database=photo,
+            metal_topbase_photoionization_database=topbase_photoionization,
+            mg_he_red_wing_table=mg_he,
+            ca_i_he_profile_table=ca_i_he,
+            helium_reos3_table=helium_reos3,
+            minimum_metal_oscillator_strength=0.01,
+            maximum_metal_lines=structure_lines,
+            include_dense_helium_metal_ionization=True,
+            hydrogen_self_broadening_prescription=(
+                self_broadening_prescription
+            ),
+            hydrogen_self_broadening_truncation_closure=(
+                config.balmer_self_broadening_truncation_closure
+            ),
+            include_hydrogen_series_pseudocontinuum=True,
+            unified_allard_table=allard,
+            allard_stark_weight=1.0,
+            initial_temperature=(
+                None if initial_atmosphere is None else initial_atmosphere.temperature
+            ),
+            initial_column_mass=(
+                None if initial_atmosphere is None else initial_atmosphere.column_mass
+            ),
+            initial_gas_pressure=(
+                None if initial_atmosphere is None else initial_atmosphere.gas_pressure
+            ),
+            initial_rosseland_optical_depth=(
+                None
+                if initial_atmosphere is None
+                else initial_atmosphere.rosseland_optical_depth
+            ),
+            resume_supplied_structure_in_formal_flux_phase=(
+                composition_matched_restart
+            ),
+            iteration_callback=iteration_callback,
+        )
+    assert atmosphere is not None
+    spectrum = synthesize_helium_spectrum(
+        atmosphere,
+        wave,
+        stark_table=he_i,
+        helium_ii_stark_table=he_ii,
+        neutral_broadening=config.neutral_broadening,
+        metal_database=atomic,
+        metal_abundances=config.abundances,
+        log_hydrogen_abundance=config.log_hydrogen_abundance,
+        metal_photoionization_database=photo,
+        metal_topbase_photoionization_database=topbase_photoionization,
+        mg_he_red_wing_table=mg_he,
+        ca_i_he_profile_table=ca_i_he,
+        include_dense_helium_metal_ionization=True,
+        minimum_metal_oscillator_strength=1.0e-4,
+        maximum_metal_lines=formal_lines,
+        hydrogen_self_broadening_prescription=(
+            self_broadening_prescription
+        ),
+        hydrogen_self_broadening_truncation_closure=(
+            config.balmer_self_broadening_truncation_closure
+        ),
+        include_hydrogen_series_pseudocontinuum=True,
+        unified_allard_table=allard,
+        allard_stark_weight=1.0,
+        ca_ii_resonance_collision_strengths=(
+            str(data.ca_ii_chianti_collisions)
+            if use_reduced_ca_ii_source
+            else None
+        ),
+        n_angle=resolution.n_angle,
+    )
+    return ModelResult(
+        "DZ",
+        atmosphere,
+        spectrum,
+        config,
+        {
+            "preset": "DZ-GD40-production-v6",
+            "abundance_source": "Klein et al. (2010)",
+            "atomic_lines": getattr(atomic, "source", "Stout"),
+            "strong_line_atomic_data": config.strong_line_atomic_data,
+            "maximum_metal_charge": config.maximum_metal_charge,
+            "photoionization": "Verner ground-state fits",
+            "level_resolved_photoionization": (
+                topbase_photoionization.source
+                if topbase_photoionization is not None
+                else "disabled"
+            ),
+            "metal_electron_feedback": True,
+            "structure_maximum_metal_lines": structure_lines,
+            "structure_metal_line_budget_policy": structure_line_policy,
+            "summed_metal_number_fraction": metal_number_fraction,
+            "dense_helium_ionization": True,
+            "bulk_helium_eos": (
+                helium_reos3.source
+                if helium_reos3 is not None
+                else "ideal chemical-picture pressure closure"
+            ),
+            "microfields": "Q-MHD for He and trace H",
+            "neutral_broadening": config.neutral_broadening,
+            "unified_metal_helium_profiles": (
+                {
+                    "mode": config.unified_metal_helium_profiles,
+                    "Mg I 2852": mg_he.source if mg_he is not None else "disabled",
+                    "Ca I 4227": ca_i_he.source if ca_i_he is not None else "disabled",
+                    "interpolation": (
+                        "factorized published temperature and density sequences; "
+                        "no fitted profile scales"
+                    ),
+                    "temperature_domain_policy": (
+                        "use the unified profile inside its published temperature "
+                        "range and the ordinary impact profile outside it"
+                    ),
+                }
+            ),
+            "balmer_self_broadening": self_broadening_prescription,
+            "balmer_self_broadening_policy": (
+                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                if config.balmer_self_broadening_prescription is None
+                else "explicit override"
+            ),
+            "balmer_self_broadening_truncation_closure": (
+                config.balmer_self_broadening_truncation_closure
+            ),
+            "hydrogen_series_pseudocontinuum": (
+                config.log_hydrogen_abundance is not None
+            ),
+            "lyman_profiles": (
+                "temperature-regime Allard + full charged Stark"
+                if allard is not None
+                else "charged-particle Stark"
+            ),
+            "allard_profiles_active": allard is not None,
+            "convection": f"ML2/alpha={config.mixing_length_alpha:g}",
+            "atmosphere_solver": config.atmosphere_solver,
+            "allard_ca_ii_control": False,
+            "ca_ii_resonance_source": (
+                "depth-dependent reduced source from CHIANTI electron "
+                "rates and radiative branching; LTE extinction"
+                if use_reduced_ca_ii_source
+                else "LTE"
+            ),
+            "ca_ii_resonance_source_applied_in_structure": False,
+            "atmosphere_mode": (
+                "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
+            ),
+        },
+    )

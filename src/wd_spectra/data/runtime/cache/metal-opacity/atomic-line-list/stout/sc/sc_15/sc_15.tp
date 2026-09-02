@@ -1,0 +1,19 @@
+17 09 05
+A	1	2	1.10e+03	M1
+A	1	4	3.00e+03	M1
+A	1	5	5.10e+03	M1
+A	2	3	1.13e+01	M1
+A	2	3	1.20e-05	E2
+A	2	4	1.00e+03	M1
+A	2	4	1.30e+00	E2
+A	2	5	2.90e+03	M1
+A	2	5	9.50e-01	E2
+A	3	4	4.80e-01	E2
+A	3	5	1.20e+03	M1
+A	3	5	2.00e+00	E2
+A	4	5	2.82e+01	M1
+A	4	5	4.70e-05	E2
+A	14	15	1.24e+03	M1
+A	14	15	4.80e-02	E2
+**********
+#Reference: Kramida A., Ralchenko Yu., Reader J., and NIST ASD Team (2020). https://physics.nist.gov/asd (NIST Atomic Spectra Database) (ver. 5.8)

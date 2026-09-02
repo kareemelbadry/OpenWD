@@ -1,0 +1,9 @@
+17 09 05
+1	         0	2	"3d10.4s.(2S<1/2>)"
+2	    112762	2	"3d10.4p.(2Po<1/2>)"
+3	    118462	4	"3d10.4p.(2Po<3/2>)"
+4	    282830	4	"3d10.4d.(2D<3/2>)"
+5	    283509	6	"3d10.4d.(2D<5/2>)"
+6	    333594	2	"3d10.5s.(2S<1/2>)"
+**********
+#Reference: https://www.nist.gov/pml/atomic-spectra-database (NIST Atomic Spectra Database)

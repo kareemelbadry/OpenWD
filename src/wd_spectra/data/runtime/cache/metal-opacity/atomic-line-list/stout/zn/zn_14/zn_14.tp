@@ -1,0 +1,14 @@
+17 09 05
+A	1	2	7.20e+02	M1
+A	1	3	1.99e+11	E1
+A	1	4	2.15e+11	E1
+A	1	5	2.59e+11	E1
+A	1	6	4.08e+10	E1
+A	1	7	6.12e+09	E1
+A	2	3	4.40e+10	E1
+A	2	4	1.97e+09	E1
+A	2	6	1.69e+11	E1
+A	2	7	2.47e+11	E1
+**********
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling
+#Reference: Irimia A., Fischer C.F., 2004, J. Phys. B 37, 1659, and 2005, Physica Scripta 71, 172 (ab initio)

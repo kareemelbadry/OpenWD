@@ -1,0 +1,19 @@
+17 09 05
+1	         0	2	"2s2.2p.(2Po<1/2>)"
+2	    163960	4	"2s2.2p.(2Po<3/2>)"
+3	    457440	2	"2s.2p2.(4P<1/2>)"
+4	    539715	4	"2s.2p2.(4P<3/2>)"
+5	    608975	6	"2s.2p2.(4P<5/2>)"
+6	    843700	4	"2s.2p2.(2D<3/2>)"
+7	    884100	6	"2s.2p2.(2D<5/2>)"
+8	    955700	2	"2s.2p2.(2P<1/2>)"
+9	   1129600	2	"2s.2p2.(2S<1/2>)"
+10	   1143100	4	"2s.2p2.(2P<3/2>)"
+11	   1424900	4	"2p3.(4So<3/2>)"
+12	   1582000	4	"2p3.(2Do<3/2>)"
+13	   1626400	6	"2p3.(2Do<5/2>)"
+14	   1781100	2	"2p3.(2Po<1/2>)"
+15	   1872900	4	"2p3.(2Po<3/2>)"
+**********
+#Reference: https://www.nist.gov/pml/atomic-spectra-database (NIST Atomic Spectra Database)
+#Reference: Myrnaes R., Jupen C., Miecznik G., Martinson I., Denne-Hinnov B., 1994, Physica Scripta 49, 429

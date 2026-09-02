@@ -1,0 +1,11 @@
+17 09 05
+1	         0	5	"2s2.2p4.(3P<2>)"
+2	    160700	1	"2s2.2p4.(3P<0>)"
+3	    423820	3	"2s2.2p4.(3P<1>)"
+4	    524890	5	"2s2.2p4.(1D<2>)"
+5	   1674650	5	"2s.2p5.(3Po<2>)"
+6	   1864320	3	"2s.2p5.(3Po<1>)"
+7	   2133800	1	"2s.2p5.(3Po<0>)"
+8	   2377700	3	"2s.2p5.(1Po<1>)"
+**********
+#Reference: https://www.nist.gov/pml/atomic-spectra-database (NIST Atomic Spectra Database)

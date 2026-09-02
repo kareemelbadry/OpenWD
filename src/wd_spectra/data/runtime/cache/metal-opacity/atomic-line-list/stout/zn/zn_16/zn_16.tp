@@ -1,0 +1,34 @@
+17 09 05
+A	1	6	1.10e+11	E1
+A	1	7	1.10e+11	E1
+A	1	8	4.57e+07	E1
+A	1	9	2.74e+08	E1
+A	1	11	1.43e+08	E1
+A	1	12	9.30e+08	E1
+A	2	3	1.97e+01	M1
+A	2	6	2.39e+09	E1
+A	2	7	6.82e+06	E1
+A	2	8	8.13e+10	E1
+A	2	9	7.14e+09	E1
+A	2	11	2.02e+09	E1
+A	2	12	3.07e+08	E1
+A	3	6	3.50e+09	E1
+A	3	7	2.90e+09	E1
+A	3	8	1.66e+10	E1
+A	3	9	3.31e+10	E1
+A	3	10	1.42e+11	E1
+A	3	11	1.96e+07	E1
+A	3	12	5.72e+09	E1
+A	4	5	6.18e+01	M1
+A	4	7	1.43e+05	E1
+A	4	8	9.21e+09	E1
+A	4	11	3.30e+10	E1
+A	5	6	8.92e+06	E1
+A	5	7	5.07e+08	E1
+A	5	8	5.76e+08	E1
+A	5	9	3.29e+09	E1
+A	5	11	6.26e+10	E1
+A	5	12	1.21e+11	E1
+**********
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling
+#Reference: Irimia A., Fischer C.F., 2004, J. Phys. B 37, 1659, and 2005, Physica Scripta 71, 172 (ab initio)

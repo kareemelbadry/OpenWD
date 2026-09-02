@@ -1,0 +1,46 @@
+17 09 05
+A	1	2	2.81e+02	M1
+A	1	5	1.03e+03	M1
+A	1	6	1.05e+11	E1
+A	1	7	1.05e+11	E1
+A	1	8	6.09e+10	E1
+A	1	9	1.63e+07	E1
+A	1	10	2.12e+08	E1
+A	1	11	1.11e+08	E1
+A	1	13	7.95e+08	E1
+A	1	14	1.78e+08	E1
+A	2	3	1.04e+01	M1
+A	2	6	1.57e+09	E1
+A	2	7	1.03e+08	E1
+A	2	8	3.52e+10	E1
+A	2	9	7.59e+10	E1
+A	2	10	4.80e+09	E1
+A	2	11	1.88e+09	E1
+A	2	13	2.08e+08	E1
+A	2	14	4.46e+07	E1
+A	3	6	2.79e+09	E1
+A	3	7	1.86e+09	E1
+A	3	9	1.46e+10	E1
+A	3	10	3.94e+10	E1
+A	3	11	5.21e+07	E1
+A	3	12	1.34e+11	E1
+A	3	13	5.35e+09	E1
+A	3	14	2.60e+08	E1
+A	4	5	2.95e+01	M1
+A	4	7	7.57e+04	E1
+A	4	8	5.16e+09	E1
+A	4	9	8.16e+09	E1
+A	4	11	2.87e+10	E1
+A	4	14	8.57e+10	E1
+A	5	6	9.21e+06	E1
+A	5	7	3.90e+08	E1
+A	5	8	9.14e+09	E1
+A	5	9	5.09e+08	E1
+A	5	10	3.94e+09	E1
+A	5	11	6.09e+10	E1
+A	5	13	1.15e+11	E1
+A	5	14	3.02e+10	E1
+**********
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling
+#Reference: Kramida A., Ralchenko Yu., Reader J., and NIST ASD Team (2020). https://physics.nist.gov/asd (NIST Atomic Spectra Database) (ver. 5.8)
+#Reference: Irimia A., Fischer C.F., 2004, J. Phys. B 37, 1659, and 2005, Physica Scripta 71, 172 (ab initio)

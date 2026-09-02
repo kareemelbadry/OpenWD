@@ -1,0 +1,9 @@
+17 09 05
+1	         0	4	"3p6.3d.(2D<3/2>)"
+2	     10000	6	"3p6.3d.(2D<5/2>)"
+3	    909200	8	"3p5.3d2.(2Fo<7/2>)"
+4	    974600	6	"3p5.3d2.(2Do<5/2>)"
+5	    988500	4	"3p5.3d2.(2Do<3/2>)"
+6	   2340000	8	"3p6.4f.(2Fo<7/2>)"
+**********
+#Reference: https://www.nist.gov/pml/atomic-spectra-database (NIST Atomic Spectra Database)

@@ -1,0 +1,11 @@
+17 09 05
+A	1	2	2.16e+11	E1
+A	1	3	3.28e+11	E1
+A	1	4	2.16e+10	E1
+A	1	5	8.21e+11	E1
+A	1	6	6.95e+12	E1
+A	1	7	4.85e+10	E1
+A	1	8	1.07e+12	E1
+**********
+#Reference: Kramida A., Ralchenko Yu., Reader J., and NIST ASD Team (2020). https://physics.nist.gov/asd (NIST Atomic Spectra Database) (ver. 5.8)
+#Reference: Tachiev G., Fischer C.F., 2002, http://nlte.nist.gov/MCHF/ (MCHF/MCDHF Database) (ab initio)

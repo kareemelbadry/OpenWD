@@ -1,0 +1,39 @@
+17 09 05
+A	1	2	3.46e-01	M1
+A	9	14	2.09e+09	E1
+A	9	15	2.45e+09	E1
+A	9	31	7.60e+09	E1
+A	9	32	6.93e+09	E1
+A	14	16	8.48e+09	E1
+A	15	16	1.54e+09	E1
+A	15	17	9.40e+09	E1
+A	16	18	5.87e+09	E1
+A	16	31	1.18e+10	E1
+A	16	32	1.17e+09	E1
+A	16	33	1.62e+10	E1
+A	16	38	7.62e+09	E1
+A	16	39	5.68e+09	E1
+A	17	18	4.12e+08	E1
+A	17	19	6.20e+09	E1
+A	17	32	1.05e+10	E1
+A	17	33	1.16e+09	E1
+A	17	34	1.74e+10	E1
+A	17	37	8.29e+09	E1
+A	17	38	5.49e+08	E1
+A	17	39	4.02e+08	E1
+A	17	40	6.24e+09	E1
+A	18	35	4.94e+10	E1
+A	19	35	1.83e+09	E1
+A	19	36	5.12e+10	E1
+A	33	35	2.25e+07	E1
+A	34	35	8.18e+05	E1
+A	34	36	2.30e+07	E1
+A	35	37	3.62e+06	E1
+A	35	38	1.29e+08	E1
+A	35	39	1.37e+08	E1
+A	35	40	3.85e+06	E1
+A	36	37	1.27e+08	E1
+A	36	40	1.35e+08	E1
+**********
+#Reference: van Hoof P.A.M., calculated using Coulomb theory
+#Reference: van Hoof P.A.M., M1 transition probabilities calculated assuming perfect LS coupling
