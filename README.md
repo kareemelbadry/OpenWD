@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/openwd_logo.png" alt="OpenWD logo" width="520">
+</p>
+
 # OpenWD
 
 OpenWD is an early, open-source white-dwarf atmosphere and spectrum code. This
@@ -107,3 +111,7 @@ published-grid validation spectra.
 This is the deliberately minimal first public version. Hot NLTE, magnetic,
 PG 1159, D6, and other experimental modules remain under development and are
 not included here.
+
+## How it works
+
+![OpenWD workflow](docs/assets/openwd_workflow.png)
