@@ -27,3 +27,8 @@ Exact checkpoint continuation requires the `model_request_fingerprint` stored
 in atmosphere metadata. A missing or mismatched fingerprint is not an error:
 the atmosphere remains a useful warm start, but receives normal conditioning
 instead of entering the final formal-flux phase directly.
+
+Adaptive solvers must preserve the structured fields documented in
+`solver-telemetry.md`. New numerical changes should be justified with those
+diagnostics, not by increasing iteration limits or accepting a surface-flux
+ratio in place of all-depth convergence.

@@ -1631,7 +1631,11 @@ def radiative_equilibrium_hydrogen_atmosphere(
     if structure_solver == "adaptive-newton":
         from .adaptive_structure import rosseland_mean_from_opacity_grid
         from .eos import hummer_mihalas_hydrogen_thermodynamics
-        from .nonlinear import NonlinearEvaluation, solve_trust_region_newton
+        from .nonlinear import (
+            NonlinearEvaluation,
+            nonlinear_result_metadata,
+            solve_trust_region_newton,
+        )
         from .radiative_transfer import (
             integrated_feautrier_interface_state_response,
         )
@@ -1896,6 +1900,21 @@ def radiative_equilibrium_hydrogen_atmosphere(
             field = feautrier_radiation_field(
                 optical_depth, source, n_angle=n_angle
             )
+            source_fixed_point = (
+                absorption * planck + scattering * field.mean_intensity
+            ) / extinction
+            source_relative_residual = np.abs(
+                source_fixed_point - source
+            ) / np.maximum(
+                np.maximum(np.abs(source_fixed_point), np.abs(source)),
+                np.finfo(np.float64).tiny,
+            )
+            source_worst_flat_index = int(
+                np.argmax(source_relative_residual)
+            )
+            source_worst_wavelength_index, source_worst_depth_index = (
+                np.unravel_index(source_worst_flat_index, source.shape)
+            )
             if field.interface_flux is None:  # pragma: no cover
                 raise RuntimeError(
                     "Feautrier solver did not return interface fluxes"
@@ -2081,6 +2100,16 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 "total_flux_interface": total_flux_interface,
                 "convection_transport": transport,
                 "temperature_gradient": temperature_gradient,
+                "scattering_source_iterations": 4,
+                "scattering_source_maximum_relative_residual": float(
+                    np.max(source_relative_residual)
+                ),
+                "scattering_source_worst_wavelength_index": int(
+                    source_worst_wavelength_index
+                ),
+                "scattering_source_worst_depth_index": int(
+                    source_worst_depth_index
+                ),
             }
             return NonlinearEvaluation(residual, jacobian, payload)
 
@@ -2174,6 +2203,14 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     "trust_radius": record.trust_radius,
                     "line_search_factor": record.line_search_factor,
                     "jacobian_recomputed": record.jacobian_recomputed,
+                    "scattering_source_iterations": int(
+                        payload["scattering_source_iterations"]
+                    ),
+                    "scattering_source_maximum_relative_residual": float(
+                        payload[
+                            "scattering_source_maximum_relative_residual"
+                        ]
+                    ),
                     "solver_phase": solver_phase,
                     "converged": bool(
                         record.residual_maximum < flux_tolerance
@@ -2402,21 +2439,27 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 )
             ),
         )
+        nonlinear_solver_segments: list[dict[str, object]] = []
         result = solve_trust_region_newton(
             structure_state_from_log_temperature(initial_log_temperature),
             evaluate_structure_state,
             **nonlinear_options,
         )
-        preconditioner_iterations = result.iterations
-        formal_flux_is_converged = physical_flux_converged(
-            result.state, result.evaluation, 0.0
+        nonlinear_solver_segments.append(
+            {
+                "phase": solver_phase,
+                **nonlinear_result_metadata(result),
+            }
         )
-        if mixing_length_alpha is not None and not formal_flux_is_converged:
+        preconditioner_iterations = result.iterations
+        if mixing_length_alpha is not None:
             # The local ML2-gradient equations rapidly establish the nearly
             # adiabatic interior but are not valid radiative-transfer
-            # equations outside convection.  Continue on the same grid and
-            # from the same state with exact formal-flux residuals in those
-            # layers; no parameter or damping policy changes at this switch.
+            # equations outside convection. Always enter the exact
+            # formal-flux phase, even if the warm start's incidental physical
+            # flux residual is already small: only this phase is authoritative
+            # for convergence. Its initial-state check makes an already-good
+            # atmosphere a zero-iteration completion.
             use_physical_radiative_residual = True
             solver_phase = "formal-radiative-flux-completion"
             solver_iteration_offset = preconditioner_iterations
@@ -2424,6 +2467,12 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 result.state,
                 evaluate_structure_state,
                 **nonlinear_options,
+            )
+            nonlinear_solver_segments.append(
+                {
+                    "phase": solver_phase,
+                    **nonlinear_result_metadata(result),
+                }
             )
         total_solver_iterations = solver_iteration_offset + result.iterations
         final_payload = result.evaluation.payload
@@ -2479,7 +2528,9 @@ def radiative_equilibrium_hydrogen_atmosphere(
         )
         final_residual = total_flux_interface / target_flux - 1.0
         final_step = (
-            result.history[-1].maximum_step if result.history else np.inf
+            result.history[-1].maximum_step
+            if result.history
+            else (0.0 if result.converged else np.inf)
         )
         return Atmosphere(
             effective_temperature=final_atmosphere.effective_temperature,
@@ -2523,7 +2574,62 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     preconditioner_iterations
                 ),
                 "formal_flux_completion_used": bool(
-                    solver_iteration_offset > 0
+                    solver_phase == "formal-radiative-flux-completion"
+                ),
+                "nonlinear_solver_terminal_reason": (
+                    result.diagnostics.terminal_reason
+                ),
+                "nonlinear_solver_final_worst_residual_depth_index": int(
+                    result.diagnostics.final_worst_residual_index
+                ),
+                "nonlinear_solver_final_worst_residual_rosseland_depth": float(
+                    rosseland_depth[
+                        result.diagnostics.final_worst_residual_index
+                    ]
+                ),
+                "nonlinear_solver_final_worst_residual_temperature_K": float(
+                    final_atmosphere.temperature[
+                        result.diagnostics.final_worst_residual_index
+                    ]
+                ),
+                "nonlinear_solver_final_worst_residual_convective_flux_fraction": float(
+                    convective_flux_interface[
+                        result.diagnostics.final_worst_residual_index
+                    ]
+                    / target_flux
+                ),
+                "nonlinear_solver_residual_evaluations": int(
+                    sum(
+                        int(segment["residual_evaluations"])
+                        for segment in nonlinear_solver_segments
+                    )
+                ),
+                "nonlinear_solver_jacobian_evaluations": int(
+                    sum(
+                        int(segment["jacobian_evaluations"])
+                        for segment in nonlinear_solver_segments
+                    )
+                ),
+                "nonlinear_solver_accepted_iterations": int(
+                    sum(
+                        int(segment["accepted_iterations"])
+                        for segment in nonlinear_solver_segments
+                    )
+                ),
+                "nonlinear_solver_rejected_trial_evaluations": int(
+                    sum(
+                        int(segment["rejected_trial_evaluations"])
+                        for segment in nonlinear_solver_segments
+                    )
+                ),
+                "nonlinear_solver_rejected_directions": int(
+                    sum(
+                        int(segment["rejected_directions"])
+                        for segment in nonlinear_solver_segments
+                    )
+                ),
+                "nonlinear_solver_segments": tuple(
+                    nonlinear_solver_segments
                 ),
                 "radiative_equilibrium_converged": bool(
                     result.converged
@@ -2563,6 +2669,37 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     else "none"
                 ),
                 "mixing_length_alpha": mixing_length_alpha,
+                "electron_scattering_source": (
+                    "coherent-isotropic Lambda iteration"
+                ),
+                "electron_scattering_source_iterations_per_evaluation": int(
+                    final_payload["scattering_source_iterations"]
+                ),
+                "electron_scattering_source_final_maximum_relative_residual": float(
+                    final_payload[
+                        "scattering_source_maximum_relative_residual"
+                    ]
+                ),
+                "electron_scattering_source_final_worst_wavelength_index": int(
+                    final_payload[
+                        "scattering_source_worst_wavelength_index"
+                    ]
+                ),
+                "electron_scattering_source_final_worst_depth_index": int(
+                    final_payload["scattering_source_worst_depth_index"]
+                ),
+                "electron_scattering_source_final_worst_wavelength_angstrom": float(
+                    wavelength[
+                        final_payload[
+                            "scattering_source_worst_wavelength_index"
+                        ]
+                    ]
+                ),
+                "electron_scattering_source_final_worst_rosseland_depth": float(
+                    rosseland_depth[
+                        final_payload["scattering_source_worst_depth_index"]
+                    ]
+                ),
                 "radiative_equilibrium_includes_balmer_lines": bool(
                     include_balmer_lines
                 ),
@@ -2639,9 +2776,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     "Rohrmann-et-al-2011 6000-K profile"
                     if include_molecules and include_lyman_lines
                     else None
-                ),
-                "electron_scattering_source": (
-                    "coherent-isotropic Lambda iteration"
                 ),
             },
             hydrogen_lte_state=final_atmosphere.hydrogen_lte_state,

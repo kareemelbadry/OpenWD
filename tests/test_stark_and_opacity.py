@@ -1173,6 +1173,34 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
         "adaptive-trust-region-newton"
     )
     assert atmosphere.metadata["maximum_total_flux_residual"] < 2.0e-3
+    segments = atmosphere.metadata["nonlinear_solver_segments"]
+    assert segments
+    assert segments[-1]["phase"] == "formal-radiative-flux-completion"
+    assert atmosphere.metadata["nonlinear_solver_terminal_reason"] == (
+        segments[-1]["terminal_reason"]
+    )
+    assert atmosphere.metadata["nonlinear_solver_residual_evaluations"] == sum(
+        segment["residual_evaluations"] for segment in segments
+    )
+    assert atmosphere.metadata["nonlinear_solver_jacobian_evaluations"] == sum(
+        segment["jacobian_evaluations"] for segment in segments
+    )
+    assert all("iteration_history" in segment for segment in segments)
+    assert (
+        atmosphere.metadata[
+            "electron_scattering_source_iterations_per_evaluation"
+        ]
+        == 4
+    )
+    assert (
+        atmosphere.metadata[
+            "electron_scattering_source_final_maximum_relative_residual"
+        ]
+        >= 0.0
+    )
+    assert 0 <= atmosphere.metadata[
+        "electron_scattering_source_final_worst_depth_index"
+    ] < atmosphere.n_depth
 
 
 def test_adaptive_newton_converges_warm_radiative_flux_control_with_ml2():
@@ -1194,6 +1222,9 @@ def test_adaptive_newton_converges_warm_radiative_flux_control_with_ml2():
 
     assert atmosphere.metadata["radiative_equilibrium_converged"]
     assert atmosphere.metadata["maximum_total_flux_residual"] < 2.0e-3
+    assert atmosphere.metadata["nonlinear_solver_segments"][-1]["phase"] == (
+        "formal-radiative-flux-completion"
+    )
 
 
 def test_hydrogen_relaxation_callback_receives_updated_atmospheres():

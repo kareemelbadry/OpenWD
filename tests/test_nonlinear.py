@@ -34,6 +34,11 @@ def test_trust_region_newton_solves_coupled_nonlinear_system():
     np.testing.assert_allclose(result.state, target, rtol=0.0, atol=2.0e-9)
     assert result.history
     assert result.history[-1].residual_maximum < 1.0e-10
+    assert result.diagnostics.terminal_reason == "residual-and-step-converged"
+    assert result.diagnostics.accepted_iterations == len(result.history)
+    assert result.diagnostics.residual_evaluations >= (
+        result.diagnostics.jacobian_evaluations
+    )
 
 
 def test_trust_region_newton_rejects_invalid_jacobian():
@@ -189,6 +194,15 @@ def test_acceptance_test_backtracks_a_secondary_physical_guardrail():
 
     np.testing.assert_allclose(result.state, [0.2, 0.2])
     assert result.history[0].line_search_factor == pytest.approx(0.5)
+    diagnostics = result.diagnostics
+    assert diagnostics.terminal_reason == "maximum-iterations-exhausted"
+    assert diagnostics.accepted_iterations == 1
+    assert diagnostics.rejected_trial_evaluations == 1
+    assert diagnostics.acceptance_test_rejections == 1
+    assert diagnostics.merit_rejections == 0
+    assert diagnostics.rejected_trial_line_search_factors == (1.0,)
+    assert result.history[0].rejected_trial_evaluations == 1
+    assert result.history[0].worst_residual_index == 0
 
 
 def test_backtracked_downhill_step_retains_its_broyden_secant():
@@ -246,6 +260,9 @@ def test_acceptable_initial_residual_returns_without_building_jacobian():
     assert result.iterations == 0
     assert not result.history
     assert jacobian_calls == 0
+    assert result.diagnostics.terminal_reason == "initial-state-converged"
+    assert result.diagnostics.residual_evaluations == 1
+    assert result.diagnostics.jacobian_evaluations == 0
 
 
 def test_stationary_warm_start_can_complete_before_reaching_root():
@@ -269,3 +286,39 @@ def test_stationary_warm_start_can_complete_before_reaching_root():
     assert result.iterations == 2
     assert result.history[-1].residual_maximum > 0.9
     assert all(record.maximum_step < 2.0e-3 for record in result.history)
+    assert (
+        result.diagnostics.terminal_reason
+        == "stationary-warm-start-complete"
+    )
+
+
+def test_telemetry_records_bounded_trust_region_collapse():
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(
+            residual=np.ones_like(state),
+            jacobian=np.eye(state.size) if need_jacobian else None,
+            payload=None,
+        )
+
+    result = solve_trust_region_newton(
+        np.zeros(2),
+        evaluate,
+        maximum_iterations=40,
+        minimum_trust_radius=1.0e-3,
+        finite_difference_fallback_step=None,
+    )
+
+    diagnostics = result.diagnostics
+    assert not result.converged
+    assert diagnostics.terminal_reason == "trust-region-collapsed"
+    assert diagnostics.accepted_iterations == 0
+    assert diagnostics.rejected_directions > 0
+    assert diagnostics.rejected_trial_evaluations > 0
+    assert diagnostics.merit_rejections == (
+        diagnostics.rejected_trial_evaluations
+    )
+    assert diagnostics.analytic_restarts > 0
+    assert diagnostics.smallest_trust_radius < 1.0e-3
+    assert len(diagnostics.rejected_trial_worst_residual_indices) == (
+        diagnostics.rejected_trial_evaluations
+    )

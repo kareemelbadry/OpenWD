@@ -34,7 +34,7 @@ AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
 ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
 
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
-_MODEL_PHYSICS_REVISION = "openwd-0.1.2-safety-guardrails"
+_MODEL_PHYSICS_REVISION = "openwd-0.1.3-solver-telemetry"
 
 
 class AtmosphereConvergenceWarning(RuntimeWarning):
@@ -305,6 +305,11 @@ def warn_if_atmosphere_not_converged(
             "maximum log-temperature correction="
             f"{float(correction):.3e}"
         )
+    terminal_reason = atmosphere.metadata.get(
+        "nonlinear_solver_terminal_reason"
+    )
+    if isinstance(terminal_reason, str):
+        metrics.append(f"nonlinear terminal reason={terminal_reason}")
     metric_text = f" ({', '.join(metrics)})" if metrics else ""
     warnings.warn(
         f"Returning a {spectral_type} spectrum from an atmosphere that {detail}"

@@ -19,13 +19,7 @@ depth points and the hydrogen models used 100:
 | DA, 20,000 K, log g=8 | 26 | 1.00000078 | 3.23e-6 | 6.37e-5 |
 
 These are deliberately exact regression cases, not evidence that every
-resolution and stellar parameter currently converges. In particular, during
-the 0.1.2 guardrail work the default 40-layer `quality="standard"` DB model at
-22,000 K stopped after 20 reported iterations with an all-depth flux residual
-of `9.02e-4` but a final maximum `abs(dln T)` of `1.42e-3`; it is correctly
-marked unconverged and now produces `AtmosphereConvergenceWarning`. That stall
-remains a solver issue for a later tranche and is not hidden by a checkpoint
-or weaker convergence criterion.
+resolution and stellar parameter currently converges.
 
 Paper-era DAB spectra at 9,000 K and 20,000 K were reproduced bit for bit
 from their composition-matched converged atmospheres. The PG 1225-079 DZ
@@ -56,6 +50,27 @@ The regenerated normalized spectrum retained a mean line-window RMS of
   spectrum synthesis remains unscreened.
 - The production cold starts in the table above are executable weekly/manual
   canaries, and the ordinary test suite is forced to import this checkout.
+
+## Solver observability and phase verification added in 0.1.3
+
+During the 0.1.2 guardrail work, the default 40-layer
+`quality="standard"` DB model at 22,000 K appeared to stop unconverged after
+20 reported iterations. Structured telemetry established that this was not a
+trust-region stall: 19 steps were accepted, only one direction was rejected,
+and the all-depth physical flux residual had already reached `9.018e-4`.
+
+The 20-step limit belonged to an approximate convective-gradient
+preconditioner. A conditional error allowed that phase to return directly
+when its incidental physical-flux residual was already below tolerance,
+without entering the authoritative exact formal-flux phase. Both adaptive
+hydrogen and shared helium-family paths now always perform that exact
+verification after an approximate convective warm start. The unchanged
+40-layer atmosphere passes it at iteration zero, with no weakened tolerance
+or fallback, and is protected by its own canary.
+
+The same release adds structured terminal reasons, evaluation/rejection
+counts, iteration histories, worst-depth physical context, and a
+non-mutating diagnostic of the fixed four-step scattering-source residual.
 
 ## Numerical changes in this checkpoint
 

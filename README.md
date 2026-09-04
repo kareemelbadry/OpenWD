@@ -109,8 +109,8 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The ordinary suite contains 279 pure-Python solver, EOS, opacity, line-profile,
-transfer, model-component, and safety tests in the reference checkout (281
+The ordinary suite contains 280 pure-Python solver, EOS, opacity, line-profile,
+transfer, model-component, and safety tests in the reference checkout (282
 when the two optional compiled-backend checks are available). Slow
 no-fallback atmosphere canaries run separately in GitHub Actions every week
 and on manual request. Run them locally with:
@@ -124,7 +124,8 @@ spectra. See the
 [recovered solver baseline](docs/recovered-solver-baseline.md) for the
 convergence cases used to protect the current numerical core, and the
 [development policy](docs/development.md) for the merge gates around solver
-and physics changes.
+and physics changes. The [solver telemetry](docs/solver-telemetry.md) reference
+describes the recorded terminal reasons and nonlinear histories.
 
 ## Status
 

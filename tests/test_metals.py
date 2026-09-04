@@ -522,6 +522,29 @@ def test_helium_checkpoint_resamples_all_structure_coordinates():
     assert atmosphere.n_depth == target_depth
     assert atmosphere.metadata["checkpoint_source_depth_points"] == source_depth
     assert atmosphere.metadata["checkpoint_resampled_to_depth_points"] == target_depth
+    segments = atmosphere.metadata["nonlinear_solver_segments"]
+    assert segments
+    assert atmosphere.metadata["nonlinear_solver_terminal_reason"] == (
+        segments[-1]["terminal_reason"]
+    )
+    rejected = atmosphere.metadata[
+        "nonlinear_solver_rejected_trial_evaluations"
+    ]
+    assert rejected == sum(
+        segment["rejected_trial_evaluations"] for segment in segments
+    )
+    assert (
+        atmosphere.metadata[
+            "electron_scattering_source_iterations_per_evaluation"
+        ]
+        == 4
+    )
+    assert (
+        atmosphere.metadata[
+            "electron_scattering_source_final_maximum_relative_residual"
+        ]
+        >= 0.0
+    )
     np.testing.assert_allclose(
         atmosphere.gas_pressure,
         1.0e8 * atmosphere.column_mass,
