@@ -10,7 +10,7 @@ restart heuristics.
 
 from __future__ import annotations
 
-from typing import Callable, Mapping
+from typing import Callable, Literal, Mapping
 
 import numpy as np
 from numpy.typing import NDArray
@@ -136,12 +136,17 @@ def solve_adaptive_lte_structure(
     flux_tolerance: float,
     n_angle: int,
     initial_temperature_was_supplied: bool,
+    resume_supplied_structure_in_formal_flux_phase: bool | None = None,
     temperature_normalization_anchor_rosseland_depth: float | None = None,
     maximum_formal_flux_rosseland_depth: float | None = None,
     formal_flux_taper_start_rosseland_depth: float | None = None,
     project_initial_convective_gradient: bool = True,
+    initial_convective_gradient_projection_mode: Literal[
+        "interface-transport", "unstable-node-gradient"
+    ] = "interface-transport",
     use_convective_gradient_preconditioner: bool = True,
     maximum_convective_preconditioner_iterations: int | None = None,
+    preconditioner_stationary_completion_iterations: int | None = 2,
     maximum_formal_flux_continuations: int = 2,
     safeguard_surface_flux: bool = False,
     iteration_callback: IterationCallback | None = None,
@@ -157,7 +162,11 @@ def solve_adaptive_lte_structure(
     convective cells a local ML2 gradient equation first preconditions the
     nearly adiabatic structure; a second phase then imposes the conservative
     formal-transfer total flux at every interface.  Composition enters only
-    through the callbacks.
+    through the callbacks. ``initial_temperature_was_supplied`` records seed
+    provenance; the separate resume option decides whether that seed is an
+    exact checkpoint that may bypass conditioning. The projection mode and
+    stationary-completion setting preserve validated composition-specific
+    initialization policies without duplicating the nonlinear solver.
     """
 
     wavelength = np.asarray(wavelength, dtype=np.float64)
@@ -204,12 +213,40 @@ def solve_adaptive_lte_structure(
         raise ValueError(
             "maximum formal-flux continuations must be non-negative"
         )
+    if not isinstance(initial_temperature_was_supplied, bool):
+        raise ValueError("initial_temperature_was_supplied must be boolean")
+    if (
+        resume_supplied_structure_in_formal_flux_phase is not None
+        and not isinstance(
+            resume_supplied_structure_in_formal_flux_phase, bool
+        )
+    ):
+        raise ValueError(
+            "resume_supplied_structure_in_formal_flux_phase must be boolean "
+            "or None"
+        )
+    if initial_convective_gradient_projection_mode not in (
+        "interface-transport",
+        "unstable-node-gradient",
+    ):
+        raise ValueError(
+            "initial convective-gradient projection mode must be "
+            "'interface-transport' or 'unstable-node-gradient'"
+        )
     if (
         maximum_convective_preconditioner_iterations is not None
         and maximum_convective_preconditioner_iterations < 1
     ):
         raise ValueError(
             "maximum convective-preconditioner iterations must be positive"
+        )
+    if (
+        preconditioner_stationary_completion_iterations is not None
+        and preconditioner_stationary_completion_iterations < 1
+    ):
+        raise ValueError(
+            "preconditioner stationary-completion iterations must be "
+            "positive or None"
         )
     preconditioner_iteration_limit = min(
         max_iterations,
@@ -219,9 +256,18 @@ def solve_adaptive_lte_structure(
             else maximum_convective_preconditioner_iterations
         ),
     )
+    requested_formal_flux_resume = (
+        initial_temperature_was_supplied
+        if resume_supplied_structure_in_formal_flux_phase is None
+        else resume_supplied_structure_in_formal_flux_phase
+    )
+    if requested_formal_flux_resume and not initial_temperature_was_supplied:
+        raise ValueError(
+            "formal-flux resume requires a supplied initial temperature"
+        )
     resume_in_formal_flux_phase = bool(
         use_convective_gradient_preconditioner
-        and initial_temperature_was_supplied
+        and requested_formal_flux_resume
     )
     if resume_in_formal_flux_phase:
         # A complete supplied structure is already the warm start.  Repeating
@@ -274,6 +320,7 @@ def solve_adaptive_lte_structure(
     cached_no_jacobian_evaluation: (
         NonlinearEvaluation[dict[str, object]] | None
     ) = None
+    cached_base_work: dict[str, object] | None = None
 
     def interface_atmosphere(current: Atmosphere) -> Atmosphere:
         return Atmosphere(
@@ -416,79 +463,128 @@ def solve_adaptive_lte_structure(
         nonlocal cached_no_jacobian_log_temperature
         nonlocal cached_no_jacobian_solver_phase
         nonlocal cached_no_jacobian_evaluation
+        nonlocal cached_base_work
         # Warm-start selection and the nonlinear driver can request the same
         # residual several times in succession.  A structure residual is
         # deterministic at fixed ln(T) and solver phase, while its opacity and
         # transfer calculation is expensive.  Retain the most recent
-        # residual-only evaluation; Jacobian requests still rebuild the
-        # tangent below and therefore do not change the converged equations.
-        if (
-            not need_jacobian
-            and cached_no_jacobian_evaluation is not None
+        # residual-only evaluation.  When the nonlinear driver immediately
+        # requests a Jacobian at that identical state, reuse the already
+        # evaluated EOS, opacity, scattering source, transfer solution, and
+        # convection closure; only the hotter tangent state and exact response
+        # remain to be built.
+        same_as_cached_residual = (
+            cached_no_jacobian_evaluation is not None
             and cached_no_jacobian_solver_phase == solver_phase
             and cached_no_jacobian_log_temperature is not None
             and np.array_equal(
                 np.asarray(log_temperature),
                 cached_no_jacobian_log_temperature,
             )
-        ):
+        )
+        if not need_jacobian and same_as_cached_residual:
             return cached_no_jacobian_evaluation
-        current_temperature = np.exp(log_temperature)
-        current = with_temperature(current_temperature)
-        absorption = np.asarray(true_absorption(current), dtype=np.float64)
-        scattering = np.asarray(scattering_opacity(current), dtype=np.float64)
-        expected = (wavelength.size, current.n_depth)
-        if absorption.shape != expected or scattering.shape != expected:
-            raise ValueError("opacity callbacks must return (wavelength, depth)")
-        extinction = absorption + scattering
-        extinction = np.maximum(extinction, np.finfo(np.float64).tiny)
-        optical_depth = optical_depth_from_mass_opacity(
-            current.column_mass, extinction
+        reuse_base = bool(
+            need_jacobian
+            and same_as_cached_residual
+            and cached_base_work is not None
         )
-        planck = planck_lambda_angstrom(
-            wavelength[:, np.newaxis], current_temperature[np.newaxis, :]
-        )
-        source = planck.copy()
-        for _ in range(4):
+        if reuse_base:
+            assert cached_base_work is not None
+            current_temperature = cached_base_work["temperature"]
+            current = cached_base_work["atmosphere"]
+            absorption = cached_base_work["absorption"]
+            scattering = cached_base_work["scattering"]
+            extinction = cached_base_work["extinction"]
+            optical_depth = cached_base_work["optical_depth"]
+            planck = cached_base_work["planck"]
+            source = cached_base_work["source"]
+            field = cached_base_work["field"]
+            source_relative_residual = cached_base_work[
+                "source_relative_residual"
+            ]
+            source_worst_wavelength_index = cached_base_work[
+                "source_worst_wavelength_index"
+            ]
+            source_worst_depth_index = cached_base_work[
+                "source_worst_depth_index"
+            ]
+            radiative_flux_interface = cached_base_work[
+                "radiative_flux_interface"
+            ]
+            temperature_gradient = cached_base_work["temperature_gradient"]
+            convective_flux = cached_base_work["convective_flux"]
+            convective_flux_interface = cached_base_work[
+                "convective_flux_interface"
+            ]
+            transport = cached_base_work["transport"]
+        else:
+            current_temperature = np.exp(log_temperature)
+            current = with_temperature(current_temperature)
+            absorption = np.asarray(true_absorption(current), dtype=np.float64)
+            scattering = np.asarray(
+                scattering_opacity(current), dtype=np.float64
+            )
+            expected = (wavelength.size, current.n_depth)
+            if absorption.shape != expected or scattering.shape != expected:
+                raise ValueError(
+                    "opacity callbacks must return (wavelength, depth)"
+                )
+            extinction = absorption + scattering
+            extinction = np.maximum(extinction, np.finfo(np.float64).tiny)
+            optical_depth = optical_depth_from_mass_opacity(
+                current.column_mass, extinction
+            )
+            planck = planck_lambda_angstrom(
+                wavelength[:, np.newaxis], current_temperature[np.newaxis, :]
+            )
+            source = planck.copy()
+            for _ in range(4):
+                field = feautrier_radiation_field(
+                    optical_depth, source, n_angle=n_angle
+                )
+                source = (
+                    absorption * planck + scattering * field.mean_intensity
+                ) / extinction
             field = feautrier_radiation_field(
                 optical_depth, source, n_angle=n_angle
             )
-            source = (
+            source_fixed_point = (
                 absorption * planck + scattering * field.mean_intensity
             ) / extinction
-        field = feautrier_radiation_field(
-            optical_depth, source, n_angle=n_angle
-        )
-        source_fixed_point = (
-            absorption * planck + scattering * field.mean_intensity
-        ) / extinction
-        source_relative_residual = np.abs(source_fixed_point - source) / np.maximum(
-            np.maximum(np.abs(source_fixed_point), np.abs(source)),
-            np.finfo(np.float64).tiny,
-        )
-        source_worst_flat_index = int(np.argmax(source_relative_residual))
-        source_worst_wavelength_index, source_worst_depth_index = (
-            np.unravel_index(source_worst_flat_index, source.shape)
-        )
-        if field.interface_flux is None:  # pragma: no cover - API invariant
-            raise RuntimeError("Feautrier solver did not return interface fluxes")
-        radiative_flux_interface = trapezoid(
-            field.interface_flux, wavelength, axis=0
-        )
-
-        temperature_gradient = np.empty_like(log_temperature)
-        temperature_gradient[0] = 0.0
-        temperature_gradient[1:] = np.diff(log_temperature) / log_pressure_step
-        convective_flux = np.zeros_like(current_temperature)
-        convective_flux_interface = np.zeros_like(current_temperature)
-        transport = convection_transport(
-            current, temperature_gradient, radiative_flux_interface
-        )
-        if transport is not None:
-            convective_flux_interface = transport["convective_flux"]
-            convective_flux = _upper_interface_values_on_nodes(
-                convective_flux_interface
+            source_relative_residual = np.abs(
+                source_fixed_point - source
+            ) / np.maximum(
+                np.maximum(np.abs(source_fixed_point), np.abs(source)),
+                np.finfo(np.float64).tiny,
             )
+            source_worst_flat_index = int(np.argmax(source_relative_residual))
+            source_worst_wavelength_index, source_worst_depth_index = (
+                np.unravel_index(source_worst_flat_index, source.shape)
+            )
+            if field.interface_flux is None:  # pragma: no cover - API invariant
+                raise RuntimeError(
+                    "Feautrier solver did not return interface fluxes"
+                )
+            radiative_flux_interface = trapezoid(
+                field.interface_flux, wavelength, axis=0
+            )
+
+            temperature_gradient = np.empty_like(log_temperature)
+            temperature_gradient[0] = 0.0
+            temperature_gradient[1:] = (
+                np.diff(log_temperature) / log_pressure_step
+            )
+            convective_flux = np.zeros_like(current_temperature)
+            convective_flux_interface = np.zeros_like(current_temperature)
+            transport = convection_transport(
+                current, temperature_gradient, radiative_flux_interface
+            )
+            if transport is not None:
+                convective_flux_interface = transport["convective_flux"]
+                convective_flux = _upper_interface_values_on_nodes(
+                    convective_flux_interface
+                )
 
         total_flux_interface = (
             radiative_flux_interface + convective_flux_interface
@@ -697,6 +793,27 @@ def solve_adaptive_lte_structure(
             ).copy()
             cached_no_jacobian_solver_phase = solver_phase
             cached_no_jacobian_evaluation = evaluation
+            cached_base_work = {
+                "temperature": current_temperature,
+                "atmosphere": current,
+                "absorption": absorption,
+                "scattering": scattering,
+                "extinction": extinction,
+                "optical_depth": optical_depth,
+                "planck": planck,
+                "source": source,
+                "field": field,
+                "source_relative_residual": source_relative_residual,
+                "source_worst_wavelength_index": (
+                    source_worst_wavelength_index
+                ),
+                "source_worst_depth_index": source_worst_depth_index,
+                "radiative_flux_interface": radiative_flux_interface,
+                "temperature_gradient": temperature_gradient,
+                "convective_flux": convective_flux,
+                "convective_flux_interface": convective_flux_interface,
+                "transport": transport,
+            }
         return evaluation
 
     log_temperature_from_state = np.zeros(
@@ -837,26 +954,76 @@ def solve_adaptive_lte_structure(
     initial_convective_gradient_projection_attempted = bool(
         mixing_length_alpha is not None
         and project_initial_convective_gradient
-        and not initial_temperature_was_supplied
+        and not resume_in_formal_flux_phase
     )
     if initial_convective_gradient_projection_attempted:
         initial = with_temperature(seed.temperature)
-        initial_gradient = np.empty(seed.n_depth, dtype=np.float64)
-        initial_gradient[0] = 0.0
-        initial_gradient[1:] = np.diff(initial_log_temperature) / log_pressure_step
-        transport = convection_transport(initial, initial_gradient)
-        assert transport is not None
-        desired_gradient = transport["desired_gradient"]
-        adiabatic_gradient = transport["adiabatic_gradient"]
-        unstable = initial_gradient > adiabatic_gradient
-        convection_required = desired_gradient > adiabatic_gradient
-        projected_gradient = np.where(
-            unstable,
-            np.minimum(initial_gradient, desired_gradient),
-            np.where(
-                convection_required, desired_gradient, initial_gradient
-            ),
-        )
+        if (
+            initial_convective_gradient_projection_mode
+            == "unstable-node-gradient"
+        ):
+            # The original DA cold-start construction evaluated the ML2
+            # proposal on depth nodes and changed only gradients that were
+            # already Schwarzschild-unstable.  Keep that validated seed
+            # policy as a composition option while the nonlinear equations,
+            # transfer response, continuation, and convergence checks remain
+            # owned by this shared driver.
+            initial_gradient = np.gradient(
+                initial_log_temperature, log_pressure, edge_order=2
+            )
+            initial_thermodynamics = thermodynamics(initial)
+            initial_rosseland = np.asarray(
+                rosseland_opacity(initial), dtype=np.float64
+            )
+            desired_gradient = (
+                ml2_temperature_gradient_for_total_flux_from_thermodynamics(
+                    initial,
+                    initial_rosseland,
+                    np.full(seed.n_depth, target_flux),
+                    np.asarray(
+                        initial_thermodynamics.specific_heat_constant_pressure,
+                        dtype=np.float64,
+                    ),
+                    np.asarray(
+                        initial_thermodynamics.density_temperature_derivative,
+                        dtype=np.float64,
+                    ),
+                    np.asarray(
+                        initial_thermodynamics.adiabatic_temperature_gradient,
+                        dtype=np.float64,
+                    ),
+                    mixing_length_alpha=mixing_length_alpha,
+                )
+            )
+            adiabatic_gradient = np.asarray(
+                initial_thermodynamics.adiabatic_temperature_gradient,
+                dtype=np.float64,
+            )
+            unstable = initial_gradient > adiabatic_gradient
+            projected_gradient = np.where(
+                unstable,
+                np.minimum(initial_gradient, desired_gradient),
+                initial_gradient,
+            )
+        else:
+            initial_gradient = np.empty(seed.n_depth, dtype=np.float64)
+            initial_gradient[0] = 0.0
+            initial_gradient[1:] = (
+                np.diff(initial_log_temperature) / log_pressure_step
+            )
+            transport = convection_transport(initial, initial_gradient)
+            assert transport is not None
+            desired_gradient = transport["desired_gradient"]
+            adiabatic_gradient = transport["adiabatic_gradient"]
+            unstable = initial_gradient > adiabatic_gradient
+            convection_required = desired_gradient > adiabatic_gradient
+            projected_gradient = np.where(
+                unstable,
+                np.minimum(initial_gradient, desired_gradient),
+                np.where(
+                    convection_required, desired_gradient, initial_gradient
+                ),
+            )
         ordinary_evaluation = evaluate_log_temperature(
             initial_log_temperature, False
         )
@@ -884,10 +1051,19 @@ def solve_adaptive_lte_structure(
             )
             candidate_log_temperature[0] = initial_log_temperature[0]
             for depth in range(1, seed.n_depth):
+                if (
+                    initial_convective_gradient_projection_mode
+                    == "unstable-node-gradient"
+                ):
+                    integrated_gradient = 0.5 * (
+                        candidate_gradient[depth - 1]
+                        + candidate_gradient[depth]
+                    )
+                else:
+                    integrated_gradient = candidate_gradient[depth]
                 candidate_log_temperature[depth] = (
                     candidate_log_temperature[depth - 1]
-                    + candidate_gradient[depth]
-                    * log_pressure_step[depth - 1]
+                    + integrated_gradient * log_pressure_step[depth - 1]
                 )
             try:
                 candidate_evaluation = evaluate_log_temperature(
@@ -1031,7 +1207,9 @@ def solve_adaptive_lte_structure(
         initial_options["maximum_iterations"] = (
             preconditioner_iteration_limit
         )
-        initial_options["stationary_completion_iterations"] = 2
+        initial_options["stationary_completion_iterations"] = (
+            preconditioner_stationary_completion_iterations
+        )
     nonlinear_solver_segments: list[dict[str, object]] = []
     result = solve_trust_region_newton(
         state_from_log_temperature(initial_log_temperature),
@@ -1193,6 +1371,7 @@ def solve_adaptive_lte_structure(
         ),
         "rosseland_opacity_cm2_g": final_rosseland_opacity,
         "structure_solver": "adaptive-trust-region-newton",
+        "adaptive_structure_driver": "shared-lte",
         "structure_residual": (
             "bounded ML2-gradient warm starts followed by conservative "
             "formal interface total flux at every depth"
@@ -1314,6 +1493,9 @@ def solve_adaptive_lte_structure(
         ),
         "initial_convective_gradient_projection": bool(
             initial_convective_gradient_projection_attempted
+        ),
+        "initial_convective_gradient_projection_mode": (
+            initial_convective_gradient_projection_mode
         ),
         "initial_convective_gradient_projection_damping": float(
             initial_convective_gradient_projection_damping

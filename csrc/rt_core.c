@@ -1426,6 +1426,293 @@ cleanup_feautrier_response:
     return result;
 }
 
+static double
+stark_profile_at_detuning(
+    double detuning,
+    const double *log_alpha,
+    const double *log_profile,
+    Py_ssize_t n_alpha,
+    double field_strength,
+    double inverse_uniform_step)
+{
+    const double scaled_alpha = fabs(detuning) / field_strength;
+    double local_log_profile;
+
+    if (scaled_alpha <= 0.0) {
+        local_log_profile = log_profile[0];
+    } else {
+        const double query = log10(scaled_alpha);
+        if (query <= log_alpha[0]) {
+            local_log_profile = log_profile[0];
+        } else if (query > log_alpha[n_alpha - 1]) {
+            const double slope =
+                (log_profile[n_alpha - 1] - log_profile[n_alpha - 2]) /
+                (log_alpha[n_alpha - 1] - log_alpha[n_alpha - 2]);
+            local_log_profile = log_profile[n_alpha - 1] +
+                slope * (query - log_alpha[n_alpha - 1]);
+        } else {
+            Py_ssize_t lower;
+            Py_ssize_t upper;
+            if (inverse_uniform_step > 0.0) {
+                lower = (Py_ssize_t)floor(
+                    (query - log_alpha[0]) * inverse_uniform_step
+                );
+                if (lower < 0) {
+                    lower = 0;
+                } else if (lower > n_alpha - 2) {
+                    lower = n_alpha - 2;
+                }
+                upper = lower + 1;
+            } else {
+                upper = upper_bound_double(log_alpha, n_alpha, query);
+                lower = upper - 1;
+            }
+            const double fraction =
+                (query - log_alpha[lower]) /
+                (log_alpha[upper] - log_alpha[lower]);
+            local_log_profile = log_profile[lower] +
+                fraction * (log_profile[upper] - log_profile[lower]);
+        }
+    }
+    return pow(10.0, local_log_profile) / field_strength;
+}
+
+/*
+ * Convolve a locally interpolated hydrogen Stark profile with the same
+ * cusp-split, Gauss-Legendre Cauchy integral used by the Python reference.
+ * The calculation streams over output wavelengths and quadrature nodes,
+ * avoiding the large temporary arrays and repeated table interpolation that
+ * dominate hydrogen-bearing production spectra.
+ */
+static PyObject *
+hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
+{
+    PyObject *objects[5] = {NULL};
+    Py_buffer views[5] = {{0}};
+    PyObject *result = NULL;
+    double *output = NULL;
+    double field_strength;
+    double gamma;
+    double angle_limit;
+    double kernel_normalization;
+    double maximum_shift;
+    double taper_start;
+    double unresolved_probability;
+    Py_ssize_t n_output, n_alpha, n_quadrature;
+    Py_ssize_t output_index, quadrature_index, index;
+    const double pi = 3.1415926535897932384626433832795;
+
+    (void)self;
+    if (!PyArg_ParseTuple(
+            args,
+            "OOOOOddddddd:hydrogen_stark_lorentz_convolution",
+            &objects[0], &objects[1], &objects[2], &objects[3], &objects[4],
+            &field_strength, &gamma, &angle_limit, &kernel_normalization,
+            &maximum_shift, &taper_start, &unresolved_probability)) {
+        return NULL;
+    }
+    for (index = 0; index < 5; ++index) {
+        if (PyObject_GetBuffer(
+                objects[index], &views[index],
+                PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES) < 0) {
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+        if (!is_double_buffer(&views[index])) {
+            PyErr_SetString(
+                PyExc_TypeError,
+                "all hydrogen Stark-convolution arrays must have native float64 dtype"
+            );
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+        if (!PyBuffer_IsContiguous(&views[index], 'C')) {
+            PyErr_SetString(
+                PyExc_ValueError,
+                "all hydrogen Stark-convolution arrays must be C-contiguous"
+            );
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+        if (views[index].ndim != 1) {
+            PyErr_SetString(
+                PyExc_ValueError,
+                "all hydrogen Stark-convolution arrays must be one-dimensional"
+            );
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+    }
+
+    n_output = views[0].shape[0];
+    n_alpha = views[1].shape[0];
+    n_quadrature = views[3].shape[0];
+    if (n_alpha < 2 || views[2].shape[0] != n_alpha ||
+        n_quadrature < 1 || views[4].shape[0] != n_quadrature) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "hydrogen Stark-convolution array shapes are inconsistent"
+        );
+        goto cleanup_hydrogen_stark_lorentz;
+    }
+    if (!isfinite(field_strength) || field_strength <= 0.0 ||
+        !isfinite(gamma) || gamma <= 0.0 ||
+        !isfinite(angle_limit) || angle_limit <= 0.0 || angle_limit > 0.5 * pi ||
+        !isfinite(kernel_normalization) || kernel_normalization <= 0.0 ||
+        !isfinite(maximum_shift) || maximum_shift < 0.0 ||
+        !isfinite(taper_start) || taper_start < 0.0 ||
+        (maximum_shift > 0.0 && taper_start >= maximum_shift) ||
+        !isfinite(unresolved_probability) || unresolved_probability < 0.0 ||
+        unresolved_probability > 1.0) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "hydrogen Stark-convolution scalar inputs are invalid"
+        );
+        goto cleanup_hydrogen_stark_lorentz;
+    }
+    {
+        const double *detuning = (const double *)views[0].buf;
+        const double *log_alpha = (const double *)views[1].buf;
+        const double *log_profile = (const double *)views[2].buf;
+        const double *nodes = (const double *)views[3].buf;
+        const double *weights = (const double *)views[4].buf;
+        for (index = 0; index < n_alpha; ++index) {
+            if (!isfinite(log_alpha[index]) || !isfinite(log_profile[index]) ||
+                (index > 0 && log_alpha[index] <= log_alpha[index - 1])) {
+                PyErr_SetString(
+                    PyExc_ValueError,
+                    "log-alpha must increase strictly and profile values must be finite"
+                );
+                goto cleanup_hydrogen_stark_lorentz;
+            }
+        }
+        for (index = 0; index < n_quadrature; ++index) {
+            if (!isfinite(nodes[index]) || !isfinite(weights[index])) {
+                PyErr_SetString(
+                    PyExc_ValueError,
+                    "quadrature nodes and weights must be finite"
+                );
+                goto cleanup_hydrogen_stark_lorentz;
+            }
+        }
+        for (index = 0; index < n_output; ++index) {
+            if (!isfinite(detuning[index])) {
+                PyErr_SetString(PyExc_ValueError, "detuning must be finite");
+                goto cleanup_hydrogen_stark_lorentz;
+            }
+        }
+    }
+
+    output = PyMem_Malloc((size_t)n_output * sizeof(double));
+    if (output == NULL && n_output > 0) {
+        PyErr_NoMemory();
+        goto cleanup_hydrogen_stark_lorentz;
+    }
+    {
+        const double *detuning = (const double *)views[0].buf;
+        const double *log_alpha = (const double *)views[1].buf;
+        const double *log_profile = (const double *)views[2].buf;
+        const double *nodes = (const double *)views[3].buf;
+        const double *weights = (const double *)views[4].buf;
+        double inverse_uniform_step = 0.0;
+        const double first_alpha_step = log_alpha[1] - log_alpha[0];
+        int uniform_alpha = 1;
+        for (index = 2; index < n_alpha; ++index) {
+            const double step = log_alpha[index] - log_alpha[index - 1];
+            if (fabs(step - first_alpha_step) >
+                1.0e-12 * fmax(1.0, fabs(first_alpha_step))) {
+                uniform_alpha = 0;
+                break;
+            }
+        }
+        if (uniform_alpha) {
+            inverse_uniform_step = 1.0 / first_alpha_step;
+        }
+
+        Py_BEGIN_ALLOW_THREADS
+        for (output_index = 0; output_index < n_output; ++output_index) {
+            const double local_detuning = detuning[output_index];
+            double cusp_angle = atan(local_detuning / gamma);
+            double value = 0.0;
+            int half;
+            if (cusp_angle < -angle_limit) {
+                cusp_angle = -angle_limit;
+            } else if (cusp_angle > angle_limit) {
+                cusp_angle = angle_limit;
+            }
+            for (half = 0; half < 2; ++half) {
+                const double lower = half == 0 ? -angle_limit : cusp_angle;
+                const double upper = half == 0 ? cusp_angle : angle_limit;
+                const double midpoint = 0.5 * (lower + upper);
+                const double half_width = 0.5 * (upper - lower);
+                for (
+                    quadrature_index = 0;
+                    quadrature_index < n_quadrature;
+                    ++quadrature_index
+                ) {
+                    const double angle = midpoint +
+                        half_width * nodes[quadrature_index];
+                    const double shift = gamma * tan(angle);
+                    double impact_weight = 1.0;
+                    if (maximum_shift > 0.0) {
+                        double coordinate =
+                            (fabs(shift) - taper_start) /
+                            (maximum_shift - taper_start);
+                        if (coordinate < 0.0) {
+                            coordinate = 0.0;
+                        } else if (coordinate > 1.0) {
+                            coordinate = 1.0;
+                        }
+                        impact_weight = 1.0 -
+                            coordinate * coordinate * coordinate *
+                            (10.0 + coordinate * (-15.0 + 6.0 * coordinate));
+                    }
+                    value += weights[quadrature_index] * half_width *
+                        impact_weight / kernel_normalization *
+                        stark_profile_at_detuning(
+                            local_detuning - shift,
+                            log_alpha,
+                            log_profile,
+                            n_alpha,
+                            field_strength,
+                            inverse_uniform_step
+                        );
+                }
+            }
+            if (unresolved_probability > 0.0) {
+                value += unresolved_probability * stark_profile_at_detuning(
+                    local_detuning,
+                    log_alpha,
+                    log_profile,
+                    n_alpha,
+                    field_strength,
+                    inverse_uniform_step
+                );
+            }
+            output[output_index] = value;
+        }
+        Py_END_ALLOW_THREADS
+    }
+
+    result = PyList_New(n_output);
+    if (result == NULL) {
+        goto cleanup_hydrogen_stark_lorentz;
+    }
+    for (output_index = 0; output_index < n_output; ++output_index) {
+        PyObject *value = PyFloat_FromDouble(output[output_index]);
+        if (value == NULL) {
+            Py_CLEAR(result);
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+        PyList_SET_ITEM(result, output_index, value);
+    }
+
+cleanup_hydrogen_stark_lorentz:
+    PyMem_Free(output);
+    for (index = 0; index < 5; ++index) {
+        if (views[index].obj != NULL) {
+            PyBuffer_Release(&views[index]);
+        }
+    }
+    return result;
+}
+
 static PyMethodDef module_methods[] = {
     {"emergent_flux", emergent_flux, METH_VARARGS,
      PyDoc_STR("emergent_flux(tau, source, mu, weight) -> list")},
@@ -1453,6 +1740,10 @@ static PyMethodDef module_methods[] = {
      integrated_feautrier_interface_state_response,
      METH_VARARGS,
      PyDoc_STR("integrated_feautrier_interface_state_response(tau, source, source_response, opacity_response, mass, mu, weight, wavelength_weight) -> list")},
+    {"hydrogen_stark_lorentz_convolution",
+     hydrogen_stark_lorentz_convolution,
+     METH_VARARGS,
+     PyDoc_STR("hydrogen_stark_lorentz_convolution(detuning, log_alpha, log_profile, nodes, weights, field, gamma, angle_limit, normalization, maximum_shift, taper_start, unresolved) -> list")},
     {NULL, NULL, 0, NULL}
 };
 

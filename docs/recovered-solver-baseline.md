@@ -62,8 +62,8 @@ and the all-depth physical flux residual had already reached `9.018e-4`.
 The 20-step limit belonged to an approximate convective-gradient
 preconditioner. A conditional error allowed that phase to return directly
 when its incidental physical-flux residual was already below tolerance,
-without entering the authoritative exact formal-flux phase. Both adaptive
-hydrogen and shared helium-family paths now always perform that exact
+without entering the authoritative exact formal-flux phase. The common
+adaptive path now always performs that exact
 verification after an approximate convective warm start. The unchanged
 40-layer atmosphere passes it at iteration zero, with no weakened tolerance
 or fallback, and is protected by its own canary.
@@ -74,10 +74,21 @@ non-mutating diagnostic of the fixed four-step scattering-source residual.
 
 ## Numerical changes in this checkpoint
 
-- The shared H/He solver uses an analytic ML2 convective-flux derivative,
+- DA, DB, homogeneous DAB/DBA, and DZ production atmospheres now route their
+  composition-specific EOS, absorption, scattering, Rosseland-opacity, and
+  thermodynamic callbacks through one adaptive LTE structure driver. The
+  duplicated DA trust-region/transfer implementation has been removed. The
+  legacy DA and helium Lambda solvers remain available as explicitly selected
+  reference paths; they are not production defaults.
+- The common driver retains the validated DA cold-start projection as an
+  explicit seed policy and distinguishes a supplied warm start from an exact
+  checkpoint resume. These are initialization choices only: all compositions
+  use the same final conservative formal-transfer flux equation and
+  convergence checks.
+- The shared LTE solver uses an analytic ML2 convective-flux derivative,
   avoiding finite differences across the convection boundary.
-- The DA completion Jacobian includes the actual local convective-flux
-  response as well as the radiative response.
+- The completion Jacobian includes the actual local convective-flux response
+  as well as the radiative response for every composition.
 - Convective-gradient projection and bolometric warm starts are guarded by
   backtracking and full-residual checks.
 - A deep diffusion/ML2 equation is used only as a bounded conditioner. Final

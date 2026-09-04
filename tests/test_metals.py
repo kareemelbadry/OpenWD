@@ -1217,6 +1217,10 @@ def test_adaptive_helium_structure_retains_trace_metal_feedback_metadata(
     assert atmosphere.metadata["structure_solver"] == (
         "adaptive-trust-region-newton"
     )
+    assert atmosphere.metadata["adaptive_structure_driver"] == "shared-lte"
+    assert atmosphere.metadata[
+        "initial_convective_gradient_projection_mode"
+    ] == "interface-transport"
     assert atmosphere.metadata["metal_electron_feedback"] == (
         "charge-neutral EOS and continuum opacity"
     )
@@ -1249,6 +1253,8 @@ def test_adaptive_helium_checkpoint_resumes_in_formal_flux_phase():
     )
 
     assert atmosphere.metadata["resumed_directly_in_formal_flux_phase"]
+    assert atmosphere.metadata["initial_temperature_was_supplied"]
+    assert not atmosphere.metadata["initial_convective_gradient_projection"]
     assert atmosphere.metadata["convective_preconditioner_iterations"] == 0
     assert atmosphere.metadata["convective_preconditioner_iteration_limit"] == 0
     assert atmosphere.metadata["formal_flux_continuations"] == 2

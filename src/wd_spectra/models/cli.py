@@ -77,9 +77,10 @@ def one_shot_main(spectral_type: str) -> None:
     parser.add_argument("--wavelength-max", type=float)
     parser.add_argument("--wavelength-step", type=float)
     parser.add_argument("--restart-atmosphere", type=Path)
-    if kind in {"DA", "DAB"}:
+    if kind in {"DA", "DAB", "DZ"}:
         parser.add_argument("--lyman-profiles", choices=("allard", "stark"),
-                            default="allard")
+                            default=(DZConfig().lyman_profile_source
+                                     if kind == "DZ" else "allard"))
     if kind == "DA":
         parser.add_argument("--h3plus-partition",
                             choices=("neale-tennyson-1995", "none"),
@@ -152,6 +153,7 @@ def one_shot_main(spectral_type: str) -> None:
             quality=args.quality,
             dense_helium_eos=args.dense_helium_eos,
             strong_line_atomic_data=args.strong_line_atomic_data,
+            lyman_profile_source=args.lyman_profiles,
         )
         composition = "helium"
         compute = compute_dz

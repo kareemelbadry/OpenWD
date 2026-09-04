@@ -30,6 +30,57 @@ class StarkLine:
     log_profile: FloatArray
     goodness_flag: NDArray[np.int64]
 
+    def _local_profile_state(
+        self,
+        temperature: float,
+        electron_density: float,
+    ) -> tuple[float, FloatArray]:
+        """Return the local field scale and interpolated log-profile.
+
+        Keeping this state construction separate lets the neutral-broadening
+        convolution reuse it for every quadrature abscissa.  The interpolation
+        is identical to :meth:`wavelength_profile`; only redundant work is
+        removed.
+        """
+
+        if not np.isfinite(temperature) or temperature <= 0.0:
+            raise ValueError("temperature must be finite and positive")
+        if not np.isfinite(electron_density) or electron_density <= 0.0:
+            raise ValueError("electron_density must be finite and positive")
+
+        log_ne = float(
+            np.clip(
+                np.log10(electron_density),
+                self.log_electron_density[0],
+                self.log_electron_density[-1],
+            )
+        )
+        log_t = float(
+            np.clip(
+                np.log10(temperature),
+                self.log_temperature[0],
+                self.log_temperature[-1],
+            )
+        )
+        ne_lower, ne_fraction = _bracket(self.log_electron_density, log_ne)
+        t_lower, t_fraction = _bracket(self.log_temperature, log_t)
+        local_log_profile = np.zeros_like(self.log_alpha)
+        for ne_index, ne_weight in (
+            (ne_lower, 1.0 - ne_fraction),
+            (ne_lower + 1, ne_fraction),
+        ):
+            for t_index, t_weight in (
+                (t_lower, 1.0 - t_fraction),
+                (t_lower + 1, t_fraction),
+            ):
+                local_log_profile += (
+                    ne_weight
+                    * t_weight
+                    * self.log_profile[ne_index, t_index]
+                )
+        field_strength = 1.25e-9 * electron_density ** (2.0 / 3.0)
+        return field_strength, local_log_profile
+
     def wavelength_profile(
         self,
         wavelength_angstrom: ArrayLike,
@@ -50,17 +101,9 @@ class StarkLine:
         wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
         if np.any(~np.isfinite(wavelength)) or np.any(wavelength <= 0.0):
             raise ValueError("wavelength must contain finite positive values")
-        if not np.isfinite(temperature) or temperature <= 0.0:
-            raise ValueError("temperature must be finite and positive")
-        if not np.isfinite(electron_density) or electron_density <= 0.0:
-            raise ValueError("electron_density must be finite and positive")
-
-        log_ne = float(np.clip(np.log10(electron_density), self.log_electron_density[0], self.log_electron_density[-1]))
-        log_t = float(np.clip(np.log10(temperature), self.log_temperature[0], self.log_temperature[-1]))
-        ne_lower, ne_fraction = _bracket(self.log_electron_density, log_ne)
-        t_lower, t_fraction = _bracket(self.log_temperature, log_t)
-
-        field_strength = 1.25e-9 * electron_density ** (2.0 / 3.0)
+        field_strength, local_log_profile = self._local_profile_state(
+            temperature, electron_density
+        )
         alpha = np.abs(wavelength - line_center_angstrom) / field_strength
         with np.errstate(divide="ignore"):
             query_log_alpha = np.log10(alpha)
@@ -73,20 +116,6 @@ class StarkLine:
         # np.interp four times for every query (particularly costly inside the
         # neutral-H Cauchy convolution).  This is algebraically the same
         # interpolation, apart from roundoff in the order of additions.
-        local_log_profile = np.zeros_like(self.log_alpha)
-        for ne_index, ne_weight in (
-            (ne_lower, 1.0 - ne_fraction),
-            (ne_lower + 1, ne_fraction),
-        ):
-            for t_index, t_weight in (
-                (t_lower, 1.0 - t_fraction),
-                (t_lower + 1, t_fraction),
-            ):
-                local_log_profile += (
-                    ne_weight
-                    * t_weight
-                    * self.log_profile[ne_index, t_index]
-                )
         log_values = np.interp(
             flat_log_alpha,
             self.log_alpha,

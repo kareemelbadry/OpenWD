@@ -70,6 +70,27 @@ point; `production` increases depth, wavelength, angular, and iteration
 budgets. Runtime ranges from minutes for warm DA/DB models to hours for
 line-rich DZ atmospheres.
 
+## Performance
+
+The optional C extension accelerates the formal-transfer, metal-line,
+helium-profile, and neutral-broadened hydrogen-profile kernels.  Compiled
+hydrogen profiles use up to eight worker threads by default because every
+atmospheric depth is independent.  Set `OPENWD_NUM_THREADS` to a positive
+integer to control that work, including `OPENWD_NUM_THREADS=1` for serial
+execution or when parallelizing a model grid at the process level.
+
+A bundled, data-independent benchmark exercises the dominant Balmer-opacity
+path without changing any numerical settings:
+
+```bash
+python benchmarks/benchmark_hot_paths.py
+python benchmarks/benchmark_hot_paths.py --full
+OPENWD_NUM_THREADS=1 python benchmarks/benchmark_hot_paths.py --full
+```
+
+The benchmark reports a checksum with its timing.  It is diagnostic rather
+than a wall-clock test because absolute runtimes depend on the machine.
+
 ## Included physics
 
 - Composition-specific hydrostatic, radiative/convective-equilibrium
@@ -84,10 +105,11 @@ line-rich DZ atmospheres.
   temperature-dependent Ali--Griem/Barklem Balmer self broadening.
 - Beauchamp He I and Schoening/SYNSPEC He II Stark profiles, with neutral-He
   broadening and helium continuum opacity.
-- For DZ: metal electron donation and structural blanketing, Stout levels and
-  transitions with evaluated NIST replacements for matched strong lines,
-  Verner photoionization, dense-He ionization shifts, reduced Ca II resonance
-  source functions, and available unified Mg I--He and Ca I--He profiles.
+- For DZ: metal electron donation and structural blanketing, the paper-figure
+  Stout line data by default (with evaluated NIST strong-line replacements as
+  an explicit option), Verner photoionization, dense-He ionization shifts,
+  reduced Ca II resonance source functions, and available unified Mg I--He
+  and Ca I--He profiles.
 
 The current modules are LTE. DAB assumes a homogeneous atomic H/He mixture;
 DZ assumes a helium-dominated host and treats abundances as fixed inputs, not
@@ -109,9 +131,8 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The ordinary suite contains 280 pure-Python solver, EOS, opacity, line-profile,
-transfer, model-component, and safety tests in the reference checkout (282
-when the two optional compiled-backend checks are available). Slow
+The ordinary suite contains nearly 300 solver, EOS, opacity, line-profile,
+transfer, model-component, acceleration-equivalence, and safety tests. Slow
 no-fallback atmosphere canaries run separately in GitHub Actions every week
 and on manual request. Run them locally with:
 

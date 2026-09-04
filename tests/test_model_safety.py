@@ -25,6 +25,11 @@ from wd_spectra.models.common import (
 from wd_spectra.spectrum import Spectrum
 
 
+def test_dz_default_uses_paper_figure_physics():
+    assert DZConfig().strong_line_atomic_data == "stout"
+    assert DZConfig().lyman_profile_source == "stark"
+
+
 def _atmosphere(metadata=None):
     depth = np.array([1.0e-6, 1.0e-2, 1.0])
     return Atmosphere(

@@ -3,10 +3,16 @@
 `compute_dz` solves a helium-dominated polluted LTE atmosphere at fixed input
 abundances. Metals contribute electrons, bound-free opacity, sampled line
 blanketing, and therefore feed back on the relaxed structure. The default GD
-40 mixture uses Stout levels through charge 3, evaluated NIST data for matched
-strong transitions, Verner photoionization, dense-helium ionization shifts,
-and available unified Mg I--He and Ca I--He profiles. Observable helium and
-trace-hydrogen lines use the same policies as DB and DAB.
+40 mixture uses the Stout v3.00b4 line data used for every object in the
+published DZ/DAZ comparison, with levels through charge 3, Verner
+photoionization, dense-helium ionization shifts, and available unified Mg
+I--He and Ca I--He profiles. Observable helium and trace-hydrogen lines use
+the same policies as DB and DAB. Evaluated NIST replacements for matched
+strong transitions remain available as the explicit
+`strong_line_atomic_data="nist-asd"` alternative. Trace-hydrogen Lyman lines
+likewise retain the figure's charged-particle Stark treatment by default;
+`lyman_profile_source="allard"` explicitly selects the later unified-profile
+option.
 
 ```bash
 python examples/one_shot_dz.py --teff 15300 --logg 8.0 \

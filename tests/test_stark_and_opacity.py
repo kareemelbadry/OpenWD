@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import wd_spectra.opacity as opacity_module
 
 from wd_spectra._compat import trapezoid
 from wd_spectra import (
@@ -511,6 +512,77 @@ def test_structure_order_lorentz_quadrature_matches_full_synthesis_order():
         trapezoid(full, wavelength),
         rtol=8.0e-3,
     )
+
+
+@pytest.mark.skipif(
+    opacity_module._rt is None
+    or not hasattr(
+        opacity_module._rt, "hydrogen_stark_lorentz_convolution"
+    ),
+    reason="optional compiled hydrogen convolution is not built",
+)
+@pytest.mark.parametrize(
+    "maximum_shift,truncation_closure",
+    [(None, "renormalize"), (35.0, "renormalize"), (35.0, "stark-core")],
+)
+def test_compiled_hydrogen_convolution_matches_python_reference(
+    monkeypatch, maximum_shift, truncation_closure
+):
+    line = default_balmer_stark_table()[(2, 3)]
+    center = 6564.636
+    wavelength = center + np.unique(
+        np.concatenate(
+            (
+                np.linspace(-1_000.0, 1_000.0, 1001),
+                np.linspace(-3.0, 3.0, 201),
+            )
+        )
+    )
+    options = dict(
+        maximum_impact_shift_angstrom=maximum_shift,
+        quadrature_order=32,
+        truncation_closure=truncation_closure,
+    )
+    compiled = _lorentz_convolved_stark_profile(
+        line, wavelength, center, 8732.1, 4.2e16, 0.731, **options
+    )
+    monkeypatch.setattr(opacity_module, "_rt", None)
+    reference = _lorentz_convolved_stark_profile(
+        line, wavelength, center, 8732.1, 4.2e16, 0.731, **options
+    )
+    np.testing.assert_allclose(
+        compiled,
+        reference,
+        rtol=5.0e-12,
+        atol=5.0e-15 * float(np.max(reference)),
+    )
+
+
+@pytest.mark.skipif(
+    opacity_module._rt is None
+    or not hasattr(
+        opacity_module._rt, "hydrogen_stark_lorentz_convolution"
+    ),
+    reason="optional compiled hydrogen convolution is not built",
+)
+def test_parallel_hydrogen_profiles_match_serial_result(monkeypatch):
+    atmosphere = gray_hydrogen_atmosphere(10_000.0, 8.0, n_depth=6)
+    line = BALMER_LINES[0]
+    wavelength = np.linspace(
+        line.wavelength_vacuum_angstrom - 80.0,
+        line.wavelength_vacuum_angstrom + 80.0,
+        321,
+    )
+    options = dict(lines=(line,), self_broadening_quadrature_order=16)
+    monkeypatch.setenv("OPENWD_NUM_THREADS", "1")
+    serial = balmer_mass_absorption_coefficient(
+        atmosphere, wavelength, **options
+    )
+    monkeypatch.setenv("OPENWD_NUM_THREADS", "4")
+    parallel = balmer_mass_absorption_coefficient(
+        atmosphere, wavelength, **options
+    )
+    np.testing.assert_array_equal(parallel, serial)
 
 
 def test_balmer_structure_support_omits_only_optically_thin_wings():
@@ -1173,6 +1245,10 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
     assert atmosphere.metadata["structure_solver"] == (
         "adaptive-trust-region-newton"
     )
+    assert atmosphere.metadata["adaptive_structure_driver"] == "shared-lte"
+    assert atmosphere.metadata[
+        "initial_convective_gradient_projection_mode"
+    ] == "unstable-node-gradient"
     assert atmosphere.metadata["maximum_total_flux_residual"] < 2.0e-3
     segments = atmosphere.metadata["nonlinear_solver_segments"]
     assert segments
@@ -1226,6 +1302,33 @@ def test_adaptive_newton_converges_warm_radiative_flux_control_with_ml2():
     assert atmosphere.metadata["nonlinear_solver_segments"][-1]["phase"] == (
         "formal-radiative-flux-completion"
     )
+
+
+def test_adaptive_hydrogen_supplied_temperature_remains_a_warm_start():
+    seed = gray_hydrogen_atmosphere(9_000.0, 8.0, n_depth=8)
+    atmosphere = radiative_equilibrium_hydrogen_atmosphere(
+        9_000.0,
+        8.0,
+        n_depth=8,
+        max_iterations=1,
+        n_continuum_wavelength=80,
+        include_balmer_lines=False,
+        include_lyman_lines=False,
+        include_paschen_lines=False,
+        include_brackett_lines=False,
+        mixing_length_alpha=0.7,
+        n_angle=1,
+        initial_temperature=seed.temperature,
+        initial_column_mass=seed.column_mass,
+        structure_solver="adaptive-newton",
+    )
+
+    assert atmosphere.metadata["initial_temperature_was_supplied"]
+    assert not atmosphere.metadata["resumed_directly_in_formal_flux_phase"]
+    assert atmosphere.metadata["initial_convective_gradient_projection"]
+    assert atmosphere.metadata[
+        "initial_convective_gradient_projection_mode"
+    ] == "interface-transport"
 
 
 def test_hydrogen_relaxation_callback_receives_updated_atmospheres():

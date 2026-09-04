@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from math import gamma as gamma_function
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -50,6 +52,11 @@ from .stark import (
     default_balmer_stark_table,
     default_lyman_stark_table,
 )
+
+try:  # Optional acceleration built by setup.py.
+    from . import _rt
+except ImportError:  # pragma: no cover - exercised in source-only installs
+    _rt = None
 
 if TYPE_CHECKING:
     from .jackson_lyman import JacksonLymanProfileTable
@@ -627,6 +634,24 @@ _CAUCHY_QUADRATURE_BLOCK_SIZE = 16
 _IMPACT_VALIDITY_TAPER_FRACTION = 0.40
 
 
+def _hydrogen_profile_worker_count(n_depth: int) -> int:
+    """Return the bounded worker count for compiled hydrogen profiles."""
+
+    configured = os.environ.get("OPENWD_NUM_THREADS")
+    if configured is None:
+        requested = min(8, os.cpu_count() or 1)
+    else:
+        try:
+            requested = int(configured)
+        except ValueError as exc:
+            raise ValueError(
+                "OPENWD_NUM_THREADS must be a positive integer"
+            ) from exc
+        if requested < 1:
+            raise ValueError("OPENWD_NUM_THREADS must be a positive integer")
+    return min(n_depth, requested)
+
+
 @lru_cache(maxsize=None)
 def _cauchy_quadrature(order: int) -> tuple[FloatArray, FloatArray]:
     """Return cached Gauss--Legendre nodes for the Cauchy convolution."""
@@ -728,6 +753,49 @@ def _lorentz_convolved_stark_profile(
         if truncation_closure == "renormalize"
         else PI
     )
+    unresolved_probability = 0.0
+    if (
+        maximum_impact_shift_angstrom is not None
+        and truncation_closure == "stark-core"
+    ):
+        unresolved_probability = float(
+            np.clip(1.0 - valid_kernel_measure / PI, 0.0, 1.0)
+        )
+    compiled = (
+        None
+        if _rt is None
+        else getattr(_rt, "hydrogen_stark_lorentz_convolution", None)
+    )
+    local_profile_state = getattr(stark_line, "_local_profile_state", None)
+    if compiled is not None and local_profile_state is not None:
+        field_strength, local_log_profile = local_profile_state(
+            temperature, electron_density
+        )
+        return np.asarray(
+            compiled(
+                np.ascontiguousarray(detuning),
+                np.ascontiguousarray(stark_line.log_alpha),
+                np.ascontiguousarray(local_log_profile),
+                np.ascontiguousarray(quadrature_nodes),
+                np.ascontiguousarray(quadrature_weights),
+                float(field_strength),
+                float(lorentz_hwhm_angstrom),
+                float(angle_limit),
+                float(kernel_normalization),
+                (
+                    0.0
+                    if maximum_impact_shift_angstrom is None
+                    else float(maximum_impact_shift_angstrom)
+                ),
+                (
+                    0.0
+                    if maximum_impact_shift_angstrom is None
+                    else float(taper_start)
+                ),
+                unresolved_probability,
+            ),
+            dtype=np.float64,
+        )
     # Split each Cauchy integral where its shifted Stark profile reaches the
     # line center.  Treating that narrow cusp as an interval boundary removes
     # the fixed-node aliasing that otherwise appears as spikes on irregular
@@ -797,9 +865,6 @@ def _lorentz_convolved_stark_profile(
         # strength without artificially amplifying every supported shift.
         # Convolving that delta component simply restores the corresponding
         # fraction of the original Stark profile.
-        unresolved_probability = np.clip(
-            1.0 - valid_kernel_measure / PI, 0.0, 1.0
-        )
         profile += unresolved_probability * stark_line.wavelength_profile(
             wavelength_angstrom,
             line_center_angstrom,
@@ -2089,7 +2154,8 @@ def balmer_mass_absorption_coefficient(
                 continue
         line_wavelength = wavelength[line_start:line_stop]
         line_wavelength_cm = line_wavelength * 1.0e-8
-        for depth in range(atmosphere.n_depth):
+
+        def profile_at_depth(depth: int) -> FloatArray:
             use_barklem_grid = bool(
                 include_self_broadening
                 and self_broadening_prescription == "barklem-grid"
@@ -2108,7 +2174,7 @@ def balmer_mass_absorption_coefficient(
                     float(atmosphere.temperature[depth]),
                     float(atmosphere.neutral_h_density[depth]),
                 )
-                profile_per_angstrom = _tabulated_convolved_stark_profile(
+                return _tabulated_convolved_stark_profile(
                     table_line,
                     line_wavelength,
                     line.wavelength_vacuum_angstrom,
@@ -2117,22 +2183,58 @@ def balmer_mass_absorption_coefficient(
                     barklem_self_table.wavelength_offset_angstrom,
                     kernel,
                 )
-            else:
-                profile_per_angstrom = _lorentz_convolved_stark_profile(
-                    table_line,
-                    line_wavelength,
-                    line.wavelength_vacuum_angstrom,
-                    float(atmosphere.temperature[depth]),
-                    float(atmosphere.electron_density[depth]),
-                    float(neutral_impact_hwhm[depth]),
-                    (
-                        float(maximum_impact_shift[depth])
-                        if maximum_impact_shift is not None
-                        else None
-                    ),
-                    self_broadening_quadrature_order,
-                    self_broadening_truncation_closure,
+            return _lorentz_convolved_stark_profile(
+                table_line,
+                line_wavelength,
+                line.wavelength_vacuum_angstrom,
+                float(atmosphere.temperature[depth]),
+                float(atmosphere.electron_density[depth]),
+                float(neutral_impact_hwhm[depth]),
+                (
+                    float(maximum_impact_shift[depth])
+                    if maximum_impact_shift is not None
+                    else None
+                ),
+                self_broadening_quadrature_order,
+                self_broadening_truncation_closure,
+            )
+
+        workers = _hydrogen_profile_worker_count(atmosphere.n_depth)
+        use_parallel_profiles = bool(
+            workers > 1
+            and line_wavelength.size >= 256
+            and _rt is not None
+            and hasattr(_rt, "hydrogen_stark_lorentz_convolution")
+            and np.any(neutral_impact_hwhm > 1.0e-5)
+        )
+        if use_parallel_profiles:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                depth_profiles = executor.map(
+                    profile_at_depth, range(atmosphere.n_depth)
                 )
+                depth_profile_pairs = enumerate(depth_profiles)
+                for depth, profile_per_angstrom in depth_profile_pairs:
+                    profile_per_hz = (
+                        profile_per_angstrom
+                        * 1.0e8
+                        * line_wavelength_cm**2
+                        / LIGHT_SPEED
+                    )
+                    absorption_per_cm = (
+                        integrated_cross_section
+                        * line.absorption_oscillator_strength
+                        * lower_population[depth]
+                        * bound_bound_survival[depth]
+                        * stimulated_emission[depth]
+                        * profile_per_hz
+                    )
+                    opacity[line_start:line_stop, depth] += (
+                        absorption_per_cm / atmosphere.mass_density[depth]
+                    )
+            continue
+
+        for depth in range(atmosphere.n_depth):
+            profile_per_angstrom = profile_at_depth(depth)
             profile_per_hz = (
                 profile_per_angstrom
                 * 1.0e8

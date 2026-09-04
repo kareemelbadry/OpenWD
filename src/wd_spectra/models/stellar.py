@@ -145,7 +145,7 @@ class DZConfig:
     maximum_metal_charge: int = 3
     structure_maximum_metal_lines: int | None = None
     formal_maximum_metal_lines: int | None = None
-    lyman_profile_source: Literal["allard", "stark"] = "allard"
+    lyman_profile_source: Literal["allard", "stark"] = "stark"
     allard_minimum_effective_temperature: float = 9_000.0
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
@@ -156,7 +156,7 @@ class DZConfig:
         "production", "legacy", "off"
     ] = "production"
     dense_helium_eos: Literal["reos3", "ideal"] = "ideal"
-    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
 
 
 _DA_ALI_GRIEM_TEMPERATURE_CUTOFF_K = 10_000.0
@@ -306,7 +306,7 @@ def compute_da(
     initial_atmosphere: Atmosphere | None = None,
     relax_atmosphere: bool = True,
     iteration_callback: Callable[
-        [int, Atmosphere, Mapping[str, float | int | bool]], None
+        [int, Atmosphere, Mapping[str, object]], None
     ]
     | None = None,
 ) -> ModelResult:
@@ -1063,7 +1063,7 @@ def compute_dz(
         spectrum,
         config,
         {
-            "preset": "DZ-GD40-production-v6",
+            "preset": "DZ-GD40-production-v7-paper-stout",
             "abundance_source": "Klein et al. (2010)",
             "atomic_lines": getattr(atomic, "source", "Stout"),
             "strong_line_atomic_data": config.strong_line_atomic_data,
