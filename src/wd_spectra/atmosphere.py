@@ -3523,8 +3523,13 @@ def radiative_equilibrium_helium_atmosphere(
         log_hydrogen_abundance is not None and metal_database is None
     )
     from .constants import (
+        BOLTZMANN,
+        ELECTRON_MASS,
+        ELEMENTARY_CHARGE_ESU,
+        HELIUM_MASS,
         HYDROGEN_IONIZATION_ENERGY,
         LIGHT_SPEED,
+        PI,
         PLANCK,
         STEFAN_BOLTZMANN,
     )
@@ -3532,6 +3537,7 @@ def radiative_equilibrium_helium_atmosphere(
         HELIUM_I_LINES,
         HELIUM_I_RESONANCE_LINES,
         HELIUM_II_LINES,
+        _helium_ii_level_distribution,
         helium_continuum_mass_absorption_coefficient,
         helium_i_line_mass_absorption_coefficient,
         helium_i_resonance_line_mass_absorption_coefficient,
@@ -3730,22 +3736,140 @@ def radiative_equilibrium_helium_atmosphere(
             ),
         )
     relaxation_depth = seed.rosseland_optical_depth.copy()
+    structure_helium_i_lines = HELIUM_I_LINES
+    structure_helium_ii_lines = (
+        HELIUM_II_LINES if include_helium_ii_lines else ()
+    )
+    if include_lines:
+        # Screen structurally irrelevant helium transitions using a strict
+        # upper bound on line-centre optical depth above tau_R ~= 1.  Lines
+        # below 1e-3 cannot alter a structure solved to 3e-3 flux accuracy;
+        # final spectrum synthesis remains unscreened.
+        helium_state = seed.helium_lte_state
+        if helium_state is not None:
+            first_below_photosphere = min(
+                int(
+                    np.searchsorted(
+                        seed.rosseland_optical_depth, 1.0, side="right"
+                    )
+                )
+                + 1,
+                seed.n_depth,
+            )
+            thermal_velocity_fraction = np.sqrt(
+                BOLTZMANN * 10_000.0 / HELIUM_MASS
+            ) / LIGHT_SPEED
+            integrated_cross_section = (
+                PI * ELEMENTARY_CHARGE_ESU**2
+                / (ELECTRON_MASS * LIGHT_SPEED)
+            )
+            retained_lines = []
+            for line in HELIUM_I_LINES:
+                center = line.wavelength_vacuum_angstrom
+                center_cm = center * 1.0e-8
+                doppler_peak_per_angstrom = 1.0 / (
+                    np.sqrt(2.0 * PI)
+                    * center
+                    * thermal_velocity_fraction
+                )
+                stimulated = -np.expm1(
+                    -PLANCK
+                    * LIGHT_SPEED
+                    / (center_cm * BOLTZMANN * seed.temperature)
+                )
+                upper_mass_opacity = (
+                    integrated_cross_section
+                    * line.absorption_oscillator_strength
+                    * helium_state.neutral_level_population_density[
+                        :, line.lower_term_index
+                    ]
+                    * stimulated
+                    * doppler_peak_per_angstrom
+                    * 1.0e8
+                    * center_cm**2
+                    / LIGHT_SPEED
+                    / seed.mass_density
+                )
+                upper_optical_depth = np.trapz(
+                    upper_mass_opacity[:first_below_photosphere],
+                    seed.column_mass[:first_below_photosphere],
+                )
+                if upper_optical_depth >= 1.0e-3:
+                    retained_lines.append(line)
+            structure_helium_i_lines = tuple(retained_lines)
+            if include_helium_ii_lines:
+                maximum_helium_ii_level = max(
+                    line.upper_principal_quantum_number
+                    for line in HELIUM_II_LINES
+                )
+                helium_ii_population, _ = _helium_ii_level_distribution(
+                    seed, maximum_helium_ii_level
+                )
+                retained_helium_ii_lines = []
+                for line in HELIUM_II_LINES:
+                    center = line.wavelength_vacuum_angstrom
+                    center_cm = center * 1.0e-8
+                    doppler_peak_per_angstrom = 1.0 / (
+                        np.sqrt(2.0 * PI)
+                        * center
+                        * thermal_velocity_fraction
+                    )
+                    stimulated = -np.expm1(
+                        -PLANCK
+                        * LIGHT_SPEED
+                        / (center_cm * BOLTZMANN * seed.temperature)
+                    )
+                    upper_mass_opacity = (
+                        integrated_cross_section
+                        * line.absorption_oscillator_strength
+                        * helium_ii_population[
+                            :, line.lower_principal_quantum_number - 1
+                        ]
+                        * stimulated
+                        * doppler_peak_per_angstrom
+                        * 1.0e8
+                        * center_cm**2
+                        / LIGHT_SPEED
+                        / seed.mass_density
+                    )
+                    upper_optical_depth = np.trapz(
+                        upper_mass_opacity[:first_below_photosphere],
+                        seed.column_mass[:first_below_photosphere],
+                    )
+                    if upper_optical_depth >= 1.0e-3:
+                        retained_helium_ii_lines.append(line)
+                structure_helium_ii_lines = tuple(retained_helium_ii_lines)
     wavelength = np.geomspace(100.0, 100_000.0, n_continuum_wavelength)
     if include_lines:
-        wing_grid = np.arange(2600.0, 7500.1, 10.0)
         core_offsets = np.arange(-5.0, 5.0001, 0.2)
-        uv_resonance_grid = np.arange(480.0, 700.0001, 0.5)
         line_grids = [
-            *(line.wavelength_vacuum_angstrom + core_offsets for line in HELIUM_I_LINES)
+            *(
+                line.wavelength_vacuum_angstrom + core_offsets
+                for line in structure_helium_i_lines
+            )
         ]
-        if include_helium_ii_lines:
+        if structure_helium_i_lines:
+            line_grids.append(np.arange(2600.0, 7500.1, 10.0))
+        uv_resonance_grid = np.arange(480.0, 700.0001, 0.5)
+        uv_flux_fraction = float(
+            PI
+            * np.trapz(
+                planck_lambda_angstrom(
+                    uv_resonance_grid, effective_temperature
+                ),
+                uv_resonance_grid,
+            )
+            / (STEFAN_BOLTZMANN * effective_temperature**4)
+        )
+        if uv_flux_fraction >= 1.0e-8:
+            line_grids.append(uv_resonance_grid)
+        if structure_helium_ii_lines:
             line_grids.extend(
                 line.wavelength_vacuum_angstrom + core_offsets
-                for line in HELIUM_II_LINES
+                for line in structure_helium_ii_lines
             )
-        wavelength = np.unique(np.concatenate(
-            (wavelength, wing_grid, uv_resonance_grid, *line_grids)
-        ))
+        if line_grids:
+            wavelength = np.unique(np.concatenate((wavelength, *line_grids)))
     metal_wing_sampled_lines = 0
     if (
         metal_database is not None
@@ -3998,6 +4122,7 @@ def radiative_equilibrium_helium_atmosphere(
         if include_lines:
             result += helium_i_line_mass_absorption_coefficient(
                 current, wavelength, stark_table,
+                lines=structure_helium_i_lines,
                 include_occupation_probability=True,
                 # This convolution is expensive but is required for flux
                 # consistency in cool, dense DB atmospheres.  Callers can
@@ -4013,6 +4138,7 @@ def radiative_equilibrium_helium_atmosphere(
                 result += helium_ii_line_mass_absorption_coefficient(
                     current,
                     wavelength,
+                    lines=structure_helium_ii_lines,
                     stark_table=helium_ii_stark_table,
                     include_occupation_probability=True,
                 )
@@ -4243,6 +4369,12 @@ def radiative_equilibrium_helium_atmosphere(
                 "helium_neutral_radius_scale": float(neutral_radius_scale),
                 "radiative_equilibrium_includes_helium_lines": bool(
                     include_lines
+                ),
+                "radiative_equilibrium_retained_helium_i_lines": int(
+                    len(structure_helium_i_lines)
+                ),
+                "radiative_equilibrium_retained_helium_ii_lines": int(
+                    len(structure_helium_ii_lines)
                 ),
                 "radiative_equilibrium_neutral_helium_line_broadening": (
                     neutral_line_broadening if include_lines else "disabled"

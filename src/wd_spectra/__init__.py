@@ -1,12 +1,14 @@
 """OpenWD: open white-dwarf atmosphere and spectrum calculations."""
 
 from .models import (
+    AtmosphereConvergenceWarning,
     DAConfig,
     DABConfig,
     DBConfig,
     DZConfig,
     ModelData,
     ModelResult,
+    atmosphere_convergence_status,
     compute_da,
     compute_dab,
     compute_db,
@@ -83,10 +85,11 @@ from .stark import (
     default_paschen_stark_table,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "Atmosphere",
+    "AtmosphereConvergenceWarning",
     "BarklemSelfBroadeningTable",
     "DAConfig",
     "DABConfig",
@@ -98,6 +101,7 @@ __all__ = [
     "ModelResult",
     "Spectrum",
     "atmosphere_with_tremblay_2013_mean_3d_temperature_difference",
+    "atmosphere_convergence_status",
     "compiled_backend_available",
     "compute_da",
     "compute_dab",

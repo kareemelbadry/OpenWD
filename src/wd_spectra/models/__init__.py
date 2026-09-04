@@ -1,10 +1,12 @@
 """Stable one-shot interfaces for the initial OpenWD release."""
 
 from .common import (
+    AtmosphereConvergenceWarning,
     ModelData,
     ModelResult,
     NumericalResolution,
     Quality,
+    atmosphere_convergence_status,
     default_wavelength_grid,
     load_atmosphere_checkpoint,
     numerical_resolution,
@@ -22,6 +24,7 @@ from .stellar import (
 )
 
 __all__ = [
+    "AtmosphereConvergenceWarning",
     "DAConfig",
     "DABConfig",
     "DBConfig",
@@ -30,6 +33,7 @@ __all__ = [
     "ModelResult",
     "NumericalResolution",
     "Quality",
+    "atmosphere_convergence_status",
     "compute_da",
     "compute_dab",
     "compute_db",

@@ -9,12 +9,14 @@ scripts.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
+import hashlib
 from importlib.resources import files
 import json
 import os
 from pathlib import Path
 from typing import Any, Literal, Mapping
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -29,6 +31,14 @@ from ..spectrum import Spectrum
 FloatArray = NDArray[np.float64]
 Quality = Literal["quick", "standard", "production"]
 AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
+ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
+
+_MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
+_MODEL_PHYSICS_REVISION = "openwd-0.1.2-safety-guardrails"
+
+
+class AtmosphereConvergenceWarning(RuntimeWarning):
+    """A spectrum is being returned from an unverified atmosphere."""
 
 
 @dataclass(frozen=True)
@@ -187,6 +197,125 @@ class ModelResult:
     population_state: object | None = None
 
 
+def model_request_fingerprint(
+    spectral_type: str,
+    config: object,
+    data: ModelData,
+) -> dict[str, object]:
+    """Return a stable identity for one solver-relevant public request.
+
+    The data root is deliberately part of the identity.  Moving a checkpoint
+    to another data installation therefore degrades it to a warm start rather
+    than claiming an exact same-physics resume.  The physics revision must be
+    changed whenever solver equations or bundled physical data change.
+    """
+
+    request = {
+        "schema": _MODEL_REQUEST_FINGERPRINT_SCHEMA,
+        "physics_revision": _MODEL_PHYSICS_REVISION,
+        "spectral_type": str(spectral_type),
+        "config": _jsonable(config),
+        "data_root": str(data.root.resolve()),
+    }
+    serialized = json.dumps(
+        request,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return {
+        **request,
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+    }
+
+
+def atmosphere_matches_model_request(
+    atmosphere: Atmosphere | None,
+    fingerprint: Mapping[str, object],
+) -> bool:
+    """Return whether an atmosphere proves an exact request identity."""
+
+    if atmosphere is None:
+        return False
+    recorded = atmosphere.metadata.get("model_request_fingerprint")
+    if not isinstance(recorded, Mapping):
+        return False
+    return dict(recorded) == dict(fingerprint)
+
+
+def atmosphere_with_model_request_fingerprint(
+    atmosphere: Atmosphere,
+    fingerprint: Mapping[str, object],
+) -> Atmosphere:
+    """Attach immutable request provenance without mutating caller metadata."""
+
+    return replace(
+        atmosphere,
+        metadata={
+            **atmosphere.metadata,
+            "model_request_fingerprint": dict(fingerprint),
+        },
+    )
+
+
+def atmosphere_convergence_status(
+    atmosphere: Atmosphere,
+) -> ConvergenceStatus:
+    """Classify whether a structure records successful self-consistency."""
+
+    if atmosphere.metadata.get(
+        "mean_3d_temperature_differential_is_equilibrium_model"
+    ) is False:
+        return "unconverged"
+    value = atmosphere.metadata.get("radiative_equilibrium_converged")
+    if isinstance(value, (bool, np.bool_)):
+        return "converged" if bool(value) else "unconverged"
+    return "unknown"
+
+
+def warn_if_atmosphere_not_converged(
+    atmosphere: Atmosphere,
+    spectral_type: str,
+) -> ConvergenceStatus:
+    """Warn, but do not prevent exploratory synthesis from a partial model."""
+
+    status = atmosphere_convergence_status(atmosphere)
+    if status == "converged":
+        return status
+    if status == "unconverged":
+        detail = "records that radiative/convective equilibrium did not converge"
+    else:
+        detail = "does not record a verified atmosphere-convergence status"
+    metrics = []
+    residual = atmosphere.metadata.get(
+        "maximum_all_depth_total_flux_residual",
+        atmosphere.metadata.get("maximum_total_flux_residual"),
+    )
+    if isinstance(
+        residual, (int, float, np.integer, np.floating)
+    ) and np.isfinite(residual):
+        metrics.append(f"maximum all-depth flux residual={float(residual):.3e}")
+    correction = atmosphere.metadata.get(
+        "radiative_equilibrium_maximum_log_temperature_correction"
+    )
+    if isinstance(
+        correction, (int, float, np.integer, np.floating)
+    ) and np.isfinite(correction):
+        metrics.append(
+            "maximum log-temperature correction="
+            f"{float(correction):.3e}"
+        )
+    metric_text = f" ({', '.join(metrics)})" if metrics else ""
+    warnings.warn(
+        f"Returning a {spectral_type} spectrum from an atmosphere that {detail}"
+        f"{metric_text}. The result is suitable for explicit exploratory work, "
+        "but must not be treated as a converged model.",
+        AtmosphereConvergenceWarning,
+        stacklevel=3,
+    )
+    return status
+
+
 def default_wavelength_grid(
     lower: float = 900.0,
     upper: float = 30_000.0,
@@ -244,6 +373,7 @@ def load_atmosphere_checkpoint(
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(f"atmosphere checkpoint does not exist: {source}")
+    stored_metadata: dict[str, object] = {}
     with np.load(source) as saved:
         def required(*names: str) -> FloatArray:
             for name in names:
@@ -276,7 +406,23 @@ def load_atmosphere_checkpoint(
             else np.asarray(saved["electron_density"], dtype=np.float64)
             if "electron_density" in saved else None
         )
+        if "atmosphere_metadata_json" in saved:
+            try:
+                serialized_metadata = str(
+                    np.asarray(saved["atmosphere_metadata_json"]).item()
+                )
+                parsed_metadata = json.loads(serialized_metadata)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"{source} contains invalid atmosphere metadata"
+                ) from exc
+            if not isinstance(parsed_metadata, dict):
+                raise ValueError(
+                    f"{source} atmosphere metadata must be a JSON object"
+                )
+            stored_metadata = parsed_metadata
     metadata = {
+        **stored_metadata,
         "model": "restored one-shot atmosphere",
         "source_checkpoint": str(source.resolve()),
         "checkpoint_composition": composition,
@@ -360,7 +506,10 @@ def load_atmosphere_checkpoint(
 
 def _jsonable(value: object) -> object:
     if is_dataclass(value):
-        return {key: _jsonable(item) for key, item in asdict(value).items()}
+        return {
+            item.name: _jsonable(getattr(value, item.name))
+            for item in fields(value)
+        }
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, np.ndarray):
@@ -396,6 +545,14 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
         gas_pressure=atmosphere.gas_pressure,
         mass_density=atmosphere.mass_density,
         electron_density=atmosphere.electron_density,
+        atmosphere_metadata_json=np.asarray(
+            json.dumps(
+                _jsonable(atmosphere.metadata),
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        ),
     )
     record = {
         "schema": 1,

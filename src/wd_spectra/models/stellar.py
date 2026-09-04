@@ -45,8 +45,13 @@ from .common import (
     ModelData,
     ModelResult,
     Quality,
+    atmosphere_convergence_status,
+    atmosphere_matches_model_request,
+    atmosphere_with_model_request_fingerprint,
+    model_request_fingerprint,
     numerical_resolution,
     validate_wavelength,
+    warn_if_atmosphere_not_converged,
 )
 
 
@@ -217,53 +222,6 @@ def _da_self_broadening_prescription(
     )
 
 
-def _is_composition_matched_metal_restart(
-    atmosphere: Atmosphere | None,
-    abundances: Mapping[str, float],
-    *,
-    host: Literal["H", "He"],
-    log_hydrogen_abundance: float | None = None,
-) -> bool:
-    """Return whether a supplied structure is a proven same-mixture restart.
-
-    An interpolated pure-H or pure-He grid is a useful warm start for a
-    polluted atmosphere, but it should still receive the local convective
-    preconditioner.  Only a checkpoint that explicitly verified its
-    composition, or an atmosphere returned by the same metal solver with an
-    identical abundance dictionary, can safely resume directly in the formal
-    flux phase.
-    """
-
-    if atmosphere is None:
-        return False
-    metadata = atmosphere.metadata
-    if bool(metadata.get("checkpoint_composition_verified", False)):
-        return True
-    expected_composition = (
-        "metal-polluted-hydrogen" if host == "H" else "metal-polluted-helium"
-    )
-    if metadata.get("composition") != expected_composition:
-        return False
-    recorded_abundances = metadata.get("metal_abundances")
-    if not isinstance(recorded_abundances, Mapping):
-        return False
-    if dict(recorded_abundances) != dict(abundances):
-        return False
-    if host == "He":
-        recorded_hydrogen = metadata.get(
-            "radiative_equilibrium_hydrogen_abundance"
-        )
-        if log_hydrogen_abundance is None:
-            return recorded_hydrogen is None
-        return recorded_hydrogen is not None and np.isclose(
-            float(recorded_hydrogen),
-            float(log_hydrogen_abundance),
-            rtol=0.0,
-            atol=1.0e-12,
-        )
-    return True
-
-
 def _allard_lyman_profiles_for_effective_temperature(
     effective_temperature: float,
     data: ModelData,
@@ -355,6 +313,7 @@ def compute_da(
     """Calculate one DA atmosphere and spectrum with accepted DA physics."""
 
     data = ModelData.default() if data is None else data
+    request_fingerprint = model_request_fingerprint("DA", config, data)
     resolution = numerical_resolution(config.quality)
     wave = validate_wavelength(wavelength)
     allard = None
@@ -500,6 +459,11 @@ def compute_da(
                 neutral_radius_scale=0.5,
             )
         )
+    if relax_atmosphere:
+        atmosphere = atmosphere_with_model_request_fingerprint(
+            atmosphere, request_fingerprint
+        )
+    convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DA")
     spectrum = synthesize_hydrogen_spectrum(
         atmosphere,
         wave,
@@ -583,6 +547,8 @@ def compute_da(
             ),
             "atmosphere_solver": config.atmosphere_solver,
             "atmosphere_initialization": atmosphere_initialization,
+            "atmosphere_convergence_status": convergence_status,
+            "model_request_fingerprint": request_fingerprint,
             "cool_mean_3d_temperature_differential": (
                 "Tremblay et al. 2013 Fig. 7 at fixed gas pressure; "
                 "Montreal HM neutral radius rB=0.5"
@@ -608,6 +574,10 @@ def compute_db(
     """Calculate one DB atmosphere and spectrum with Beauchamp25-LD lines."""
 
     data = ModelData.default() if data is None else data
+    request_fingerprint = model_request_fingerprint("DB", config, data)
+    checkpoint_matches_request = atmosphere_matches_model_request(
+        initial_atmosphere, request_fingerprint
+    )
     resolution = numerical_resolution(config.quality)
     wave = validate_wavelength(wavelength)
     he_i, he_ii = _helium_tables(data)
@@ -635,16 +605,26 @@ def compute_db(
                 None if initial_atmosphere is None else initial_atmosphere.column_mass
             ),
             initial_gas_pressure=(
-                None if initial_atmosphere is None else initial_atmosphere.gas_pressure
+                initial_atmosphere.gas_pressure
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
             ),
             initial_rosseland_optical_depth=(
-                None
-                if initial_atmosphere is None
-                else initial_atmosphere.rosseland_optical_depth
+                initial_atmosphere.rosseland_optical_depth
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
+            ),
+            resume_supplied_structure_in_formal_flux_phase=(
+                checkpoint_matches_request
             ),
             iteration_callback=iteration_callback,
         )
     assert atmosphere is not None
+    if relax_atmosphere:
+        atmosphere = atmosphere_with_model_request_fingerprint(
+            atmosphere, request_fingerprint
+        )
+    convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DB")
     spectrum = synthesize_helium_spectrum(
         atmosphere,
         wave,
@@ -668,6 +648,9 @@ def compute_db(
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
+            "atmosphere_convergence_status": convergence_status,
+            "checkpoint_matches_model_request": checkpoint_matches_request,
+            "model_request_fingerprint": request_fingerprint,
         },
     )
 
@@ -687,6 +670,10 @@ def compute_dab(
     """Calculate one homogeneous atomic DAB/DBA atmosphere and spectrum."""
 
     data = ModelData.default() if data is None else data
+    request_fingerprint = model_request_fingerprint("DAB", config, data)
+    checkpoint_matches_request = atmosphere_matches_model_request(
+        initial_atmosphere, request_fingerprint
+    )
     resolution = numerical_resolution(config.quality)
     wave = validate_wavelength(wavelength)
     he_i, he_ii = _helium_tables(data)
@@ -738,9 +725,27 @@ def compute_dab(
             initial_column_mass=(
                 None if initial_atmosphere is None else initial_atmosphere.column_mass
             ),
+            initial_gas_pressure=(
+                initial_atmosphere.gas_pressure
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
+            ),
+            initial_rosseland_optical_depth=(
+                initial_atmosphere.rosseland_optical_depth
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
+            ),
+            resume_supplied_structure_in_formal_flux_phase=(
+                checkpoint_matches_request
+            ),
             iteration_callback=iteration_callback,
         )
     assert atmosphere is not None
+    if relax_atmosphere:
+        atmosphere = atmosphere_with_model_request_fingerprint(
+            atmosphere, request_fingerprint
+        )
+    convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DAB")
     spectrum = synthesize_hydrogen_helium_spectrum(
         atmosphere,
         wave,
@@ -795,6 +800,9 @@ def compute_dab(
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
+            "atmosphere_convergence_status": convergence_status,
+            "checkpoint_matches_model_request": checkpoint_matches_request,
+            "model_request_fingerprint": request_fingerprint,
         },
     )
 
@@ -814,6 +822,10 @@ def compute_dz(
     """Calculate one warm DZ/DBZ atmosphere with metal structural feedback."""
 
     data = ModelData.default() if data is None else data
+    request_fingerprint = model_request_fingerprint("DZ", config, data)
+    checkpoint_matches_request = atmosphere_matches_model_request(
+        initial_atmosphere, request_fingerprint
+    )
     resolution = numerical_resolution(config.quality)
     wave = validate_wavelength(wavelength)
     he_i, he_ii = _helium_tables(data)
@@ -953,12 +965,6 @@ def compute_dz(
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
     if relax_atmosphere:
-        composition_matched_restart = _is_composition_matched_metal_restart(
-            initial_atmosphere,
-            config.abundances,
-            host="He",
-            log_hydrogen_abundance=config.log_hydrogen_abundance,
-        )
         atmosphere = radiative_equilibrium_helium_atmosphere(
             config.effective_temperature,
             config.logg,
@@ -999,19 +1005,26 @@ def compute_dz(
                 None if initial_atmosphere is None else initial_atmosphere.column_mass
             ),
             initial_gas_pressure=(
-                None if initial_atmosphere is None else initial_atmosphere.gas_pressure
+                initial_atmosphere.gas_pressure
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
             ),
             initial_rosseland_optical_depth=(
-                None
-                if initial_atmosphere is None
-                else initial_atmosphere.rosseland_optical_depth
+                initial_atmosphere.rosseland_optical_depth
+                if checkpoint_matches_request and initial_atmosphere is not None
+                else None
             ),
             resume_supplied_structure_in_formal_flux_phase=(
-                composition_matched_restart
+                checkpoint_matches_request
             ),
             iteration_callback=iteration_callback,
         )
     assert atmosphere is not None
+    if relax_atmosphere:
+        atmosphere = atmosphere_with_model_request_fingerprint(
+            atmosphere, request_fingerprint
+        )
+    convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DZ")
     spectrum = synthesize_helium_spectrum(
         atmosphere,
         wave,
@@ -1119,5 +1132,8 @@ def compute_dz(
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
+            "atmosphere_convergence_status": convergence_status,
+            "checkpoint_matches_model_request": checkpoint_matches_request,
+            "model_request_fingerprint": request_fingerprint,
         },
     )

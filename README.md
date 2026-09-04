@@ -10,7 +10,9 @@ and helium-dominated polluted DZ/DBZ atmospheres. It solves the atmosphere
 structure rather than interpolating a precomputed spectral grid.
 
 > **Pre-alpha:** the code is suitable for inspection, validation, and
-> development. Check convergence metadata before using a result scientifically.
+> development. One-shot calls warn when a returned spectrum does not have a
+> verified converged atmosphere; check the convergence metadata before using a
+> result scientifically.
 
 ## Installation
 
@@ -38,11 +40,16 @@ result = compute_da(DAConfig(
 wavelength = result.spectrum.wavelength_angstrom
 surface_flux = result.spectrum.surface_flux_lambda
 print(result.atmosphere.metadata)
+print(result.metadata["atmosphere_convergence_status"])
 ```
 
 The equivalent entry points are `compute_db`, `compute_dab`, and `compute_dz`.
 Each returns the atmosphere, emergent surface spectrum, input configuration,
-and detailed provenance metadata.
+and detailed provenance metadata. Exploratory spectra from incomplete or
+legacy atmospheres remain available, but emit
+`AtmosphereConvergenceWarning`. Saved models retain a request fingerprint;
+only an exact configuration, physics-revision, and data-root match is allowed
+to bypass fresh-start conditioning on a later relaxation.
 
 ## One-shot calculations
 
@@ -65,9 +72,9 @@ line-rich DZ atmospheres.
 
 ## Included physics
 
-- A shared hydrostatic, radiative/convective-equilibrium atmosphere solver
-  with conservative Feautrier transfer, adaptive trust-region Newton steps,
-  backtracking, and Broyden updates.
+- Composition-specific hydrostatic, radiative/convective-equilibrium
+  structure solvers using a common trust-region Newton engine, conservative
+  Feautrier transfer, backtracking, and Broyden updates.
 - LTE H/He equations of state with Hummer--Mihalas occupation probabilities
   and correlated Q-MHD microfields.
 - ML2 convection (`alpha=0.7` for DA and `alpha=1.25` for helium-dominated
@@ -102,11 +109,22 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The release retains 274 solver, EOS, opacity, line-profile, transfer, and
-model-component tests. The repository does not include observational or
-published-grid validation spectra. See the
+The ordinary suite contains 279 pure-Python solver, EOS, opacity, line-profile,
+transfer, model-component, and safety tests in the reference checkout (281
+when the two optional compiled-backend checks are available). Slow
+no-fallback atmosphere canaries run separately in GitHub Actions every week
+and on manual request. Run them locally with:
+
+```bash
+pytest tests/test_protected_model_canaries.py -o addopts=-ra
+```
+
+The repository does not include observational or published-grid validation
+spectra. See the
 [recovered solver baseline](docs/recovered-solver-baseline.md) for the
-convergence cases used to protect the current numerical core.
+convergence cases used to protect the current numerical core, and the
+[development policy](docs/development.md) for the merge gates around solver
+and physics changes.
 
 ## Status
 
