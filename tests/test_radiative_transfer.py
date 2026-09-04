@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from wd_spectra._compat import trapezoid
 from wd_spectra.radiative_transfer import (
     compiled_backend_available,
     emergent_flux,
@@ -462,7 +463,7 @@ def test_integrated_lambda_response_matches_formal_solution_jacobian():
         changed_surface_flux = emergent_flux(
             tau, perturbed, n_angle=4, backend="python"
         )
-        numerical = np.trapz(
+        numerical = trapezoid(
             response_weight
             * (changed.mean_intensity - baseline.mean_intensity)
             / step,
@@ -475,7 +476,7 @@ def test_integrated_lambda_response_matches_formal_solution_jacobian():
             rtol=2.0e-9,
             atol=2.0e-8,
         )
-        numerical_surface_flux = np.trapz(
+        numerical_surface_flux = trapezoid(
             (changed_surface_flux - baseline_surface_flux) / step,
             wavelength,
         )
@@ -541,7 +542,7 @@ def test_integrated_emergent_flux_state_response_includes_opacity_changes():
             n_angle=4,
             backend="python",
         )
-        numerical = np.trapz((changed - baseline) / step, wavelength)
+        numerical = trapezoid((changed - baseline) / step, wavelength)
         np.testing.assert_allclose(
             numerical,
             jacobian[state_depth],

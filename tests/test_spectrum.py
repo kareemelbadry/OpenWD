@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from wd_spectra._compat import trapezoid
 from wd_spectra import (
     gray_hydrogen_atmosphere,
     planck_lambda_angstrom,
@@ -13,7 +14,9 @@ from wd_spectra.constants import STEFAN_BOLTZMANN
 def test_planck_function_integrates_to_sigma_t4_over_pi():
     temperature = 13_000.0
     wavelength = np.geomspace(1.0, 1.0e8, 30_000)
-    integral = np.trapz(planck_lambda_angstrom(wavelength, temperature), wavelength)
+    integral = trapezoid(
+        planck_lambda_angstrom(wavelength, temperature), wavelength
+    )
     np.testing.assert_allclose(
         np.pi * integral, STEFAN_BOLTZMANN * temperature**4, rtol=1.0e-6
     )

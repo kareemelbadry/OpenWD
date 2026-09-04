@@ -8,6 +8,7 @@ from typing import Callable, Literal, Mapping, TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
+from ._compat import trapezoid
 from .eos import (
     HeliumLTEState,
     HydrogenHeliumLTEState,
@@ -1919,7 +1920,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 raise RuntimeError(
                     "Feautrier solver did not return interface fluxes"
                 )
-            radiative_flux_interface = np.trapz(
+            radiative_flux_interface = trapezoid(
                 field.interface_flux, wavelength, axis=0
             )
 
@@ -2813,15 +2814,15 @@ def radiative_equilibrium_hydrogen_atmosphere(
         )
         if field.interface_flux is None:  # pragma: no cover - API invariant
             raise RuntimeError("Feautrier solver did not return interface fluxes")
-        radiative_flux_interface = np.trapz(
+        radiative_flux_interface = trapezoid(
             field.interface_flux, wavelength, axis=0
         )
         radiative_flux = _upper_interface_values_on_nodes(
             radiative_flux_interface
         )
 
-        emitted = np.trapz(absorption * planck, wavelength, axis=0)
-        absorbed = np.trapz(
+        emitted = trapezoid(absorption * planck, wavelength, axis=0)
+        absorbed = trapezoid(
             absorption * field.mean_intensity, wavelength, axis=0
         )
         active = (
@@ -3089,7 +3090,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
             wavelength[:, np.newaxis],
             hotter_temperature[np.newaxis, :],
         )
-        logarithmic_derivative = np.trapz(
+        logarithmic_derivative = trapezoid(
             absorption * (hotter_planck - planck), wavelength, axis=0
         ) / 0.001
         correction = (absorbed - emitted) / np.maximum(
@@ -3924,7 +3925,7 @@ def radiative_equilibrium_helium_atmosphere(
                     / LIGHT_SPEED
                     / seed.mass_density
                 )
-                upper_optical_depth = np.trapz(
+                upper_optical_depth = trapezoid(
                     upper_mass_opacity[:first_below_photosphere],
                     seed.column_mass[:first_below_photosphere],
                 )
@@ -3966,7 +3967,7 @@ def radiative_equilibrium_helium_atmosphere(
                         / LIGHT_SPEED
                         / seed.mass_density
                     )
-                    upper_optical_depth = np.trapz(
+                    upper_optical_depth = trapezoid(
                         upper_mass_opacity[:first_below_photosphere],
                         seed.column_mass[:first_below_photosphere],
                     )
@@ -3987,7 +3988,7 @@ def radiative_equilibrium_helium_atmosphere(
         uv_resonance_grid = np.arange(480.0, 700.0001, 0.5)
         uv_flux_fraction = float(
             PI
-            * np.trapz(
+            * trapezoid(
                 planck_lambda_angstrom(
                     uv_resonance_grid, effective_temperature
                 ),
@@ -4644,8 +4645,10 @@ def radiative_equilibrium_helium_atmosphere(
             field = radiation_field(optical_depth, source, n_angle=n_angle)
             source = (absorption * planck + scattering * field.mean_intensity) / total
         field = radiation_field(optical_depth, source, n_angle=n_angle)
-        emitted = np.trapz(absorption * planck, wavelength, axis=0)
-        absorbed = np.trapz(absorption * field.mean_intensity, wavelength, axis=0)
+        emitted = trapezoid(absorption * planck, wavelength, axis=0)
+        absorbed = trapezoid(
+            absorption * field.mean_intensity, wavelength, axis=0
+        )
         active = relaxation_depth < 10.0
         convective_weight = np.zeros(n_depth)
         convective_log_temperature_correction = np.zeros(n_depth)
@@ -4662,7 +4665,7 @@ def radiative_equilibrium_helium_atmosphere(
                 include_helium_three_body_cia=include_helium_three_body_cia,
                 include_rydberg_bound_free=include_rydberg_bound_free,
             )
-            radiative_flux = np.trapz(field.flux, wavelength, axis=0)
+            radiative_flux = trapezoid(field.flux, wavelength, axis=0)
             required_convective_flux = np.clip(
                 target_flux - radiative_flux, 0.0, target_flux
             )
@@ -4839,13 +4842,13 @@ def radiative_equilibrium_helium_atmosphere(
         hotter_planck = planck_lambda_angstrom(
             wavelength[:, np.newaxis], hotter_temperature[np.newaxis, :]
         )
-        planck_derivative = np.trapz(
+        planck_derivative = trapezoid(
             absorption * (hotter_planck - planck), wavelength, axis=0
         ) / 0.001
         if include_absorption_temperature_derivative:
             hotter_absorption = true_absorption(with_temperature(hotter_temperature))
             residual = emitted - absorbed
-            hotter_residual = np.trapz(
+            hotter_residual = trapezoid(
                 hotter_absorption * (hotter_planck - field.mean_intensity),
                 wavelength, axis=0,
             )
@@ -4869,7 +4872,7 @@ def radiative_equilibrium_helium_atmosphere(
         # direction.  Reapply the same smooth convective weight after the
         # stencil so radiative and convective gradient controllers remain
         # disjoint.
-        surface_flux = np.trapz(field.flux[:, 0], wavelength)
+        surface_flux = trapezoid(field.flux[:, 0], wavelength)
         flux_ratio = float(surface_flux / target_flux)
         global_correction = float(np.clip(-0.25 * np.log(flux_ratio), -0.04, 0.04))
         adaptive_convective_damping = float(

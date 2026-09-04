@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from wd_spectra._compat import trapezoid
 from wd_spectra.constants import (
     BOLTZMANN,
     HELIUM_FIRST_IONIZATION_ENERGY,
@@ -376,7 +377,7 @@ def test_synspec_helium_ii_table_when_available():
         center + offset, center, 40_000.0, 1.0e16
     )
     frequency_jacobian = 2.99792458e10 / (center * 1.0e-8) ** 2 * 1.0e-8
-    area = 2.0 * np.trapz(profile, offset) * frequency_jacobian
+    area = 2.0 * trapezoid(profile, offset) * frequency_jacobian
     assert area == pytest.approx(1.0, rel=0.03)
     assert (4, 15) in table.lines
     assert any(
@@ -596,7 +597,7 @@ def test_released_profile_table_when_available():
     line = table[4471]
     wavelength = np.linspace(4272.756993, 4672.756993, 200_001)
     profile = line.wavelength_profile(wavelength, 4472.756993, 20_000.0, 1e16)
-    assert np.trapz(profile, wavelength) == pytest.approx(1.0, rel=2e-5)
+    assert trapezoid(profile, wavelength) == pytest.approx(1.0, rel=2e-5)
 
     convolved = line.wavelength_profile(
         wavelength,
@@ -605,7 +606,7 @@ def test_released_profile_table_when_available():
         1e16,
         lorentz_hwhm_angstrom=0.5,
     )
-    assert np.trapz(convolved, wavelength) == pytest.approx(1.0, rel=4e-3)
+    assert trapezoid(convolved, wavelength) == pytest.approx(1.0, rel=4e-3)
     assert np.max(convolved) < np.max(profile)
 
 

@@ -2,6 +2,7 @@ import struct
 
 import numpy as np
 
+from wd_spectra._compat import trapezoid
 from wd_spectra import (
     BarklemSelfBroadeningTable,
     gray_hydrogen_atmosphere,
@@ -42,7 +43,7 @@ def test_reads_little_endian_barklem_fortran_table(tmp_path):
     assert table.profile_per_angstrom.shape == (1, 2, 2, 3)
     interpolated = table.profile_at_state((2, 3), 7_000.0, 3.0e14)
     np.testing.assert_allclose(
-        np.trapz(interpolated, table.wavelength_offset_angstrom),
+        trapezoid(interpolated, table.wavelength_offset_angstrom),
         1.0,
         rtol=2.0e-15,
     )
@@ -55,7 +56,7 @@ def test_full_barklem_kernel_changes_balmer_opacity_without_losing_finiteness():
     # external BSD-licensed binary asset.
     offset = np.asarray([-20.0, -2.0, 0.0, 2.0, 20.0])
     base_profile = np.asarray([0.001, 0.08, 0.35, 0.07, 0.001])
-    base_profile /= np.trapz(base_profile, offset)
+    base_profile /= trapezoid(base_profile, offset)
     density = np.asarray([1.0e10, 1.0e30])
     temperature = np.asarray([1_000.0, 100_000.0])
     profiles = np.broadcast_to(

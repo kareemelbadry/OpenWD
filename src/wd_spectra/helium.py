@@ -17,6 +17,7 @@ from typing import Literal
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
 from .atmosphere import Atmosphere
 from .constants import (
     BOHR_RADIUS,
@@ -1845,6 +1846,8 @@ def rosseland_mean_helium_continuum_opacity(
             include_helium_three_body_cia=include_helium_three_body_cia,
             include_rydberg_bound_free=include_rydberg_bound_free,
         )[:, 0]
-        inverse = np.trapz(weight[order] / np.maximum(opacity, 1.0e-30), x[order]) / np.trapz(weight[order], x[order])
+        inverse = trapezoid(
+            weight[order] / np.maximum(opacity, 1.0e-30), x[order]
+        ) / trapezoid(weight[order], x[order])
         result[depth] = 1.0 / inverse
     return result

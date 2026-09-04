@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
 from .atmosphere import Atmosphere
 from .eos import (
     HM_NEUTRAL_HYDROGEN_RADIUS_SCALE,
@@ -1791,10 +1792,10 @@ def rosseland_mean_hydrogen_continuum_opacity(
             wavelength[order],
             h2_h2_cia_table=h2_h2_cia_table,
         )[:, 0]
-        inverse_mean = np.trapz(
+        inverse_mean = trapezoid(
             weight[order] / np.maximum(opacity, 1.0e-30),
             dimensionless_frequency[order],
-        ) / np.trapz(weight[order], dimensionless_frequency[order])
+        ) / trapezoid(weight[order], dimensionless_frequency[order])
         result[depth] = 1.0 / inverse_mean
     return result
 

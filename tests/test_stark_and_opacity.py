@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from wd_spectra._compat import trapezoid
 from wd_spectra import (
     default_balmer_stark_table,
     default_brackett_stark_table,
@@ -94,7 +95,7 @@ def test_bundled_balmer_table_shape_and_normalization():
     artificial_center = 1.0e7  # Keeps the full tabulated negative wing positive.
     wavelength = artificial_center + np.concatenate((-positive_offset[::-1], [0.0], positive_offset))
     profile = hbeta.wavelength_profile(wavelength, artificial_center, 20_000.0, electron_density)
-    integral = np.trapz(profile, wavelength)
+    integral = trapezoid(profile, wavelength)
     np.testing.assert_allclose(integral, 1.0, rtol=0.06)
 
 
@@ -393,8 +394,8 @@ def test_lorentz_convolution_preserves_stark_line_strength():
         line, wavelength, center, 8_000.0, 1.0e16, 0.7
     )
     np.testing.assert_allclose(
-        np.trapz(convolved, wavelength),
-        np.trapz(stark, wavelength),
+        trapezoid(convolved, wavelength),
+        trapezoid(stark, wavelength),
         rtol=3.0e-3,
     )
     assert convolved[wavelength.size // 2] < stark[wavelength.size // 2]
@@ -418,8 +419,8 @@ def test_truncated_lorentz_convolution_preserves_line_strength_and_far_wing():
         maximum_impact_shift_angstrom=7.7,
     )
     np.testing.assert_allclose(
-        np.trapz(truncated, wavelength),
-        np.trapz(stark, wavelength),
+        trapezoid(truncated, wavelength),
+        trapezoid(stark, wavelength),
         rtol=3.0e-3,
     )
     far = np.abs(wavelength - center) > 100.0
@@ -506,8 +507,8 @@ def test_structure_order_lorentz_quadrature_matches_full_synthesis_order():
     )
     assert np.max(np.abs(structure - full)) < 5.0e-4 * np.max(full)
     np.testing.assert_allclose(
-        np.trapz(structure, wavelength),
-        np.trapz(full, wavelength),
+        trapezoid(structure, wavelength),
+        trapezoid(full, wavelength),
         rtol=8.0e-3,
     )
 

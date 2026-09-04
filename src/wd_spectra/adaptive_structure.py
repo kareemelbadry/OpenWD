@@ -15,6 +15,7 @@ from typing import Callable, Mapping
 import numpy as np
 from numpy.typing import NDArray
 
+from ._compat import trapezoid
 from .atmosphere import Atmosphere, _upper_interface_values_on_nodes
 from .constants import (
     BOLTZMANN,
@@ -90,10 +91,10 @@ def rosseland_mean_from_opacity_grid(
         * exp_negative / denominator**2
         * exponent / local_temperature[np.newaxis, :]
     )
-    weight_integral = np.trapz(
+    weight_integral = trapezoid(
         d_planck_d_temperature, wavelength, axis=0
     )
-    inverse_mean = np.trapz(
+    inverse_mean = trapezoid(
         d_planck_d_temperature
         / np.maximum(opacity, np.finfo(np.float64).tiny),
         wavelength,
@@ -471,7 +472,7 @@ def solve_adaptive_lte_structure(
         )
         if field.interface_flux is None:  # pragma: no cover - API invariant
             raise RuntimeError("Feautrier solver did not return interface fluxes")
-        radiative_flux_interface = np.trapz(
+        radiative_flux_interface = trapezoid(
             field.interface_flux, wavelength, axis=0
         )
 

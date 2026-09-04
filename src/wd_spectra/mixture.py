@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
 from .atmosphere import Atmosphere
 from .constants import BOLTZMANN, LIGHT_SPEED, PLANCK
 from .eos import HeliumLTEState
@@ -144,9 +145,9 @@ def rosseland_mean_hydrogen_helium_continuum_opacity(
             include_helium_three_body_cia=include_helium_three_body_cia,
             include_rydberg_bound_free=include_rydberg_bound_free,
         )[:, 0]
-        inverse_mean = np.trapz(
+        inverse_mean = trapezoid(
             weight[order] / np.maximum(opacity, 1.0e-30),
             dimensionless_frequency[order],
-        ) / np.trapz(weight[order], dimensionless_frequency[order])
+        ) / trapezoid(weight[order], dimensionless_frequency[order])
         result[depth] = 1.0 / inverse_mean
     return result

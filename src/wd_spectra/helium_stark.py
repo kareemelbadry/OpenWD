@@ -16,6 +16,7 @@ import re
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
 from .stark import _bracket
 
 try:  # Optional acceleration built by setup.py.
@@ -119,7 +120,9 @@ class HeliumStarkLine:
                     * self.log_profile_per_angstrom[ne_index, t_index]
                 )
         local_profile = np.power(10.0, local_log_profile)
-        normalization = np.trapz(local_profile, self.wavelength_offset_angstrom)
+        normalization = trapezoid(
+            local_profile, self.wavelength_offset_angstrom
+        )
         if normalization > 0.0:
             local_profile /= normalization
         offset = wavelength - line_center_angstrom

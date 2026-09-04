@@ -8,6 +8,7 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
 from .atmosphere import Atmosphere
 from .constants import BOLTZMANN, LIGHT_SPEED, PI, PLANCK, STEFAN_BOLTZMANN
 from .radiative_transfer import Backend, emergent_flux
@@ -43,7 +44,9 @@ class Spectrum:
     def bolometric_flux(self) -> float:
         """Numerically integrated surface flux in erg cm^-2 s^-1."""
 
-        return float(np.trapz(self.surface_flux_lambda, self.wavelength_angstrom))
+        return float(
+            trapezoid(self.surface_flux_lambda, self.wavelength_angstrom)
+        )
 
     @property
     def flux_effective_temperature(self) -> float:

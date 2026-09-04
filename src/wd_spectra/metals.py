@@ -29,6 +29,8 @@ from typing import Iterable, Literal, Mapping
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from ._compat import trapezoid
+
 try:  # Optional element-independent profile kernel.
     from . import _rt
 except ImportError:  # pragma: no cover - exercised when the extension is absent
@@ -6649,7 +6651,7 @@ def metal_line_mass_absorption_coefficient(
                     combined_profile = np.maximum(
                         impact_profile, static_profile
                     )
-                area = np.trapz(combined_profile, selected_wavelength)
+                area = trapezoid(combined_profile, selected_wavelength)
                 if not np.isfinite(area) or area <= 0.0:
                     continue
                 combined_profile = combined_profile / area
