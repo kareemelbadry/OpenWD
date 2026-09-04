@@ -63,6 +63,9 @@ Each script starts from an approximate atmosphere, iterates the coupled
 structure, calculates the final spectrum, and writes `atmosphere.npz`,
 `spectrum.txt`, `metadata.json`, and `spectrum.png`.
 
+For an interactive walkthrough, see the
+[`generate_spectrum.ipynb`](examples/generate_spectrum.ipynb) notebook.
+
 ```bash
 python examples/one_shot_da.py  --teff 12000 --logg 8.0 --quality standard
 python examples/one_shot_db.py  --teff 20000 --logg 8.0 --quality standard
