@@ -207,6 +207,58 @@ def ml2_convective_flux_for_gradient_from_thermodynamics(
     return np.where(superadiabatic_excess > 0.0, flux, 0.0)
 
 
+def ml2_convective_flux_gradient_derivative_from_thermodynamics(
+    atmosphere: Atmosphere,
+    rosseland_opacity: ArrayLike,
+    temperature_gradient: ArrayLike,
+    specific_heat_constant_pressure: ArrayLike,
+    density_temperature_derivative: ArrayLike,
+    adiabatic_temperature_gradient: ArrayLike,
+    *,
+    mixing_length_alpha: float = 1.25,
+) -> FloatArray:
+    r"""Return the analytic ML2 derivative ``dF_conv/dnabla``.
+
+    The finite-difference derivative is especially inaccurate in efficient
+    convection, where the superadiabatic excess can be much smaller than a
+    practical differencing step.  Differentiating the local ML2 cubic avoids
+    crossing the convection boundary and supplies the response needed by the
+    atmosphere Newton system.
+    """
+
+    gradient = np.asarray(temperature_gradient, dtype=np.float64)
+    if gradient.shape[-1:] != atmosphere.temperature.shape:
+        raise ValueError(
+            "temperature_gradient must end with the atmosphere depth dimension"
+        )
+    if np.any(~np.isfinite(gradient)):
+        raise ValueError("temperature_gradient must contain finite values")
+    adiabatic_gradient, radiative_loss, flux_coefficient = (
+        _ml2_local_coefficients_from_thermodynamics(
+            atmosphere,
+            rosseland_opacity,
+            specific_heat_constant_pressure,
+            density_temperature_derivative,
+            adiabatic_temperature_gradient,
+            mixing_length_alpha,
+        )
+    )
+    superadiabatic_excess = np.maximum(
+        gradient - adiabatic_gradient, 0.0
+    )
+    square_root = np.sqrt(
+        0.25 * radiative_loss**2 + superadiabatic_excess
+    )
+    element_environment_difference = -0.5 * radiative_loss + square_root
+    derivative = (
+        3.0
+        * flux_coefficient
+        * element_environment_difference**2
+        / np.maximum(2.0 * square_root, np.finfo(np.float64).tiny)
+    )
+    return np.where(superadiabatic_excess > 0.0, derivative, 0.0)
+
+
 def ml2_temperature_gradient_for_flux_from_thermodynamics(
     atmosphere: Atmosphere,
     rosseland_opacity: ArrayLike,

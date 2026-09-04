@@ -1196,6 +1196,9 @@ def test_adaptive_helium_checkpoint_resumes_in_formal_flux_phase():
     assert atmosphere.metadata["resumed_directly_in_formal_flux_phase"]
     assert atmosphere.metadata["convective_preconditioner_iterations"] == 0
     assert atmosphere.metadata["convective_preconditioner_iteration_limit"] == 0
+    assert atmosphere.metadata["formal_flux_continuations"] == 2
+    assert atmosphere.metadata["radiative_equilibrium_iterations"] == 3
+    assert not atmosphere.metadata["radiative_equilibrium_converged"]
 
 
 def test_nonideal_dense_helium_increases_first_ionization(atomic_root: Path):

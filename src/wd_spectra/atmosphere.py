@@ -1185,6 +1185,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
     from .spectrum import planck_lambda_angstrom
     if mixing_length_alpha is not None:
         from .convection import (
+            ml2_convective_flux_gradient_derivative_from_thermodynamics,
             ml2_convective_flux_for_gradient_from_thermodynamics,
             ml2_temperature_gradient_for_total_flux_from_thermodynamics,
         )
@@ -1832,6 +1833,18 @@ def radiative_equilibrium_hydrogen_atmosphere(
             convective_flux_gradient_derivative = (
                 hotter_gradient_convective_flux - desired_convective_flux
             ) / gradient_step
+            actual_convective_flux_gradient_derivative = (
+                ml2_convective_flux_gradient_derivative_from_thermodynamics(
+                    interface_atmosphere,
+                    rosseland_interface,
+                    temperature_gradient,
+                    heat_capacity_interface,
+                    expansion_interface,
+                    adiabatic_gradient_interface,
+                    mixing_length_alpha=mixing_length_alpha,
+                )
+            )
+            actual_convective_flux_gradient_derivative[0] = 0.0
             return {
                 "rosseland": rosseland,
                 "adiabatic_gradient": adiabatic_gradient_interface,
@@ -1843,6 +1856,9 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 ),
                 "convective_flux_gradient_derivative": (
                     convective_flux_gradient_derivative
+                ),
+                "actual_convective_flux_gradient_derivative": (
+                    actual_convective_flux_gradient_derivative
                 ),
             }
 
@@ -1994,6 +2010,23 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     )
                 )
                 jacobian = radiative_flux_jacobian / target_flux
+                if (
+                    mixing_length_alpha is not None
+                    and transport is not None
+                    and use_physical_radiative_residual
+                ):
+                    # The completion residual is the actual radiative plus
+                    # convective flux.  Its Newton matrix must include the
+                    # local ML2 response at the current gradient; omitting it
+                    # makes cool convective DA models reach the right surface
+                    # flux while stalling with a deep transport defect.
+                    jacobian += (
+                        transport[
+                            "actual_convective_flux_gradient_derivative"
+                        ][:, np.newaxis]
+                        * interface_gradient_operator
+                        / target_flux
+                    )
                 if (
                     mixing_length_alpha is not None
                     and rosseland_for_convection is not None

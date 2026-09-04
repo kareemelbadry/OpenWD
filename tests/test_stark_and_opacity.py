@@ -55,6 +55,8 @@ from wd_spectra.constants import (
 from wd_spectra.convection import (
     ml2_convective_flux,
     ml2_convective_flux_for_gradient,
+    ml2_convective_flux_for_gradient_from_thermodynamics,
+    ml2_convective_flux_gradient_derivative_from_thermodynamics,
     ml2_temperature_gradient_for_flux,
 )
 from wd_spectra.atmosphere import Atmosphere, _metal_line_opacity_sampling_grid
@@ -62,6 +64,7 @@ from wd_spectra.eos import (
     hummer_mihalas_hydrogen_lte,
     hummer_mihalas_hydrogen_helium_thermodynamics,
     ideal_hydrogen_lte,
+    ideal_hydrogen_thermodynamics,
 )
 from wd_spectra.validation import read_svo_koester_ascii
 
@@ -1411,6 +1414,49 @@ def test_ml2_flux_is_zero_for_stable_gradient_and_positive_when_unstable():
         unstable, np.full(unstable.n_depth, 0.1), 2.0 * requested_flux
     )
     assert np.all(higher_gradient > lower_gradient)
+
+
+def test_ml2_analytic_gradient_response_matches_centered_difference():
+    atmosphere = gray_hydrogen_atmosphere(9_000.0, 8.0, n_depth=12)
+    thermodynamics = ideal_hydrogen_thermodynamics(
+        atmosphere.temperature, atmosphere.gas_pressure
+    )
+    opacity = np.full(atmosphere.n_depth, 0.1)
+    gradient = np.full(atmosphere.n_depth, 0.6)
+    step = 1.0e-6
+
+    analytic = ml2_convective_flux_gradient_derivative_from_thermodynamics(
+        atmosphere,
+        opacity,
+        gradient,
+        thermodynamics.specific_heat_constant_pressure,
+        thermodynamics.density_temperature_derivative,
+        thermodynamics.adiabatic_temperature_gradient,
+        mixing_length_alpha=0.7,
+    )
+    upper = ml2_convective_flux_for_gradient_from_thermodynamics(
+        atmosphere,
+        opacity,
+        gradient + step,
+        thermodynamics.specific_heat_constant_pressure,
+        thermodynamics.density_temperature_derivative,
+        thermodynamics.adiabatic_temperature_gradient,
+        mixing_length_alpha=0.7,
+    )
+    lower = ml2_convective_flux_for_gradient_from_thermodynamics(
+        atmosphere,
+        opacity,
+        gradient - step,
+        thermodynamics.specific_heat_constant_pressure,
+        thermodynamics.density_temperature_derivative,
+        thermodynamics.adiabatic_temperature_gradient,
+        mixing_length_alpha=0.7,
+    )
+
+    assert np.all(analytic > 0.0)
+    np.testing.assert_allclose(
+        analytic, (upper - lower) / (2.0 * step), rtol=2.0e-8
+    )
 
 
 def test_ml2_uses_shared_hydrogen_helium_thermodynamics_for_mixture():

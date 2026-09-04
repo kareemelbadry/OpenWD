@@ -102,9 +102,11 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The initial release retains 271 solver, EOS, opacity, line-profile, transfer,
-and model-component tests. The repository does not include observational or
-published-grid validation spectra.
+The release retains 274 solver, EOS, opacity, line-profile, transfer, and
+model-component tests. The repository does not include observational or
+published-grid validation spectra. See the
+[recovered solver baseline](docs/recovered-solver-baseline.md) for the
+convergence cases used to protect the current numerical core.
 
 ## Status
 

@@ -83,7 +83,7 @@ from .stark import (
     default_paschen_stark_table,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "Atmosphere",
