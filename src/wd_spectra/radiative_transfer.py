@@ -47,6 +47,14 @@ class StokesIntensity:
     v: FloatArray
 
 
+def _solve_stacked_vector_systems(
+    matrix: FloatArray, right_hand_side: FloatArray
+) -> FloatArray:
+    """Solve batched matrix-vector systems consistently across NumPy versions."""
+
+    return np.linalg.solve(matrix, right_hand_side[..., np.newaxis])[..., 0]
+
+
 def compiled_backend_available() -> bool:
     """Return whether the optional C transfer kernel was imported."""
 
@@ -304,14 +312,15 @@ def emergent_stokes_specific_intensity(
         # Diffusion/thermalization boundary: use the local equilibrium Stokes
         # vector K^-1 j rather than forcing Q=U=V=0 when dichroic emissivity is
         # explicitly supplied.
-        stokes = np.linalg.solve(inner_matrix, emission[:, -1])
+        stokes = _solve_stacked_vector_systems(inner_matrix, emission[:, -1])
+
     def exponential_step(
         incident: FloatArray,
         propagation: FloatArray,
         emitted: FloatArray,
         delta: FloatArray,
     ) -> FloatArray:
-        equilibrium = np.linalg.solve(propagation, emitted)
+        equilibrium = _solve_stacked_vector_systems(propagation, emitted)
         eigenvalue, eigenvector = np.linalg.eig(
             delta * propagation
         )
@@ -354,7 +363,9 @@ def emergent_stokes_specific_intensity(
         else:
             scaled = delta * propagation
             right_hand_side = stokes + delta * emitted_per_mass
-            stokes = np.linalg.solve(identity + scaled, right_hand_side)
+            stokes = _solve_stacked_vector_systems(
+                identity + scaled, right_hand_side
+            )
         inner_matrix = outer_matrix
 
     surface_delta = mass[0] / mu
@@ -375,7 +386,7 @@ def emergent_stokes_specific_intensity(
         )
     else:
         surface_scaled = surface_delta * inner_matrix
-        stokes = np.linalg.solve(
+        stokes = _solve_stacked_vector_systems(
             identity + surface_scaled,
             stokes + surface_delta * surface_emission_per_mass,
         )
