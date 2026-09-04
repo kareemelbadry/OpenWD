@@ -19,6 +19,7 @@ from wd_spectra.metals import (
     ATOMIC_MASS_U,
     ATOMIC_NUMBER,
     IONIZATION_ENERGY_EV,
+    _hydrogen_state_with_trace_metal_electrons,
     atomic_database_with_melendez_barbuy_feii_oscillator_strengths,
     augment_oxygen_i_6258_6271_multiplet,
     atmosphere_with_metal_electrons,
@@ -1117,6 +1118,37 @@ def test_hydrogen_host_is_reclosed_with_metal_donated_electrons(
     assert enriched.hydrogen_lte_state is hydrogen
     np.testing.assert_allclose(enriched.electron_density, state.electron_density)
     np.testing.assert_allclose(enriched.proton_density, hydrogen.proton_density)
+
+
+def test_hydrogen_host_reclosure_conserves_nuclei_when_newton_falls_back():
+    atmosphere = gray_hydrogen_atmosphere(
+        6_000.0,
+        8.0,
+        n_depth=12,
+        rosseland_opacity=0.1,
+        include_molecules=True,
+        include_negative_hydrogen=True,
+        trihydrogen_ion_partition_model="neale-tennyson-1995",
+    )
+    template = atmosphere.hydrogen_lte_state
+    assert template is not None
+    trial_electron_density = np.geomspace(1.0e12, 1.0e22, 12)
+    hydrogen, _ = _hydrogen_state_with_trace_metal_electrons(
+        template, atmosphere.temperature, trial_electron_density
+    )
+
+    counted_nuclei = hydrogen.neutral_h_density + hydrogen.proton_density
+    assert hydrogen.negative_hydrogen_density is not None
+    assert hydrogen.molecular_hydrogen_density is not None
+    assert hydrogen.molecular_hydrogen_ion_density is not None
+    assert hydrogen.trihydrogen_ion_density is not None
+    counted_nuclei += hydrogen.negative_hydrogen_density
+    counted_nuclei += 2.0 * hydrogen.molecular_hydrogen_density
+    counted_nuclei += 2.0 * hydrogen.molecular_hydrogen_ion_density
+    counted_nuclei += 3.0 * hydrogen.trihydrogen_ion_density
+    np.testing.assert_allclose(
+        counted_nuclei, hydrogen.hydrogen_nuclei_density, rtol=2.0e-12
+    )
 
 
 def test_adaptive_hydrogen_structure_retains_trace_metal_feedback_metadata(

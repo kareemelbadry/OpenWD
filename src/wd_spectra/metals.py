@@ -3438,13 +3438,24 @@ def _hydrogen_state_with_trace_metal_electrons(
         lower = np.zeros_like(nuclei_density)
         upper = nuclei_density.copy()
         neutral = np.minimum(nuclei_density / np.maximum(linear, tiny), upper)
-        for _ in range(20):
+        conservation_tolerance = (
+            32.0
+            * np.finfo(np.float64).eps
+            * np.maximum(nuclei_density, 1.0)
+        )
+        # A Newton proposal can become unusable in molecular transition
+        # layers, reducing this to bisection.  Retain enough iterations for
+        # that worst case rather than relying on a platform-sensitive Newton
+        # path reaching the root within a short fixed iteration count.
+        for _ in range(64):
             residual = (
                 linear * neutral
                 + quadratic * neutral**2
                 + cubic * neutral**3
                 - nuclei_density
             )
+            if np.all(np.abs(residual) <= conservation_tolerance):
+                break
             upper = np.where(residual > 0.0, neutral, upper)
             lower = np.where(residual > 0.0, lower, neutral)
             derivative = (
