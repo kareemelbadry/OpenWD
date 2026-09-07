@@ -56,6 +56,11 @@ Outer temperatures previously unconstrained by interface flux may change only
 with explained local-energy corrections and independently checked spectra.
 Runtime budgets account for the added physical completion, not relaxed physical
 tolerances. Fixed-atmosphere synthesis has separate, tighter regression bounds.
+Iteration ceilings are coarse work guards, not equilibrium criteria. The two
+100-layer ultracool DA canaries share a 120-iteration ceiling; a verified
+4000 K calculation took 61 iterations on one CI run and 59 on another, making
+the former 60-iteration test ceiling too tight. All physical and spectral
+checks remain mandatory and unchanged.
 
 Public generation and examples are cold-start workflows. `run_model` rejects
 checkpoint inputs. Low-level checkpoint/fixed-synthesis utilities are retained
