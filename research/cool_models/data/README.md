@@ -23,8 +23,8 @@ validated Teff range. Excited-state and trace-ion checks impose additional
 validity limits. Invalid trials can be shortened, but accepted atmospheres
 cannot silently extrapolate or substitute an ideal EOS.
 
-To recompute into a new file, from the repository root after installing the
-research dependencies:
+To recompute into a new file, from the repository root after the normal
+package installation:
 
 ```sh
 python research/cool_models/dense_helium_molecular_experiment.py \

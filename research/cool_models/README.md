@@ -18,7 +18,7 @@ coordinates, secant and chemistry-precision experiments did not solve the
 Run from the repository root:
 
 ```sh
-python -m pip install -e '.[test,research]'
+python -m pip install -e '.[test]'
 export PYTHONPATH=src:research/cool_models
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OPENWD_NUM_THREADS=1
 ```

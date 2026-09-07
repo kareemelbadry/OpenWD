@@ -55,7 +55,8 @@ dab = run_model(DABConfig(effective_temperature=7500, quality="production"),
 ```
 
 Use a new output directory for each calculation. Cool workers require a source
-checkout, research dependencies, and the [declared molecular data](../research/cool_models/README.md).
+checkout with the normal installation and, for DAB, the
+[declared molecular data](../research/cool_models/README.md).
 Missing data or invalid material domains fail explicitly; there is no alternate
 physics retry. `run_model` rejects checkpoint inputs.
 

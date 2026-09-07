@@ -185,7 +185,7 @@ def run_model(
     if selection.experimental:
         if not (research / "run_cool_db.py").is_file():
             raise FileNotFoundError(
-                'Automatic cool workflows need a source checkout with research/cool_models; install with pip install -e ".[research]"'
+                'Automatic cool workflows need a source checkout with research/cool_models; install with pip install -e .'
             )
         commands, spectrum_path = _cool_commands(
             config, selection, directory, research

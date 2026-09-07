@@ -18,7 +18,8 @@ python -m pip install -e .
 Run subsequent commands from the OpenWD directory. The installer attempts to
 build the optional C acceleration extension. The tested Python implementation
 is also available if no compiler is present; the selected physical model is
-unchanged. Established-preset data are bundled.
+unchanged. NumPy, Matplotlib, SciPy, and mpmath are installed automatically.
+Established-preset data are bundled.
 
 For the notebook, install Jupyter in the same environment:
 
@@ -101,11 +102,8 @@ not guarantees of convergence or paper-spectrum reproduction.
 The automatic interface screens local material conditions before solving and
 selects the dense-helium or molecular workflow when indicated. These workflows
 currently require this source checkout, `quality="production"`, log g = 8,
-integer-K temperatures, and the research dependencies:
-
-```bash
-python -m pip install -e '.[research]'
-```
+and integer-K temperatures. Their Python dependencies are included in the
+normal installation; there is no separate dependency extra to enable.
 
 Molecular DAB additionally needs the checksum-pinned public tables in the
 [data setup instructions](../research/cool_models/README.md#additional-molecular-dab-data).

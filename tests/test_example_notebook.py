@@ -83,14 +83,20 @@ def fake_runner(workflow, qualified=True, *, empty_zoom=False):
     return run
 
 
-def test_notebook_is_executable_and_has_no_stale_outputs():
+def test_notebook_is_executable_with_saved_example_outputs():
+    counts = []
     for cell in CELLS:
-        assert "execution" not in cell["metadata"]
         if cell["cell_type"] == "code":
-            assert cell["outputs"] == []
-            assert cell["execution_count"] is None
+            counts.append(cell["execution_count"])
+            assert all(output["output_type"] != "error" for output in cell["outputs"])
             compile("".join(cell["source"]), cell["id"], "exec")
+    assert counts == list(range(1, len(counts) + 1))
     assert "compute_" not in "\n".join(CODE.values())
+    plot = next(cell for cell in CELLS if cell["id"] == "plot")
+    assert any(output.get("data", {}).get("image/png") for output in plot["outputs"])
+    checks = next(cell for cell in CELLS if cell["id"] == "checks")
+    output = "".join("".join(item.get("text", [])) for item in checks["outputs"])
+    assert "Numerical qualification: verified for declared equations" in output
 
 
 @pytest.mark.parametrize(

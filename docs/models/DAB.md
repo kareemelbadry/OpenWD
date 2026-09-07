@@ -26,7 +26,7 @@ atomic preset above does not automatically select it.
 Fresh molecular calculations have been qualified at 7500, 8000, 9000, and
 10000 K for log g = 8 and log10 N(H)/N(He) = -2. These are cold-start points,
 not a guaranteed interval; 7250 and 5000 K remain unqualified. Setup requires
-production quality, research dependencies, and additional public data. See
+production quality, the normal package installation, and additional public data. See
 [cool-model setup](../getting-started.md#cool-helium-and-mixed-atmospheres),
 [tested points](../tested-temperature-ranges.md), and
 [physical limitations](../limitations.md#physical-approximations).

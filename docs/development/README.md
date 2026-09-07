@@ -11,7 +11,7 @@ investigations live in the [research history](history/README.md).
 From the repository root:
 
 ```bash
-python -m pip install -e '.[test,research]'
+python -m pip install -e '.[test]'
 python -m pytest
 python -m pytest research/cool_models -o addopts=-ra
 python -m pytest tests/test_protected_model_canaries.py -o addopts=-ra
