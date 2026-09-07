@@ -1814,12 +1814,23 @@ def rosseland_mean_hydrogen_continuum_opacity(
     atmosphere: Atmosphere,
     *,
     n_frequency: int = 240,
+    wavelength_angstrom: ArrayLike | None = None,
     h2_h2_cia_table: H2H2CollisionInducedAbsorptionTable | None = None,
 ) -> FloatArray:
     """Return the Rosseland mean of the implemented hydrogen continuum."""
 
     if n_frequency < 40:
         raise ValueError("n_frequency must be at least 40")
+    if wavelength_angstrom is not None:
+        from ._rosseland import rosseland_mean_from_opacity_grid
+
+        return rosseland_mean_from_opacity_grid(
+            wavelength_angstrom,
+            hydrogen_continuum_mass_absorption_coefficient(
+                atmosphere, wavelength_angstrom, h2_h2_cia_table=h2_h2_cia_table,
+            ),
+            atmosphere.temperature,
+        )
     result = np.empty(atmosphere.n_depth, dtype=np.float64)
     dimensionless_frequency = np.geomspace(0.1, 30.0, n_frequency)
     exponential = np.exp(dimensionless_frequency)

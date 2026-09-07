@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Literal, Mapping
 
@@ -105,6 +107,8 @@ class DABConfig:
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
     neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
+    include_molecules: bool = False
+    h2_he_cia_path: str | None = None
 
 
 GD40_ABUNDANCES = MappingProxyType(
@@ -655,6 +659,19 @@ def compute_db(
     )
 
 
+def _mixed_molecular_data(h2_he_path: str, h2_h2_path: str):
+    paths=tuple(Path(p).expanduser().resolve() for p in (h2_he_path,h2_h2_path))
+    identity=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in paths)
+    return _cached_mixed_molecular_data(*map(str,paths),identity)
+
+
+@lru_cache(maxsize=4)
+def _cached_mixed_molecular_data(h2_he_path: str, h2_h2_path: str, identity):
+    from .._mixed_cia import MolecularHHePhysics, read_hitran_h2_he_cia
+    return MolecularHHePhysics(read_hitran_h2_he_cia(h2_he_path),
+        read_borysow_h2_h2_cia_table(h2_h2_path))
+
+
 def compute_dab(
     config: DABConfig = DABConfig(),
     wavelength: ArrayLike | None = None,
@@ -667,10 +684,30 @@ def compute_dab(
     ]
     | None = None,
 ) -> ModelResult:
-    """Calculate one homogeneous atomic DAB/DBA atmosphere and spectrum."""
+    """Calculate a DAB/DBA, with explicit molecular H/He support.
+
+    The molecular option requires the Abel/HITRAN H2-He table. It includes
+    molecular charge/reaction thermodynamics, H2-He/H2-H2 CIA and neutral Lyalpha
+    wings. It is not a dense-fluid EOS or a pressure-distorted CIA model.
+    """
 
     data = ModelData.default() if data is None else data
-    request_fingerprint = model_request_fingerprint("DAB", config, data)
+    molecular = None
+    if not isinstance(config.include_molecules, bool):
+        raise ValueError("include_molecules must be boolean")
+    if config.include_molecules:
+        h2he_path = (Path(config.h2_he_cia_path).expanduser().resolve()
+            if config.h2_he_cia_path is not None else data.cache / "molecular-opacity/H2-He_2011.cia")
+        if not h2he_path.is_file():
+            raise FileNotFoundError("Molecular DAB requires HITRAN H2-He_2011.cia; "
+                "set DABConfig(h2_he_cia_path=...) or install it in ModelData.cache/molecular-opacity")
+        data.require(data.h2_h2_cia)
+        molecular = _mixed_molecular_data(str(h2he_path),str(data.h2_h2_cia))
+    request_fingerprint = model_request_fingerprint("DAB", config, data,
+        physical_data_identity=(None if molecular is None else
+            {"h2_he_cia_path": str(molecular.h2_he_table.source_path),
+             "h2_he_cia_sha256": molecular.h2_he_table.source_sha256,
+             "molecular_closure_revision": 1}))
     checkpoint_matches_request = atmosphere_matches_model_request(
         initial_atmosphere, request_fingerprint
     )
@@ -702,6 +739,7 @@ def compute_dab(
             config.effective_temperature,
             config.logg,
             config.log_hydrogen_to_helium,
+            molecular_h_he=molecular,
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
             n_depth=resolution.n_depth,
@@ -746,9 +784,14 @@ def compute_dab(
             atmosphere, request_fingerprint
         )
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DAB")
+    hstate = atmosphere.hydrogen_lte_state
+    has_molecules = hstate is not None and hstate.chemical_model == "molecular-h-he-hm"
+    if has_molecules != config.include_molecules:
+        raise ValueError("DAB synthesis chemistry does not match its atmosphere; rebuild and relax it")
     spectrum = synthesize_hydrogen_helium_spectrum(
         atmosphere,
         wave,
+        molecular_h_he=molecular,
         stark_table=he_i,
         helium_ii_stark_table=he_ii,
         unified_allard_table=allard,
@@ -769,7 +812,11 @@ def compute_dab(
         config,
         {
             "preset": "DAB-production-v5",
-            "composition": "homogeneous atomic H/He LTE",
+            "composition": ("homogeneous molecular H/He LTE" if molecular is not None
+                else "homogeneous atomic H/He LTE"),
+            "includes_molecular_equilibrium": molecular is not None,
+            "h2_he_cia_source": None if molecular is None else str(molecular.h2_he_table.source_path),
+            "h2_he_cia_sha256": None if molecular is None else molecular.h2_he_table.source_sha256,
             "microfields": "Q-MHD for H and He",
             "lyman_profiles": (
                 "temperature-regime Allard + full charged Stark "

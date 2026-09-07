@@ -538,7 +538,7 @@ def test_helium_checkpoint_resamples_all_structure_coordinates():
         atmosphere.metadata[
             "electron_scattering_source_iterations_per_evaluation"
         ]
-        == 4
+        == 1
     )
     assert (
         atmosphere.metadata[

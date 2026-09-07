@@ -233,7 +233,9 @@ def _atmosphere_from_hydrogen_helium_state(
         neutral_h_density=hydrogen.neutral_h_density,
         proton_density=hydrogen.proton_density,
         electron_density=state.electron_density,
-        metadata=metadata,
+        metadata=({**metadata, "includes_molecular_equilibrium": True,
+                   "mixed_chemical_model": state.chemical_model}
+                  if state.chemical_model == "molecular-h-he-hm" else metadata),
         hydrogen_lte_state=hydrogen,
         helium_lte_state=state.helium_lte_state,
     )
@@ -1670,7 +1672,8 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     current.temperature,
                 )
             return rosseland_mean_hydrogen_continuum_opacity(
-                current, h2_h2_cia_table=h2_h2_cia_table
+                current, h2_h2_cia_table=h2_h2_cia_table,
+                wavelength_angstrom=wavelength,
             )
 
         def thermodynamics(current: Atmosphere) -> object:
@@ -1706,13 +1709,24 @@ def radiative_equilibrium_hydrogen_atmosphere(
             # completed checkpoint.  Preserve that contract: it still gets
             # the bounded ML2 conditioner before exact flux completion.
             resume_supplied_structure_in_formal_flux_phase=False,
+            # The very efficient convection zones below 5000 K require the
+            # interface-based projection recovered from the successful
+            # ultracool DA solver.  Preserve the validated node-gradient path
+            # at and above 5000 K.
             initial_convective_gradient_projection_mode=(
-                "unstable-node-gradient"
-                if initial_temperature is None
-                else "interface-transport"
+                "interface-transport"
+                if effective_temperature < 5_000.0
+                or initial_temperature is not None
+                else "unstable-node-gradient"
             ),
             maximum_convective_preconditioner_iterations=max_iterations,
             preconditioner_stationary_completion_iterations=None,
+            use_adiabatic_asymptotic_conditioning=(
+                effective_temperature < 5_000.0
+            ),
+            use_initial_bolometric_rescaling=(
+                effective_temperature >= 5_000.0
+            ),
             iteration_callback=iteration_callback,
             metadata={
                 **{
@@ -2590,6 +2604,7 @@ def radiative_equilibrium_helium_atmosphere(
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     log_hydrogen_abundance: float | None = None,
+    molecular_h_he: object | None = None,
     include_trace_hydrogen_lines: bool = True,
     include_hydrogen_self_broadening: bool = True,
     include_hydrogen_neutral_helium_broadening: bool = True,
@@ -2692,6 +2707,13 @@ def radiative_equilibrium_helium_atmosphere(
     homogeneous_mixture = (
         log_hydrogen_abundance is not None and metal_database is None
     )
+    if molecular_h_he is not None and (
+        not homogeneous_mixture or helium_reos3_table is not None
+        or structure_solver != "adaptive-newton"
+    ):
+        raise ValueError("Molecular H/He requires a homogeneous adaptive mixture without bulk-EOS substitution")
+    mixed_lte = (hummer_mihalas_hydrogen_helium_lte if molecular_h_he is None
+                 else molecular_h_he.lte)
     from .constants import (
         BOLTZMANN,
         ELECTRON_MASS,
@@ -2841,7 +2863,7 @@ def radiative_equilibrium_helium_atmosphere(
         }
         if homogeneous_mixture:
             assert log_hydrogen_abundance is not None
-            mixed_restart_eos = hummer_mihalas_hydrogen_helium_lte(
+            mixed_restart_eos = mixed_lte(
                 restart_temperature,
                 restart_pressure,
                 log_hydrogen_abundance,
@@ -3226,7 +3248,7 @@ def radiative_equilibrium_helium_atmosphere(
     def with_temperature(values: FloatArray) -> Atmosphere:
         if homogeneous_mixture:
             assert log_hydrogen_abundance is not None
-            mixed_eos = hummer_mihalas_hydrogen_helium_lte(
+            mixed_eos = mixed_lte(
                 values,
                 seed.gas_pressure,
                 log_hydrogen_abundance,
@@ -3369,12 +3391,15 @@ def radiative_equilibrium_helium_atmosphere(
                     maximum_lines=maximum_metal_lines,
                 )
         if current.hydrogen_lte_state is not None:
-            result += hydrogen_continuum_mass_absorption_coefficient(
+            hydrogen_opacity = (hydrogen_continuum_mass_absorption_coefficient
+                if molecular_h_he is None else molecular_h_he.hydrogen_opacity)
+            result += hydrogen_opacity(
                 current,
                 wavelength,
                 include_electron_scattering=False,
                 include_rayleigh_scattering=False,
                 include_molecular_absorption=False,
+                **({} if molecular_h_he is None else dict(unified_allard_table=unified_allard_table)),
             )
             if include_trace_hydrogen_lines:
                 result += balmer_mass_absorption_coefficient(
@@ -3472,15 +3497,19 @@ def radiative_equilibrium_helium_atmosphere(
             return function(
                 current,
                 n_frequency=120,
+                wavelength_angstrom=wavelength,
                 include_helium_dimer_ion=include_helium_dimer_ion,
                 include_helium_three_body_cia=include_helium_three_body_cia,
                 include_rydberg_bound_free=include_rydberg_bound_free,
+                **({} if molecular_h_he is None else dict(molecular_h_he=molecular_h_he)),
             )
 
         def thermodynamics(current: Atmosphere) -> object:
             if homogeneous_mixture:
                 assert log_hydrogen_abundance is not None
-                return hummer_mihalas_hydrogen_helium_thermodynamics(
+                thermo_function = (hummer_mihalas_hydrogen_helium_thermodynamics
+                    if molecular_h_he is None else molecular_h_he.thermodynamics)
+                return thermo_function(
                     current.temperature,
                     current.gas_pressure,
                     log_hydrogen_abundance,
@@ -3538,6 +3567,8 @@ def radiative_equilibrium_helium_atmosphere(
                     else "hummer-mihalas-helium-occupation-probability"
                 ),
                 "helium_neutral_radius_scale": float(neutral_radius_scale),
+                "includes_molecular_equilibrium": molecular_h_he is not None,
+                "mixed_chemical_model": ("molecular-h-he-hm" if molecular_h_he is not None else "atomic-h-he-hm"),
                 "radiative_equilibrium_includes_helium_lines": bool(
                     include_lines
                 ),
@@ -4387,7 +4418,8 @@ def radiative_equilibrium_hydrogen_helium_atmosphere(
     # agree with the full finite-difference opacity derivative to better than
     # 1.3e-4 pointwise in temperature.  Avoiding the second full line-opacity
     # evaluation approximately halves every mixed-atmosphere iteration.
-    kwargs.setdefault("include_absorption_temperature_derivative", False)
+    kwargs.setdefault("include_absorption_temperature_derivative",
+                      kwargs.get("molecular_h_he") is not None)
     return radiative_equilibrium_helium_atmosphere(
         effective_temperature,
         logg,

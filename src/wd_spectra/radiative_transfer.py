@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Callable, Literal
 from dataclasses import dataclass
 
 import numpy as np
@@ -684,6 +684,192 @@ def feautrier_radiation_field(
     )
 
 
+def coherent_scattering_feautrier_field(
+    optical_depth: ArrayLike,
+    planck_function: ArrayLike,
+    true_absorption: ArrayLike,
+    scattering: ArrayLike,
+    *,
+    n_angle: int = 4,
+    wavelength_chunk_size: int = 64,
+) -> tuple[FloatArray, RadiationField]:
+    r"""Solve coherent-isotropic LTE scattering as one coupled system.
+
+    The source equation ``S = epsilon B + (1-epsilon) J`` is substituted
+    directly into the angle-dependent Feautrier equations.  Each wavelength
+    is then block tridiagonal in depth, with one small angular block per
+    depth.  Unlike a fixed number of Lambda sweeps, this solve has no
+    albedo-dependent convergence error.
+    """
+
+    tau, planck = _validate_inputs(optical_depth, planck_function)
+    absorption = np.broadcast_to(
+        np.asarray(true_absorption, dtype=np.float64), planck.shape
+    )
+    scatter = np.broadcast_to(
+        np.asarray(scattering, dtype=np.float64), planck.shape
+    )
+    if (
+        np.any(~np.isfinite(absorption))
+        or np.any(absorption < 0.0)
+        or np.any(~np.isfinite(scatter))
+        or np.any(scatter < 0.0)
+        or wavelength_chunk_size < 1
+    ):
+        raise ValueError("scattering-solve inputs must be finite and physical")
+    extinction = np.maximum(
+        absorption + scatter, np.finfo(np.float64).tiny
+    )
+    epsilon = absorption / extinction
+    scattering_fraction = scatter / extinction
+    if not np.any(scatter > 0.0):
+        return planck.copy(), feautrier_radiation_field(
+            tau, planck, n_angle=n_angle
+        )
+    if tau.ndim == 1:
+        tau = np.broadcast_to(tau[np.newaxis, :], planck.shape)
+    n_wavelength, n_depth = planck.shape
+    mu, angle_weight = angular_quadrature(n_angle)
+    n_ray = mu.size
+    mean_intensity = np.zeros_like(planck)
+    flux = np.zeros_like(planck)
+    interface_flux = np.zeros_like(planck)
+
+    for start in range(0, n_wavelength, wavelength_chunk_size):
+        stop = min(start + wavelength_chunk_size, n_wavelength)
+        chunk_tau = tau[start:stop]
+        chunk_planck = planck[start:stop]
+        chunk_epsilon = epsilon[start:stop]
+        chunk_scattering = scattering_fraction[start:stop]
+        chunk_size = stop - start
+        expanded_tau = np.empty(
+            (chunk_size, n_depth + 1), dtype=np.float64
+        )
+        expanded_tau[:, 0] = 0.0
+        expanded_tau[:, 1:] = chunk_tau
+
+        lower = np.zeros(
+            (chunk_size, n_depth + 1, n_ray, n_ray), dtype=np.float64
+        )
+        diagonal = np.zeros_like(lower)
+        upper = np.zeros_like(lower)
+        right_hand_side = np.zeros(
+            (chunk_size, n_depth + 1, n_ray), dtype=np.float64
+        )
+        first_step = expanded_tau[:, 1]
+        previous_step = expanded_tau[:, 1:-1] - expanded_tau[:, :-2]
+        next_step = expanded_tau[:, 2:] - expanded_tau[:, 1:-1]
+        for ray, ray_mu in enumerate(mu):
+            diagonal[:, 0, ray, ray] = 1.0 + ray_mu / first_step
+            upper[:, 0, ray, ray] = -ray_mu / first_step
+            lower[:, 1:-1, ray, ray] = (
+                -2.0
+                * ray_mu**2
+                / (previous_step * (previous_step + next_step))
+            )
+            upper[:, 1:-1, ray, ray] = (
+                -2.0
+                * ray_mu**2
+                / (next_step * (previous_step + next_step))
+            )
+            diagonal[:, 1:-1, ray, ray] = (
+                1.0
+                - lower[:, 1:-1, ray, ray]
+                - upper[:, 1:-1, ray, ray]
+            )
+            diagonal[:, -1, ray, ray] = 1.0
+
+        # Material node k is expanded row k+1.  The final row is the
+        # thermalized lower boundary and therefore remains u_mu=B.
+        diagonal[:, 1:-1, :, :] -= (
+            chunk_scattering[:, :-1, np.newaxis, np.newaxis]
+            * angle_weight[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+        right_hand_side[:, 1:-1, :] = (
+            chunk_epsilon[:, :-1, np.newaxis]
+            * chunk_planck[:, :-1, np.newaxis]
+        )
+        right_hand_side[:, -1, :] = chunk_planck[:, -1, np.newaxis]
+
+        for depth in range(1, n_depth + 1):
+            multiplier = np.linalg.solve(
+                np.swapaxes(diagonal[:, depth - 1], -1, -2),
+                np.swapaxes(lower[:, depth], -1, -2),
+            )
+            multiplier = np.swapaxes(multiplier, -1, -2)
+            diagonal[:, depth] -= np.matmul(
+                multiplier, upper[:, depth - 1]
+            )
+            right_hand_side[:, depth] -= np.einsum(
+                "wij,wj->wi",
+                multiplier,
+                right_hand_side[:, depth - 1],
+                optimize=True,
+            )
+
+        symmetric_intensity = np.empty_like(right_hand_side)
+        symmetric_intensity[:, -1] = _solve_stacked_vector_systems(
+            diagonal[:, -1], right_hand_side[:, -1]
+        )
+        for depth in range(n_depth - 1, -1, -1):
+            reduced_rhs = right_hand_side[:, depth] - np.einsum(
+                "wij,wj->wi",
+                upper[:, depth],
+                symmetric_intensity[:, depth + 1],
+                optimize=True,
+            )
+            symmetric_intensity[:, depth] = _solve_stacked_vector_systems(
+                diagonal[:, depth], reduced_rhs
+            )
+
+        chunk_mean = np.einsum(
+            "wdr,r->wd",
+            symmetric_intensity[:, 1:, :],
+            angle_weight,
+            optimize=True,
+        )
+        chunk_interface_flux = np.zeros((chunk_size, n_depth))
+        chunk_flux = np.zeros_like(chunk_interface_flux)
+        for ray, (ray_mu, ray_weight) in enumerate(zip(mu, angle_weight)):
+            intensity = symmetric_intensity[:, :, ray]
+            chunk_interface_flux += (
+                4.0
+                * PI
+                * ray_weight
+                * ray_mu**2
+                * np.diff(intensity, axis=1)
+                / np.diff(expanded_tau, axis=1)
+            )
+            derivative = np.empty((chunk_size, n_depth), dtype=np.float64)
+            derivative[:, :-1] = (
+                -next_step
+                / (previous_step * (previous_step + next_step))
+                * intensity[:, :-2]
+                + (next_step - previous_step)
+                / (previous_step * next_step)
+                * intensity[:, 1:-1]
+                + previous_step
+                / (next_step * (previous_step + next_step))
+                * intensity[:, 2:]
+            )
+            derivative[:, -1] = (
+                intensity[:, -1] - intensity[:, -2]
+            ) / (expanded_tau[:, -1] - expanded_tau[:, -2])
+            chunk_flux += (
+                4.0 * PI * ray_weight * ray_mu**2 * derivative
+            )
+        mean_intensity[start:stop] = chunk_mean
+        interface_flux[start:stop] = chunk_interface_flux
+        flux[start:stop] = chunk_flux
+
+    source = epsilon * planck + scattering_fraction * mean_intensity
+    return source, RadiationField(
+        mean_intensity=mean_intensity,
+        flux=flux,
+        interface_flux=interface_flux,
+    )
+
+
 def integrated_feautrier_interface_flux_response(
     optical_depth: ArrayLike,
     wavelength_angstrom: ArrayLike,
@@ -1131,6 +1317,411 @@ def integrated_feautrier_interface_state_response(
             optimize=True,
         )
     return np.ascontiguousarray(integrated)
+
+
+def integrated_coherent_scattering_feautrier_state_response(
+    optical_depth: ArrayLike,
+    wavelength_angstrom: ArrayLike,
+    source_function: ArrayLike,
+    direct_source_derivative: ArrayLike,
+    planck_derivative: ArrayLike,
+    scattering_fraction: ArrayLike,
+    column_mass: ArrayLike,
+    mass_opacity_derivative: ArrayLike,
+    *,
+    n_angle: int = 4,
+    wavelength_chunk_size: int = 16,
+    return_auxiliary_response: bool = True,
+    mean_response_consumer: Callable[[int, int, FloatArray], None] | None = None,
+) -> tuple[FloatArray, FloatArray | None, FloatArray | None]:
+    r"""Differentiate the converged coherent-scattering transfer problem.
+
+    ``direct_source_derivative[lambda, k]`` is the local derivative of
+    ``epsilon B + (1-epsilon) J`` with respect to state ``x[k]`` at fixed
+    mean intensity.  The implicit scattering response is solved with the
+    same angular block-tridiagonal Feautrier matrix as the physical field.
+    This gives the exact derivative of the discrete coupled system without
+    forming or inverting a dense depth-by-depth Lambda operator.
+
+    Returns the wavelength-integrated interface-flux response, the
+    wavelength-resolved mean-intensity response, and the coupled source
+    response.  The last axis of each response indexes the perturbed state.
+    Set ``return_auxiliary_response=False`` when only the integrated flux
+    response is needed, avoiding two wavelength-by-depth-by-depth outputs.
+    An optional ``mean_response_consumer(start, stop, response)`` receives a
+    read-only wavelength chunk of dJ/dx. This permits additional integrated
+    responses without retaining a full wavelength-by-depth-by-depth array.
+    """
+
+    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
+    source = np.asarray(source_function, dtype=np.float64)
+    direct = np.asarray(direct_source_derivative, dtype=np.float64)
+    planck_response = np.asarray(planck_derivative, dtype=np.float64)
+    opacity_response = np.asarray(
+        mass_opacity_derivative, dtype=np.float64
+    )
+    scattering = np.broadcast_to(
+        np.asarray(scattering_fraction, dtype=np.float64), source.shape
+    )
+    mass = np.asarray(column_mass, dtype=np.float64)
+    tau, source = _validate_inputs(optical_depth, source)
+    if tau.ndim == 1:
+        tau = np.broadcast_to(tau[np.newaxis, :], source.shape)
+    if (
+        wavelength.ndim != 1
+        or wavelength.size != source.shape[0]
+        or wavelength.size < 2
+        or np.any(~np.isfinite(wavelength))
+        or np.any(wavelength <= 0.0)
+        or np.any(np.diff(wavelength) <= 0.0)
+    ):
+        raise ValueError(
+            "wavelength_angstrom must match, be positive, and increase"
+        )
+    if (
+        direct.shape != source.shape
+        or planck_response.shape != source.shape
+        or opacity_response.shape != source.shape
+        or np.any(~np.isfinite(direct))
+        or np.any(~np.isfinite(planck_response))
+        or np.any(~np.isfinite(scattering))
+        or np.any((scattering < 0.0) | (scattering > 1.0))
+        or np.any(~np.isfinite(opacity_response))
+    ):
+        raise ValueError(
+            "coherent-scattering derivatives must be finite and match the "
+            "source"
+        )
+    n_wavelength, n_depth = source.shape
+    if (
+        mass.shape != (n_depth,)
+        or np.any(~np.isfinite(mass))
+        or np.any(mass <= 0.0)
+        or np.any(np.diff(mass) <= 0.0)
+    ):
+        raise ValueError("column_mass must be positive and increase with depth")
+    if wavelength_chunk_size < 1:
+        raise ValueError("wavelength_chunk_size must be positive")
+
+    mu, angle_weight = angular_quadrature(n_angle)
+    n_ray = mu.size
+    wavelength_weight = np.empty(n_wavelength, dtype=np.float64)
+    wavelength_step = np.diff(wavelength)
+    wavelength_weight[0] = 0.5 * wavelength_step[0]
+    wavelength_weight[-1] = 0.5 * wavelength_step[-1]
+    wavelength_weight[1:-1] = 0.5 * (
+        wavelength_step[:-1] + wavelength_step[1:]
+    )
+    integrated_flux_response = np.zeros(
+        (n_depth, n_depth), dtype=np.float64
+    )
+    mean_intensity_response = (
+        np.empty((n_wavelength, n_depth, n_depth), dtype=np.float64)
+        if return_auxiliary_response
+        else None
+    )
+    source_response = (
+        np.empty((n_wavelength, n_depth, n_depth), dtype=np.float64)
+        if return_auxiliary_response
+        else None
+    )
+    mass_step = np.diff(mass)
+    state_diagonal = np.arange(n_depth)
+
+    for start in range(0, n_wavelength, wavelength_chunk_size):
+        stop = min(start + wavelength_chunk_size, n_wavelength)
+        chunk_tau = tau[start:stop]
+        chunk_source = source[start:stop]
+        chunk_direct = direct[start:stop]
+        chunk_planck_response = planck_response[start:stop]
+        chunk_scattering = scattering[start:stop]
+        chunk_opacity_response = opacity_response[start:stop]
+        chunk_size = stop - start
+        expanded_tau = np.empty(
+            (chunk_size, n_depth + 1), dtype=np.float64
+        )
+        expanded_tau[:, 0] = 0.0
+        expanded_tau[:, 1:] = chunk_tau
+        expanded_source = np.empty_like(expanded_tau)
+        expanded_source[:, 0] = chunk_source[:, 0]
+        expanded_source[:, 1:] = chunk_source
+
+        expanded_tau_response = np.zeros(
+            (chunk_size, n_depth + 1, n_depth), dtype=np.float64
+        )
+        expanded_tau_response[:, 1, 0] = (
+            chunk_opacity_response[:, 0] * mass[0]
+        )
+        for depth in range(1, n_depth):
+            expanded_tau_response[:, depth + 1, :] = (
+                expanded_tau_response[:, depth, :]
+            )
+            expanded_tau_response[:, depth + 1, depth - 1] += (
+                0.5
+                * mass_step[depth - 1]
+                * chunk_opacity_response[:, depth - 1]
+            )
+            expanded_tau_response[:, depth + 1, depth] += (
+                0.5
+                * mass_step[depth - 1]
+                * chunk_opacity_response[:, depth]
+            )
+
+        # Recover the angle-dependent converged intensities for the supplied
+        # coupled source.  They are also used by the opacity-motion part of
+        # the tangent right-hand side.
+        symmetric_intensity = np.empty(
+            (chunk_size, n_depth + 1, n_ray), dtype=np.float64
+        )
+        first_step = expanded_tau[:, 1]
+        previous_step = expanded_tau[:, 1:-1] - expanded_tau[:, :-2]
+        next_step = expanded_tau[:, 2:] - expanded_tau[:, 1:-1]
+        for ray, ray_mu in enumerate(mu):
+            lower_scalar = np.zeros_like(expanded_tau)
+            diagonal_scalar = np.zeros_like(expanded_tau)
+            upper_scalar = np.zeros_like(expanded_tau)
+            rhs_scalar = expanded_source.copy()
+            diagonal_scalar[:, 0] = 1.0 + ray_mu / first_step
+            upper_scalar[:, 0] = -ray_mu / first_step
+            rhs_scalar[:, 0] = 0.0
+            lower_scalar[:, 1:-1] = (
+                -2.0
+                * ray_mu**2
+                / (previous_step * (previous_step + next_step))
+            )
+            upper_scalar[:, 1:-1] = (
+                -2.0
+                * ray_mu**2
+                / (next_step * (previous_step + next_step))
+            )
+            diagonal_scalar[:, 1:-1] = (
+                1.0
+                - lower_scalar[:, 1:-1]
+                - upper_scalar[:, 1:-1]
+            )
+            diagonal_scalar[:, -1] = 1.0
+            rhs_scalar[:, -1] = expanded_source[:, -1]
+            for depth in range(1, n_depth + 1):
+                multiplier_scalar = (
+                    lower_scalar[:, depth]
+                    / diagonal_scalar[:, depth - 1]
+                )
+                diagonal_scalar[:, depth] -= (
+                    multiplier_scalar * upper_scalar[:, depth - 1]
+                )
+                rhs_scalar[:, depth] -= (
+                    multiplier_scalar * rhs_scalar[:, depth - 1]
+                )
+            symmetric_intensity[:, -1, ray] = (
+                rhs_scalar[:, -1] / diagonal_scalar[:, -1]
+            )
+            for depth in range(n_depth - 1, -1, -1):
+                symmetric_intensity[:, depth, ray] = (
+                    rhs_scalar[:, depth]
+                    - upper_scalar[:, depth]
+                    * symmetric_intensity[:, depth + 1, ray]
+                ) / diagonal_scalar[:, depth]
+
+        lower = np.zeros(
+            (chunk_size, n_depth + 1, n_ray, n_ray), dtype=np.float64
+        )
+        diagonal = np.zeros_like(lower)
+        upper = np.zeros_like(lower)
+        for ray, ray_mu in enumerate(mu):
+            diagonal[:, 0, ray, ray] = 1.0 + ray_mu / first_step
+            upper[:, 0, ray, ray] = -ray_mu / first_step
+            lower[:, 1:-1, ray, ray] = (
+                -2.0
+                * ray_mu**2
+                / (previous_step * (previous_step + next_step))
+            )
+            upper[:, 1:-1, ray, ray] = (
+                -2.0
+                * ray_mu**2
+                / (next_step * (previous_step + next_step))
+            )
+            diagonal[:, 1:-1, ray, ray] = (
+                1.0
+                - lower[:, 1:-1, ray, ray]
+                - upper[:, 1:-1, ray, ray]
+            )
+            diagonal[:, -1, ray, ray] = 1.0
+        diagonal[:, 1:-1, :, :] -= (
+            chunk_scattering[:, :-1, np.newaxis, np.newaxis]
+            * angle_weight[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+
+        multipliers = np.zeros_like(lower)
+        for depth in range(1, n_depth + 1):
+            multiplier = np.linalg.solve(
+                np.swapaxes(diagonal[:, depth - 1], -1, -2),
+                np.swapaxes(lower[:, depth], -1, -2),
+            )
+            multiplier = np.swapaxes(multiplier, -1, -2)
+            multipliers[:, depth] = multiplier
+            diagonal[:, depth] -= np.matmul(
+                multiplier, upper[:, depth - 1]
+            )
+
+        tangent_rhs = np.zeros(
+            (chunk_size, n_depth + 1, n_ray, n_depth),
+            dtype=np.float64,
+        )
+        for depth in range(n_depth - 1):
+            tangent_rhs[:, depth + 1, :, depth] = chunk_direct[
+                :, depth, np.newaxis
+            ]
+        tangent_rhs[:, -1, :, -1] = (
+            chunk_planck_response[:, -1, np.newaxis]
+        )
+
+        # Differentiate the scalar transport coefficients with respect to
+        # opacity-induced optical-depth motion.  Changes of epsilon and the
+        # scattering fraction are already included in the supplied direct
+        # source derivative at fixed J.
+        for ray, ray_mu in enumerate(mu):
+            lower_response = np.zeros_like(expanded_tau_response)
+            diagonal_response = np.zeros_like(expanded_tau_response)
+            upper_response = np.zeros_like(expanded_tau_response)
+            first_response = expanded_tau_response[:, 1, :]
+            diagonal_response[:, 0, :] = (
+                -ray_mu
+                * first_response
+                / first_step[:, np.newaxis] ** 2
+            )
+            upper_response[:, 0, :] = -diagonal_response[:, 0, :]
+            previous_response = (
+                expanded_tau_response[:, 1:-1, :]
+                - expanded_tau_response[:, :-2, :]
+            )
+            next_response = (
+                expanded_tau_response[:, 2:, :]
+                - expanded_tau_response[:, 1:-1, :]
+            )
+            combined_response = previous_response + next_response
+            lower_response[:, 1:-1, :] = lower[
+                :, 1:-1, ray, ray, np.newaxis
+            ] * (
+                -previous_response / previous_step[:, :, np.newaxis]
+                - combined_response
+                / (previous_step + next_step)[:, :, np.newaxis]
+            )
+            upper_response[:, 1:-1, :] = upper[
+                :, 1:-1, ray, ray, np.newaxis
+            ] * (
+                -next_response / next_step[:, :, np.newaxis]
+                - combined_response
+                / (previous_step + next_step)[:, :, np.newaxis]
+            )
+            diagonal_response[:, 1:-1, :] = (
+                -lower_response[:, 1:-1, :]
+                - upper_response[:, 1:-1, :]
+            )
+            tangent_rhs[:, :, ray, :] -= (
+                diagonal_response
+                * symmetric_intensity[:, :, ray, np.newaxis]
+            )
+            tangent_rhs[:, 1:, ray, :] -= (
+                lower_response[:, 1:, :]
+                * symmetric_intensity[:, :-1, ray, np.newaxis]
+            )
+            tangent_rhs[:, :-1, ray, :] -= (
+                upper_response[:, :-1, :]
+                * symmetric_intensity[:, 1:, ray, np.newaxis]
+            )
+
+        for depth in range(1, n_depth + 1):
+            tangent_rhs[:, depth] -= np.einsum(
+                "wij,wjk->wik",
+                multipliers[:, depth],
+                tangent_rhs[:, depth - 1],
+                optimize=True,
+            )
+        symmetric_response = np.empty_like(tangent_rhs)
+        symmetric_response[:, -1] = np.linalg.solve(
+            diagonal[:, -1], tangent_rhs[:, -1]
+        )
+        for depth in range(n_depth - 1, -1, -1):
+            reduced_rhs = tangent_rhs[:, depth] - np.einsum(
+                "wij,wjk->wik",
+                upper[:, depth],
+                symmetric_response[:, depth + 1],
+                optimize=True,
+            )
+            symmetric_response[:, depth] = np.linalg.solve(
+                diagonal[:, depth], reduced_rhs
+            )
+
+        chunk_mean_response = np.einsum(
+            "wdrk,r->wdk",
+            symmetric_response[:, 1:, :, :],
+            angle_weight,
+            optimize=True,
+        )
+        if return_auxiliary_response:
+            assert mean_intensity_response is not None
+            assert source_response is not None
+            mean_intensity_response[start:stop] = chunk_mean_response
+            chunk_source_response = (
+                chunk_scattering[:, :, np.newaxis] * chunk_mean_response
+            )
+            chunk_source_response[:, state_diagonal, state_diagonal] += (
+                chunk_direct
+            )
+            source_response[start:stop] = chunk_source_response
+
+        if mean_response_consumer is not None:
+            readonly_mean = chunk_mean_response.view()
+            readonly_mean.flags.writeable = False
+            mean_response_consumer(start, stop, readonly_mean)
+
+        chunk_flux_response = np.zeros(
+            (chunk_size, n_depth, n_depth), dtype=np.float64
+        )
+        optical_step = np.diff(expanded_tau, axis=1)
+        optical_step_response = np.diff(
+            expanded_tau_response, axis=1
+        )
+        for ray, (ray_mu, ray_weight) in enumerate(zip(mu, angle_weight)):
+            intensity_step = np.diff(
+                symmetric_intensity[:, :, ray], axis=1
+            )
+            intensity_step_response = np.diff(
+                symmetric_response[:, :, ray, :], axis=1
+            )
+            chunk_flux_response += (
+                4.0
+                * PI
+                * ray_weight
+                * ray_mu**2
+                * (
+                    intensity_step_response
+                    / optical_step[:, :, np.newaxis]
+                    - intensity_step[:, :, np.newaxis]
+                    * optical_step_response
+                    / optical_step[:, :, np.newaxis] ** 2
+                )
+            )
+        integrated_flux_response += np.einsum(
+            "wdk,w->dk",
+            chunk_flux_response,
+            wavelength_weight[start:stop],
+            optimize=True,
+        )
+
+    return (
+        np.ascontiguousarray(integrated_flux_response),
+        (
+            np.ascontiguousarray(mean_intensity_response)
+            if mean_intensity_response is not None
+            else None
+        ),
+        (
+            np.ascontiguousarray(source_response)
+            if source_response is not None
+            else None
+        ),
+    )
 
 
 def integrated_emergent_flux_state_response(

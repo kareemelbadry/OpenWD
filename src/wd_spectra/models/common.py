@@ -34,7 +34,7 @@ AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
 ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
 
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
-_MODEL_PHYSICS_REVISION = "openwd-0.1.3-solver-telemetry"
+_MODEL_PHYSICS_REVISION = "openwd-0.1.3-coupled-scattering-fixed-rosseland-cia-tails"
 
 
 class AtmosphereConvergenceWarning(RuntimeWarning):
@@ -201,6 +201,7 @@ def model_request_fingerprint(
     spectral_type: str,
     config: object,
     data: ModelData,
+    *, physical_data_identity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Return a stable identity for one solver-relevant public request.
 
@@ -217,6 +218,8 @@ def model_request_fingerprint(
         "config": _jsonable(config),
         "data_root": str(data.root.resolve()),
     }
+    if physical_data_identity is not None:
+        request["physical_data_identity"] = _jsonable(physical_data_identity)
     serialized = json.dumps(
         request,
         sort_keys=True,
@@ -373,6 +376,11 @@ def load_atmosphere_checkpoint(
     arrays carry a ``thermal_`` prefix.  EOS populations are always rebuilt
     from the requested current composition rather than trusted from a stale
     checkpoint.
+
+    For mixed composition, ``include_molecules=True`` selects the complete
+    molecular-H/He closure (including H- and Neale--Tennyson H3+). The separate
+    negative-H and H3+ options above apply to the pure-hydrogen closure only.
+    Changing mixed chemistry invalidates a stored convergence claim.
     """
 
     source = Path(path)
@@ -432,6 +440,14 @@ def load_atmosphere_checkpoint(
         "source_checkpoint": str(source.resolve()),
         "checkpoint_composition": composition,
     }
+    if stored_metadata.get("experimental_h2_partition"):
+        # This loader rebuilds populations using the requested production EOS;
+        # it cannot certify an external experiment's partition function or
+        # thermodynamic derivatives. Keep the structure for explicit re-solving,
+        # but never inherit that experiment's convergence claim.
+        metadata["radiative_equilibrium_converged"] = False
+        metadata.pop("model_request_fingerprint", None)
+        metadata["checkpoint_chemistry_changed_requires_relaxation"] = True
     zeros = np.zeros_like(temperature)
     if composition == "hydrogen":
         state = hummer_mihalas_hydrogen_lte(
@@ -482,7 +498,17 @@ def load_atmosphere_checkpoint(
     if composition == "mixed":
         if log_hydrogen_to_helium is None:
             raise ValueError("mixed checkpoints require log_hydrogen_to_helium")
-        state = hummer_mihalas_hydrogen_helium_lte(
+        function = hummer_mihalas_hydrogen_helium_lte
+        if include_molecules:
+            from .._mixed_molecules import molecular_hydrogen_helium_lte
+            function = molecular_hydrogen_helium_lte
+        if bool(stored_metadata.get("includes_molecular_equilibrium",False)) != include_molecules:
+            metadata["radiative_equilibrium_converged"] = False
+            metadata.pop("model_request_fingerprint",None)
+            metadata["checkpoint_chemistry_changed_requires_relaxation"] = True
+        metadata["includes_molecular_equilibrium"] = include_molecules
+        metadata["mixed_chemical_model"] = ("molecular-h-he-hm" if include_molecules else "atomic-h-he-hm")
+        state = function(
             temperature,
             pressure,
             log_hydrogen_to_helium,

@@ -10,3 +10,4 @@ dist/
 .venv/
 results/
 .DS_Store
+.cache/

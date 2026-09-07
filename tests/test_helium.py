@@ -218,7 +218,7 @@ def test_stancil_helium_dimer_ion_coefficient_clips_cool_layers():
     assert cool == pytest.approx(boundary, rel=2e-15)
 
 
-@pytest.mark.parametrize("wavenumber", [3000.0, 5000.0])
+@pytest.mark.parametrize("wavenumber", [3000.0, 5000.0, 7000.0, 10000.0])
 def test_kowalski_helium_three_body_cia_matches_analytic_fit(wavenumber):
     temperature = 5000.0
     density = 514.0 * 2.68678e19
@@ -244,7 +244,7 @@ def test_kowalski_helium_three_body_cia_matches_analytic_fit(wavenumber):
     )
 
 
-def test_kowalski_helium_three_body_cia_has_cubic_density_and_ir_cutoff():
+def test_kowalski_helium_three_body_cia_has_cubic_density_and_declining_tail():
     density = 100.0 * 2.68678e19
     absorption = helium_three_body_cia_linear_absorption_coefficient(
         np.asarray([25_000.0, 10_000.0]),
@@ -256,7 +256,31 @@ def test_kowalski_helium_three_body_cia_has_cubic_density_and_ir_cutoff():
     )
     assert doubled == pytest.approx(8.0 * absorption[0], rel=2e-14)
     assert absorption[0] > 0.0
-    assert absorption[1] == 0.0
+    assert 0.0 < absorption[1] < absorption[0]
+
+
+@pytest.mark.parametrize("temperature", [1000.0, 3000.0, 5000.0, 8000.0, 10000.0])
+def test_helium_cia_has_no_artificial_edge_and_a_smooth_join(temperature):
+    density = 514.0 * 2.68678e19
+    step = 0.01
+    for center in (4000.0, 6000.0):
+        wavenumber = center + np.array([-step, 0.0, step])
+        coefficient = helium_three_body_cia_linear_absorption_coefficient(
+            1e8 / wavenumber, temperature, density)
+        log_slopes = np.diff(np.log(coefficient)) / step
+        assert log_slopes[0] == pytest.approx(log_slopes[1], rel=3e-5)
+        assert np.all(coefficient > 0.0)
+    tail = helium_three_body_cia_linear_absorption_coefficient(
+        1e8 / np.linspace(6000, 50000, 100), temperature, density)
+    assert np.all(np.diff(tail) < 0.0)
+
+
+def test_helium_cia_very_short_wavelength_remains_finite():
+    with np.errstate(over="raise", invalid="raise"):
+        coefficient = helium_three_body_cia_linear_absorption_coefficient(
+            np.array([1e-100, 1.0, 1000.0]), 5000.0, 1e22)
+    assert np.all(np.isfinite(coefficient))
+    assert np.all(coefficient >= 0.0)
 
 
 def test_helium_three_body_cia_can_be_disabled_in_continuum():

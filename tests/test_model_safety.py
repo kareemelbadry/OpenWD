@@ -155,6 +155,28 @@ def test_checkpoint_round_trip_preserves_request_fingerprint(tmp_path):
     assert restored.metadata["radiative_equilibrium_converged"] is True
 
 
+def test_experimental_partition_checkpoint_requires_new_relaxation(tmp_path):
+    fingerprint = model_request_fingerprint("DB", DBConfig(), ModelData(tmp_path))
+    atmosphere = atmosphere_with_model_request_fingerprint(
+        _atmosphere({
+            "radiative_equilibrium_converged": True,
+            "experimental_h2_partition": "external research closure",
+        }),
+        fingerprint,
+    )
+    result = ModelResult("DB", atmosphere, _spectrum(), DBConfig(), {})
+    output = save_model_result(result, tmp_path / "experimental")
+    restored = load_atmosphere_checkpoint(
+        output / "atmosphere.npz", 10_000.0, 8.0, "helium"
+    )
+    np.testing.assert_array_equal(restored.temperature, atmosphere.temperature)
+    assert not atmosphere_matches_model_request(restored, fingerprint)
+    assert restored.metadata["radiative_equilibrium_converged"] is False
+    assert restored.metadata["checkpoint_chemistry_changed_requires_relaxation"]
+    with pytest.warns(AtmosphereConvergenceWarning, match="did not converge"):
+        assert warn_if_atmosphere_not_converged(restored, "DB") == "unconverged"
+
+
 def test_compute_db_warns_and_returns_an_unconverged_exploratory_result(
     monkeypatch, tmp_path
 ):

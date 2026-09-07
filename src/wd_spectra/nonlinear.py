@@ -8,6 +8,8 @@ accumulating their own damping constants and restart heuristics.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Callable, Generic, Literal, TypeVar
 
@@ -17,6 +19,17 @@ from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
 Payload = TypeVar("Payload")
+_LOGGER = logging.getLogger(__name__)
+
+
+class RecoverableEvaluationError(ValueError):
+    """Signal that a proposed nonlinear trial state is physically invalid.
+
+    The trust-region driver treats this exception as a rejected line-search
+    trial and backtracks.  Evaluations of the initial or accepted state, and
+    all other exception types, still fail immediately so programming and
+    physics errors are not silently hidden.
+    """
 
 
 @dataclass(frozen=True)
@@ -30,7 +43,7 @@ class NonlinearEvaluation(Generic[Payload]):
 
 @dataclass(frozen=True)
 class NonlinearIteration:
-    """One accepted trust-region iteration."""
+    """One accepted step or measured stationary proposal (line-search factor zero)."""
 
     iteration: int
     residual_rms: float
@@ -51,6 +64,7 @@ NonlinearTerminalReason = Literal[
     "stationary-warm-start-complete",
     "stationary-residual-converged",
     "trust-region-collapsed",
+    "finite-difference-domain-exhausted",
     "iteration-limit-converged",
     "maximum-iterations-exhausted",
 ]
@@ -65,6 +79,7 @@ class NonlinearDiagnostics:
     jacobian_evaluations: int
     accepted_iterations: int
     rejected_trial_evaluations: int
+    infeasible_trial_rejections: int
     rejected_directions: int
     merit_rejections: int
     acceptance_test_rejections: int
@@ -109,6 +124,9 @@ def nonlinear_result_metadata(
         "rejected_trial_evaluations": (
             diagnostics.rejected_trial_evaluations
         ),
+        "infeasible_trial_rejections": (
+            diagnostics.infeasible_trial_rejections
+        ),
         "rejected_directions": diagnostics.rejected_directions,
         "merit_rejections": diagnostics.merit_rejections,
         "acceptance_test_rejections": (
@@ -130,7 +148,11 @@ def nonlinear_result_metadata(
             diagnostics.rejected_trial_line_search_factors
         ),
         "rejected_trial_residual_maxima": (
-            diagnostics.rejected_trial_residual_maxima
+            # An infeasible trial has no measured residual. Keep the
+            # internal infinity sentinel, but export an explicit JSON null
+            # rather than making even a successful checkpoint unsaveable.
+            tuple(value if np.isfinite(value) else None
+                  for value in diagnostics.rejected_trial_residual_maxima)
         ),
         "rejected_trial_worst_residual_indices": (
             diagnostics.rejected_trial_worst_residual_indices
@@ -212,6 +234,12 @@ def solve_trust_region_newton(
     | None = None,
     step_measure: Callable[[FloatArray, FloatArray], float] | None = None,
     stationary_completion_iterations: int | None = None,
+    allow_initial_convergence: bool = True,
+    linear_regularization: float = 1.0e-8,
+    trial_projector: Callable[[FloatArray, FloatArray], FloatArray] | None = None,
+    step_builder: Callable[
+        [FloatArray, NonlinearEvaluation[Payload], FloatArray, float], FloatArray
+    ] | None = None,
 ) -> NonlinearResult[Payload]:
     """Solve a square nonlinear system with automatic globalization.
 
@@ -226,6 +254,17 @@ def solve_trust_region_newton(
     approximate warm-start phases: it permits a caller to move on after that
     many consecutive accepted physical steps fall below ``step_tolerance``,
     even though the provisional residual is not the final equation root.
+    An optional ``trial_projector(old, proposed)`` may repair a trial state
+    before evaluation. Its actual displacement must satisfy the trust radius;
+    the repaired state, not the original proposal, is evaluated and retained.
+    This hook cannot bypass merit reduction or the convergence tests.
+    An optional ``step_builder(state, evaluation, jacobian, radius)`` supplies
+    an alternative proposal direction. It still passes through the same
+    physical step measure, trust limit, trial evaluation and acceptance gates.
+    ``allow_initial_convergence=False`` requires a computed correction before
+    certifying stationarity, for example after an unfinished solver phase.
+    ``linear_regularization=0`` selects an unpenalized, rank-revealing linear
+    solve; it never removes the physical trust bound or trial acceptance tests.
     """
 
     state = np.asarray(initial_state, dtype=np.float64).copy()
@@ -233,6 +272,10 @@ def solve_trust_region_newton(
         raise ValueError("initial_state must be a finite one-dimensional vector")
     if maximum_iterations < 1:
         raise ValueError("maximum_iterations must be positive")
+    if not isinstance(allow_initial_convergence, bool):
+        raise ValueError("allow_initial_convergence must be boolean")
+    if not np.isfinite(linear_regularization) or linear_regularization < 0:
+        raise ValueError("linear_regularization must be finite and nonnegative")
     if residual_tolerance <= 0.0 or step_tolerance <= 0.0:
         raise ValueError("nonlinear tolerances must be positive")
     if not 0.0 < minimum_line_search_factor <= 1.0:
@@ -264,6 +307,7 @@ def solve_trust_region_newton(
     residual_evaluations = 0
     jacobian_evaluations = 0
     rejected_trial_evaluations = 0
+    infeasible_trial_rejections = 0
     rejected_directions = 0
     merit_rejections = 0
     acceptance_test_rejections = 0
@@ -281,11 +325,20 @@ def solve_trust_region_newton(
         nonlocal residual_evaluations, jacobian_evaluations
         residual_evaluations += 1
         jacobian_evaluations += int(need_jacobian)
-        return _validated_evaluation(
+        started = time.monotonic()
+        if need_jacobian:
+            _LOGGER.info("Building Jacobian (evaluation %d, %d variables)",
+                         residual_evaluations, state.size)
+        result = _validated_evaluation(
             evaluate(candidate_state, need_jacobian),
             state.size,
             require_jacobian=need_jacobian,
         )
+        if need_jacobian:
+            _LOGGER.info("Jacobian ready in %.2fs; maximum residual %.6g",
+                         time.monotonic() - started,
+                         np.max(np.abs(result.residual)))
+        return result
 
     def finished(
         terminal_reason: NonlinearTerminalReason,
@@ -302,6 +355,7 @@ def solve_trust_region_newton(
                 record.line_search_factor > 0.0 for record in history
             ),
             rejected_trial_evaluations=rejected_trial_evaluations,
+            infeasible_trial_rejections=infeasible_trial_rejections,
             rejected_directions=rejected_directions,
             merit_rejections=merit_rejections,
             acceptance_test_rejections=acceptance_test_rejections,
@@ -348,7 +402,17 @@ def solve_trust_region_newton(
             step = finite_difference_fallback_step
             trial_state = current_state.copy()
             trial_state[column] += step
-            trial = evaluated(trial_state, False)
+            try:
+                trial = evaluated(trial_state, False)
+            except RecoverableEvaluationError:
+                # A valid atmosphere can lie next to a material-table or
+                # chemical-approximation boundary. Differentiate the SAME
+                # residual from the admissible side, not a substituted EOS.
+                # Ordinary forward differences remain bit-for-bit unchanged.
+                step = -step
+                trial_state = current_state.copy()
+                trial_state[column] += step
+                trial = evaluated(trial_state, False)
             numerical[:, column] = (
                 trial.residual - current_evaluation.residual
             ) / step
@@ -362,7 +426,8 @@ def solve_trust_region_newton(
     evaluation = evaluated(state, False)
     initial_residual_maximum = float(np.max(np.abs(evaluation.residual)))
     if (
-        initial_residual_maximum < residual_tolerance
+        allow_initial_convergence
+        and initial_residual_maximum < residual_tolerance
         and (
             convergence_test is None
             or convergence_test(state, evaluation, 0.0)
@@ -380,10 +445,10 @@ def solve_trust_region_newton(
 
     def stationary_result_if_converged(
         iteration: int,
+        stationary_step: float,
     ) -> NonlinearResult[Payload] | None:
-        """Accept an accurate residual after sub-tolerance steps stagnate."""
+        """Certify a measured small proposal, never a collapsed trust radius."""
 
-        stationary_step = min(trust_radius, minimum_trust_radius)
         residual = evaluation.residual
         converged = bool(
             np.max(np.abs(residual)) < residual_tolerance
@@ -452,27 +517,39 @@ def solve_trust_region_newton(
                 "stationary-warm-start-complete", True, iteration - 1
             )
 
-        row_scale = np.maximum(
-            np.max(np.abs(jacobian), axis=1),
-            np.finfo(np.float64).tiny,
-        )
-        scaled_jacobian = jacobian / row_scale[:, np.newaxis]
-        scaled_residual = residual / row_scale
-        # A small diagonal Tikhonov term selects a smooth finite step when a
-        # provisional convection boundary makes the local Jacobian singular.
-        regularization = 1.0e-8
-        augmented_matrix = np.vstack(
-            (
-                scaled_jacobian,
-                np.sqrt(regularization) * np.eye(state.size),
+        if step_builder is None:
+            row_scale = np.maximum(
+                np.max(np.abs(jacobian), axis=1),
+                np.finfo(np.float64).tiny,
             )
-        )
-        augmented_rhs = np.concatenate(
-            (-scaled_residual, np.zeros(state.size))
-        )
-        step = np.linalg.lstsq(
-            augmented_matrix, augmented_rhs, rcond=1.0e-10
-        )[0]
+            scaled_jacobian = jacobian / row_scale[:, np.newaxis]
+            scaled_residual = residual / row_scale
+            # A small diagonal Tikhonov term selects a smooth finite step when a
+            # provisional convection boundary makes the local Jacobian singular.
+            augmented_matrix = scaled_jacobian
+            augmented_rhs = -scaled_residual
+            if linear_regularization > 0:
+                augmented_matrix = np.vstack(
+                    (
+                        scaled_jacobian,
+                        np.sqrt(linear_regularization) * np.eye(state.size),
+                    )
+                )
+                augmented_rhs = np.concatenate(
+                    (-scaled_residual, np.zeros(state.size))
+                )
+            step = np.linalg.lstsq(
+                augmented_matrix, augmented_rhs, rcond=1.0e-10
+            )[0]
+        else:
+            step = np.asarray(
+                step_builder(state.copy(), evaluation, jacobian.copy(), trust_radius),
+                dtype=np.float64,
+            ).copy()
+            if step.shape != state.shape or np.any(~np.isfinite(step)):
+                raise ValueError(
+                    "step_builder must return a finite direction with the state shape"
+                )
         step_maximum = (
             float(np.max(np.abs(step)))
             if step_measure is None
@@ -482,6 +559,14 @@ def solve_trust_region_newton(
             raise ValueError(
                 "step_measure must return a finite non-negative value"
             )
+        # At an accurate root a genuine Newton correction may be too small
+        # to reduce the residual further. Check that computed direction BEFORE
+        # trust clipping or backtracking. A user step builder may itself be
+        # bounded, so a sub-tolerance trust region cannot certify its size.
+        if step_builder is None or trust_radius >= step_tolerance:
+            stationary = stationary_result_if_converged(iteration, step_maximum)
+            if stationary is not None:
+                return stationary
         if step_maximum > trust_radius:
             step *= trust_radius / step_maximum
 
@@ -493,9 +578,47 @@ def solve_trust_region_newton(
         rejected_trials_this_iteration = 0
         trial_state = old_state
         trial = old_evaluation
+        last_valid_rejected_state: FloatArray | None = None
+        last_valid_rejected_evaluation: NonlinearEvaluation[Payload] | None = (
+            None
+        )
         while factor >= minimum_line_search_factor:
             trial_state = old_state + factor * step
-            trial = evaluated(trial_state, False)
+            try:
+                if trial_projector is not None:
+                    unprojected_state = trial_state
+                    trial_state = np.asarray(
+                        trial_projector(old_state.copy(), trial_state.copy()),
+                        dtype=np.float64,
+                    ).copy()
+                    if trial_state.shape != state.shape or np.any(~np.isfinite(trial_state)):
+                        raise ValueError("trial_projector must return a finite state of the original shape")
+                    projected_size = (
+                        float(np.max(np.abs(trial_state-old_state)))
+                        if step_measure is None else float(step_measure(old_state, trial_state))
+                    )
+                    if not np.isfinite(projected_size) or projected_size < 0.:
+                        raise ValueError("projected step measure must be finite and non-negative")
+                    roundoff_allowance = 128.*np.finfo(float).eps*max(
+                        1., float(np.max(abs(old_state))), float(np.max(abs(trial_state))))
+                    if (not np.array_equal(trial_state, unprojected_state)
+                            and projected_size > trust_radius+roundoff_allowance):
+                        raise RecoverableEvaluationError("projected trial exceeds trust radius")
+                trial = evaluated(trial_state, False)
+            except RecoverableEvaluationError:
+                # The proposed state is outside the caller's physical
+                # domain.  This is a normal globalization event: reject it
+                # and try a smaller step.  Do not catch ValueError or other
+                # exceptions here, because those indicate a broken solver
+                # contract rather than an inadmissible trial atmosphere.
+                rejected_trial_evaluations += 1
+                infeasible_trial_rejections += 1
+                rejected_trials_this_iteration += 1
+                rejected_trial_line_search_factors.append(float(factor))
+                rejected_trial_residual_maxima.append(float("inf"))
+                rejected_trial_worst_residual_indices.append(-1)
+                factor *= 0.5
+                continue
             merit_improved = _residual_merit(trial.residual) < old_merit
             accepted_by_guard = bool(
                 merit_improved
@@ -522,10 +645,18 @@ def solve_trust_region_newton(
                 acceptance_test_rejections += 1
             else:
                 merit_rejections += 1
+            last_valid_rejected_state = trial_state
+            last_valid_rejected_evaluation = trial
             factor *= 0.5
 
         if not accepted:
             rejected_directions += 1
+            _LOGGER.info(
+                "Iteration %d: direction rejected after %d trials; "
+                "maximum residual %.6g, trust radius %.6g",
+                iteration, rejected_trials_this_iteration,
+                np.max(np.abs(evaluation.residual)), trust_radius,
+            )
             # The backtracking evaluations have measured a true directional
             # derivative even though none of their steps lowered the merit.
             # Retain that information instead of immediately rebuilding the
@@ -533,11 +664,19 @@ def solve_trust_region_newton(
             # Successive rejected directions build an inexpensive low-rank
             # recovery for large systems where a complete finite-difference
             # Jacobian would require one transfer solve per depth point.
-            sampled_step = trial_state - old_state
-            sampled_denominator = float(sampled_step @ sampled_step)
+            if (
+                last_valid_rejected_state is not None
+                and last_valid_rejected_evaluation is not None
+            ):
+                sampled_step = last_valid_rejected_state - old_state
+                sampled_denominator = float(sampled_step @ sampled_step)
+            else:
+                sampled_step = np.zeros_like(old_state)
+                sampled_denominator = 0.0
             if sampled_denominator > np.finfo(np.float64).tiny:
                 sampled_residual_change = (
-                    trial.residual - old_evaluation.residual
+                    last_valid_rejected_evaluation.residual
+                    - old_evaluation.residual
                 )
                 jacobian += np.outer(
                     sampled_residual_change - jacobian @ sampled_step,
@@ -549,9 +688,6 @@ def solve_trust_region_newton(
                     smallest_trust_radius, trust_radius
                 )
                 if trust_radius < minimum_trust_radius:
-                    stationary = stationary_result_if_converged(iteration)
-                    if stationary is not None:
-                        return stationary
                     return finished(
                         "trust-region-collapsed", False, iteration - 1
                     )
@@ -589,7 +725,13 @@ def solve_trust_region_newton(
                 finite_difference_fallback_step is not None
                 and not numerical_fallback_used_at_state
             ):
-                jacobian = finite_difference_jacobian(state, evaluation)
+                try:
+                    jacobian = finite_difference_jacobian(state, evaluation)
+                except RecoverableEvaluationError:
+                    # Neither probe is admissible at the requested numerical
+                    # scale. Keep the last evaluated state, explicitly
+                    # unconverged; do not invent a derivative or flux.
+                    return finished("finite-difference-domain-exhausted", False, iteration - 1)
                 numerical_fallback_used_at_state = True
                 finite_difference_jacobian_rebuilds += 1
                 jacobian_refreshes += 1
@@ -597,9 +739,6 @@ def solve_trust_region_newton(
             trust_radius *= 0.25
             smallest_trust_radius = min(smallest_trust_radius, trust_radius)
             if trust_radius < minimum_trust_radius:
-                stationary = stationary_result_if_converged(iteration)
-                if stationary is not None:
-                    return stationary
                 return finished(
                     "trust-region-collapsed", False, iteration - 1
                 )

@@ -1,5 +1,9 @@
 # DA module
 
+Protected cold starts reach **3000 K** at log g=8, with additional checks at
+4000, 5000 and 20000 K. See [tested temperature limits](../tested-temperature-ranges.md)
+for settings, convergence gates and the scope of that statement.
+
 `compute_da` solves a pure-hydrogen plane-parallel LTE atmosphere in
 hydrostatic and radiative/convective equilibrium. It includes Hummer--Mihalas
 occupation probabilities, correlated Q-MHD microfields, dissolved-series

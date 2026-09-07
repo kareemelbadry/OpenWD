@@ -7,8 +7,9 @@ rather than maintain a copied `wd_spectra` source tree. Pytest explicitly puts
 this repository's `src` directory first so an unrelated editable installation
 cannot make the suite certify the wrong code.
 
-Solver or physics work starts on a branch from the latest protected tag. A
-change is eligible for the default branch only after:
+Local solver or physics work stays unpushed until its checks pass. The
+maintained GitHub branch is `main`; additional published development branches
+are not required. A change is eligible to be pushed only after:
 
 1. the ordinary test suite passes;
 2. the protected no-fallback atmosphere canaries pass;
@@ -32,3 +33,10 @@ Adaptive solvers must preserve the structured fields documented in
 `solver-telemetry.md`. New numerical changes should be justified with those
 diagnostics, not by increasing iteration limits or accepting a surface-flux
 ratio in place of all-depth convergence.
+
+The explicit cool-model workflow source and component tests live in
+`research/cool_models`, importing this same `src/wd_spectra` tree. Local
+compatibility symlinks may preserve historical outer-workspace script names;
+do not keep separate editable implementations. Document tested compositions,
+temperatures, initialization and physical limitations before claiming a new
+range. Research comparison flags are not regression-qualified defaults.

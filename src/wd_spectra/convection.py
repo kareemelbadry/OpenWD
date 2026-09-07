@@ -17,6 +17,21 @@ from .eos import (
 FloatArray = NDArray[np.float64]
 
 
+def _ml2_contrast_and_root(
+    excess: FloatArray, loss: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """Positive ML2 quadratic root without subtracting nearly equal numbers.
+
+    x² + loss*x = excess. The direct expression sqrt(loss²/4+excess)
+    - loss/2 loses the entire convective flux when excess << loss².
+    Rationalization preserves that same root; hypot also avoids loss² overflow.
+    Callers supply nonnegative excess, including zero on the stable branch.
+    """
+    root = np.hypot(0.5 * loss, np.sqrt(excess))
+    contrast = excess / np.maximum(root + 0.5 * loss, np.finfo(float).tiny)
+    return contrast, root
+
+
 def _ml2_local_coefficients_from_thermodynamics(
     atmosphere: Atmosphere,
     rosseland_opacity: ArrayLike,
@@ -199,12 +214,38 @@ def ml2_convective_flux_for_gradient_from_thermodynamics(
         )
     )
     superadiabatic_excess = np.maximum(gradient - adiabatic_gradient, 0.0)
-    element_environment_difference = (
-        -0.5 * radiative_loss
-        + np.sqrt(0.25 * radiative_loss**2 + superadiabatic_excess)
+    element_environment_difference, _ = _ml2_contrast_and_root(
+        superadiabatic_excess, radiative_loss,
     )
     flux = flux_coefficient * element_environment_difference**3
     return np.where(superadiabatic_excess > 0.0, flux, 0.0)
+
+
+def _ml2_flux_coefficient_response(
+    temperature_gradient: FloatArray,
+    coefficients: tuple[FloatArray, FloatArray, FloatArray],
+    coefficient_response: tuple[FloatArray, FloatArray, FloatArray],
+) -> FloatArray:
+    """Differentiate ML2 material coefficients at fixed temperature gradient.
+
+    If x is the element/environment temperature contrast, ML2 obeys
+    x**2 + B*x = nabla - nabla_ad and F_conv = C*x**3. Differentiate
+    these identities rather than differencing the flux across the convection
+    boundary. Responses have shape (interface, independent variable).
+    """
+
+    adiabatic, loss, coefficient = coefficients
+    d_adiabatic, d_loss, d_coefficient = coefficient_response
+    excess = np.maximum(temperature_gradient - adiabatic, 0.0)
+    contrast, root = _ml2_contrast_and_root(excess, loss)
+    gradient_response = 3.0 * coefficient * contrast**2 / np.maximum(
+        2.0 * root, np.finfo(float).tiny
+    )
+    return (
+        contrast[:, np.newaxis]**3 * d_coefficient
+        - gradient_response[:, np.newaxis]
+        * (d_adiabatic + contrast[:, np.newaxis] * d_loss)
+    )
 
 
 def ml2_convective_flux_gradient_derivative_from_thermodynamics(
@@ -246,10 +287,9 @@ def ml2_convective_flux_gradient_derivative_from_thermodynamics(
     superadiabatic_excess = np.maximum(
         gradient - adiabatic_gradient, 0.0
     )
-    square_root = np.sqrt(
-        0.25 * radiative_loss**2 + superadiabatic_excess
+    element_environment_difference, square_root = _ml2_contrast_and_root(
+        superadiabatic_excess, radiative_loss,
     )
-    element_environment_difference = -0.5 * radiative_loss + square_root
     derivative = (
         3.0
         * flux_coefficient
@@ -461,9 +501,8 @@ def ml2_convective_flux_for_gradient(
         gradient - adiabatic_gradient, 0.0
     )
 
-    element_environment_difference = (
-        -0.5 * radiative_loss
-        + np.sqrt(0.25 * radiative_loss**2 + superadiabatic_excess)
+    element_environment_difference, _ = _ml2_contrast_and_root(
+        superadiabatic_excess, radiative_loss,
     )
     flux = flux_coefficient * element_environment_difference**3
     return np.where(superadiabatic_excess > 0.0, flux, 0.0)

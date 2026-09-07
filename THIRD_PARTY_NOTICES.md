@@ -4,6 +4,14 @@ The BSD-3-Clause license in `LICENSE` covers the OpenWD source code. The
 scientific data distributed with the package remain independently authored
 works and retain their original terms and attribution.
 
+The checkout-only cool-model research workflows additionally use external
+HITRAN H2-He CIA and ExoMol RACPPK H2 state data. Those files are not
+redistributed in this checkpoint. Follow the source attribution and data
+terms linked in [the research data instructions](research/cool_models/README.md).
+The small bundled HNC cache and DAB checkpoints there are OpenWD-generated
+research outputs, not published reference spectra; their source models,
+provenance and limitations are documented alongside them.
+
 ## Allard neutral-hydrogen/proton Lyman profiles
 
 The temperature-dependent Ly-alpha, Ly-beta, and Ly-gamma tables in

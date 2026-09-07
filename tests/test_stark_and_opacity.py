@@ -1267,7 +1267,7 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
         atmosphere.metadata[
             "electron_scattering_source_iterations_per_evaluation"
         ]
-        == 4
+        == 1
     )
     assert (
         atmosphere.metadata[

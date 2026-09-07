@@ -33,6 +33,7 @@ def hydrogen_helium_continuum_mass_absorption_coefficient(
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
+    molecular_h_he: object | None = None,
 ) -> FloatArray:
     """Return the summed atomic H/He continuum in cm2 g-1.
 
@@ -44,7 +45,9 @@ def hydrogen_helium_continuum_mass_absorption_coefficient(
     if atmosphere.hydrogen_lte_state is None or atmosphere.helium_lte_state is None:
         raise ValueError("both hydrogen_lte_state and helium_lte_state are required")
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    opacity = hydrogen_continuum_mass_absorption_coefficient(
+    hydrogen_opacity = (hydrogen_continuum_mass_absorption_coefficient
+        if molecular_h_he is None else molecular_h_he.hydrogen_opacity)
+    opacity = hydrogen_opacity(
         atmosphere,
         wavelength,
         include_electron_scattering=False,
@@ -89,9 +92,11 @@ def rosseland_mean_hydrogen_helium_continuum_opacity(
     atmosphere: Atmosphere,
     *,
     n_frequency: int = 240,
+    wavelength_angstrom: ArrayLike | None = None,
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
+    molecular_h_he: object | None = None,
 ) -> FloatArray:
     """Return the Rosseland mean of the summed warm H/He continuum."""
 
@@ -101,6 +106,20 @@ def rosseland_mean_hydrogen_helium_continuum_opacity(
         raise ValueError("a homogeneous H/He Atmosphere is required")
     if n_frequency < 40:
         raise ValueError("n_frequency must be at least 40")
+    if wavelength_angstrom is not None:
+        from ._rosseland import rosseland_mean_from_opacity_grid
+
+        return rosseland_mean_from_opacity_grid(
+            wavelength_angstrom,
+            hydrogen_helium_continuum_mass_absorption_coefficient(
+                atmosphere, wavelength_angstrom,
+                include_helium_dimer_ion=include_helium_dimer_ion,
+                include_helium_three_body_cia=include_helium_three_body_cia,
+                include_rydberg_bound_free=include_rydberg_bound_free,
+                molecular_h_he=molecular_h_he,
+            ),
+            atmosphere.temperature,
+        )
     dimensionless_frequency = np.geomspace(0.1, 30.0, n_frequency)
     exponential = np.exp(dimensionless_frequency)
     weight = (
@@ -144,6 +163,7 @@ def rosseland_mean_hydrogen_helium_continuum_opacity(
             include_helium_dimer_ion=include_helium_dimer_ion,
             include_helium_three_body_cia=include_helium_three_body_cia,
             include_rydberg_bound_free=include_rydberg_bound_free,
+            molecular_h_he=molecular_h_he,
         )[:, 0]
         inverse_mean = trapezoid(
             weight[order] / np.maximum(opacity, 1.0e-30),

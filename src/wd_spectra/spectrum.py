@@ -796,6 +796,7 @@ def synthesize_helium_spectrum(
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     log_hydrogen_abundance: float | None = None,
+    molecular_h_he: object | None = None,
     include_trace_hydrogen_lines: bool = True,
     include_hydrogen_self_broadening: bool = True,
     include_hydrogen_neutral_helium_broadening: bool = True,
@@ -823,6 +824,7 @@ def synthesize_helium_spectrum(
     excluded_metal_line_elements: Iterable[str] = (),
     n_angle: int = 4,
     backend: Backend = "auto",
+    transfer_discretization: Literal["optical-depth", "column-mass"] = "optical-depth",
 ) -> Spectrum:
     """Synthesize an LTE pure-He spectrum with tabulated He I profiles.
 
@@ -831,6 +833,13 @@ def synthesize_helium_spectrum(
     CC-BY profile data out of the source distribution while making the exact
     profile provenance unambiguous.
     """
+
+    if transfer_discretization not in ("optical-depth", "column-mass"):
+        raise ValueError("unsupported spectrum transfer_discretization")
+    h_state = atmosphere.hydrogen_lte_state
+    molecular_state = (h_state is not None and h_state.chemical_model == "molecular-h-he-hm")
+    if molecular_state != (molecular_h_he is not None):
+        raise ValueError("Molecular mixed-atmosphere synthesis requires matching molecular_h_he physics and chemistry")
 
     from .helium import (
         helium_continuum_mass_absorption_coefficient,
@@ -1020,12 +1029,15 @@ def synthesize_helium_spectrum(
     elif c2_cross_section_table is not None:
         raise ValueError("C2 opacity requires a carbon-bearing metal LTE state")
     if atmosphere.hydrogen_lte_state is not None:
-        absorption += hydrogen_continuum_mass_absorption_coefficient(
+        hydrogen_opacity = (hydrogen_continuum_mass_absorption_coefficient
+            if molecular_h_he is None else molecular_h_he.hydrogen_opacity)
+        absorption += hydrogen_opacity(
             atmosphere,
             wavelength,
             include_electron_scattering=False,
             include_rayleigh_scattering=False,
             include_molecular_absorption=False,
+            **({} if molecular_h_he is None else dict(unified_allard_table=unified_allard_table)),
         )
         if include_trace_hydrogen_lines:
             absorption += balmer_mass_absorption_coefficient(
@@ -1079,7 +1091,30 @@ def synthesize_helium_spectrum(
     source_iterations = 0
     source_converged = True
     maximum_relative_source_change = 0.0
-    if np.any(scattering > 0.0):
+    transfer_metadata = {}
+    if transfer_discretization == "column-mass":
+        from ._mass_feautrier import mass_field
+        source, coupled = mass_field(
+            optical_depth, planck, absorption, scattering,
+            column_mass=atmosphere.column_mass, n_angle=n_angle,
+        )
+        _, prescribed = mass_field(
+            optical_depth, source, total, np.zeros_like(scattering),
+            column_mass=atmosphere.column_mass, n_angle=n_angle,
+        )
+        closure = source - (absorption*planck + scattering*prescribed.mean_intensity)/total
+        scaled_error = float(np.max(wavelength[:,None]*np.abs(closure)) /
+                             np.max(wavelength[:,None]*source))
+        if not np.isfinite(scaled_error) or scaled_error > 1e-10:
+            raise RuntimeError("column-mass spectrum failed independent source closure")
+        flux = coupled.interface_flux[:,0]
+        source_iterations = 1
+        transfer_metadata = {
+            "transfer_discretization": "column-mass",
+            "scattering_source_solver": "direct coupled Feautrier",
+            "independent_radiation_scaled_source_error": scaled_error,
+        }
+    elif np.any(scattering > 0.0):
         from .radiative_transfer import radiation_field
 
         ca_ii_scattering_enabled = (
@@ -1110,11 +1145,13 @@ def synthesize_helium_spectrum(
             if ca_ii_scattering_enabled and maximum_relative_source_change < 1.0e-3:
                 source_converged = True
                 break
-    flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
+    if transfer_discretization == "optical-depth":
+        flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
     return Spectrum(
         wavelength_angstrom=wavelength,
         surface_flux_lambda=flux,
         metadata={
+            **transfer_metadata,
             "wavelength_medium": "vacuum",
             "flux_convention": "surface F_lambda",
             "flux_unit": "erg s^-1 cm^-2 Angstrom^-1",

@@ -1,6 +1,12 @@
 # DAB/DBA module
 
-`compute_dab` solves one homogeneous atomic H/He layer in LTE; it is not a
+The explicit molecular conservative-transport workflow is numerically
+qualified down to **7500 K** at log g=8 and log10(N_H/N_He)=-2. This is a
+continuation result, not a guaranteed cold-start range; 7250 and 5000 K
+remain unqualified. See [tested temperatures](../tested-temperature-ranges.md)
+and [reproduction commands](../../research/cool_models/README.md).
+
+`compute_dab` defaults to one homogeneous atomic H/He layer in LTE; it is not a
 stratified thin-hydrogen-layer calculation. Hydrogen and helium share the
 charge-neutrality solution and nonideal occupation-probability EOS. The module
 combines the DA hydrogen opacity/profile treatment with the DB helium profiles

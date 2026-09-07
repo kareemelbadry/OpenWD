@@ -49,6 +49,7 @@ class H2H2CollisionInducedAbsorptionTable:
     temperature_K: FloatArray
     absorption_coefficient: FloatArray
     source_path: Path
+    extrapolate_high_wavenumber_tail: bool = False
 
     def __post_init__(self) -> None:
         wavenumber = np.asarray(self.wavenumber_cm_inverse, dtype=np.float64)
@@ -68,6 +69,10 @@ class H2H2CollisionInducedAbsorptionTable:
             )
         if np.any(~np.isfinite(coefficient)) or np.any(coefficient <= 0.0):
             raise ValueError("absorption_coefficient must be finite and positive")
+        if self.extrapolate_high_wavenumber_tail and np.any(
+            coefficient[-1] >= coefficient[-2]
+        ):
+            raise ValueError("CIA tail extrapolation requires declining terminal coefficients")
 
     def coefficient_for_wavelength_temperature(
         self,
@@ -76,10 +81,11 @@ class H2H2CollisionInducedAbsorptionTable:
     ) -> FloatArray:
         """Return bilinearly interpolated coefficients in cm^-1 amagat^-2.
 
-        The result has shape ``(wavelength, temperature)``.  Values outside
-        the tabulated wavenumber interval are zero; temperatures are clamped
-        to the 60--7000 K table range because molecular hydrogen is already
-        negligible in substantially hotter pure-H layers.
+        The result has shape ``(wavelength, temperature)``. Below the lowest
+        tabulated wavenumber it is zero. With a declining high-wavenumber tail
+        explicitly enabled, continue the terminal log-slope; otherwise values
+        above the table are zero. This continuation is an extrapolation, not
+        new opacity data. Temperatures remain clamped to the table range.
         """
 
         wavelength = np.atleast_1d(
@@ -97,10 +103,9 @@ class H2H2CollisionInducedAbsorptionTable:
 
         wavenumber = 1.0e8 / wavelength
         result = np.zeros((wavelength.size, temperature.size), dtype=np.float64)
-        inside = (
-            (wavenumber >= self.wavenumber_cm_inverse[0])
-            & (wavenumber <= self.wavenumber_cm_inverse[-1])
-        )
+        inside = wavenumber >= self.wavenumber_cm_inverse[0]
+        if not self.extrapolate_high_wavenumber_tail:
+            inside &= wavenumber <= self.wavenumber_cm_inverse[-1]
         if not np.any(inside):
             return result
 
@@ -200,6 +205,14 @@ def read_borysow_h2_h2_cia_table(
         temperature_K=np.asarray(temperatures, dtype=np.float64),
         absorption_coefficient=values[:, 1:],
         source_path=source_path,
+        # The production Borysow merge ends at 16480 cm^-1 (6068 A) on a
+        # declining tail in every temperature column. Continue its measured
+        # terminal log-slope, with no fitted taper scale. A different input
+        # table that ends on a rising/flat branch remains explicitly limited
+        # to its tabulated domain; an increasing exponential is not justified.
+        extrapolate_high_wavenumber_tail=bool(
+            np.all(values[-1, 1:] < values[-2, 1:])
+        ),
     )
 
 # Ground-state dissociation energies.  The H2+ value refers to H + H+.

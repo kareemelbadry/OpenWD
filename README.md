@@ -14,6 +14,12 @@ structure rather than interpolating a precomputed spectral grid.
 > verified converged atmosphere; check the convergence metadata before using a
 > result scientifically.
 
+Tested cool points now reach **3000 K for DA, 5000 K for pure-He DB, and
+7500 K for a 1%-hydrogen DAB mixture**, at log g = 8. DB/DAB cool results use
+explicit experimental workflows; these are not blanket default-API or
+full-physics validity ranges. See [tested temperatures and limitations](docs/tested-temperature-ranges.md)
+and [reproduction commands](research/cool_models/README.md).
+
 ## Installation
 
 OpenWD requires Python 3.9 or newer. From a clone:
@@ -111,13 +117,17 @@ than a wall-clock test because absolute runtimes depend on the machine.
   reduced Ca II resonance source functions, and available unified Mg I--He
   and Ca I--He profiles.
 
-The current modules are LTE. DAB assumes a homogeneous atomic H/He mixture;
+The current modules are LTE. DAB defaults to a homogeneous atomic H/He mixture;
+explicit molecular H/He support is also available, with additional CIA data.
 DZ assumes a helium-dominated host and treats abundances as fixed inputs, not
 fit parameters. See the concise module notes in [`docs/models`](docs/models).
 
 ## Data and attribution
 
-Runtime data are bundled so a fresh clone is self-contained. They retain their
+Default-preset runtime data are bundled so a fresh clone is self-contained.
+The opt-in molecular research workflow additionally requires the explicitly
+listed external tables in its [data instructions](research/cool_models/README.md).
+Scientific tables retain their
 source licenses and provenance where supplied. The temperature-dependent
 Allard Lyman tables are included with the author's permission. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and the data-directory
@@ -131,7 +141,7 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The ordinary suite contains nearly 300 solver, EOS, opacity, line-profile,
+The ordinary suite contains over 450 solver, EOS, opacity, line-profile,
 transfer, model-component, acceleration-equivalence, and safety tests. Slow
 no-fallback atmosphere canaries run separately in GitHub Actions every week
 and on manual request. Run them locally with:

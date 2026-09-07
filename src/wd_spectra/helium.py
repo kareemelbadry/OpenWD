@@ -1805,6 +1805,7 @@ def rosseland_mean_helium_continuum_opacity(
     atmosphere: Atmosphere,
     *,
     n_frequency: int = 240,
+    wavelength_angstrom: ArrayLike | None = None,
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
@@ -1814,6 +1815,19 @@ def rosseland_mean_helium_continuum_opacity(
     state = _require_helium_state(atmosphere)
     if n_frequency < 40:
         raise ValueError("n_frequency must be at least 40")
+    if wavelength_angstrom is not None:
+        from ._rosseland import rosseland_mean_from_opacity_grid
+
+        return rosseland_mean_from_opacity_grid(
+            wavelength_angstrom,
+            helium_continuum_mass_absorption_coefficient(
+                atmosphere, wavelength_angstrom,
+                include_helium_dimer_ion=include_helium_dimer_ion,
+                include_helium_three_body_cia=include_helium_three_body_cia,
+                include_rydberg_bound_free=include_rydberg_bound_free,
+            ),
+            atmosphere.temperature,
+        )
     x = np.geomspace(0.1, 30.0, n_frequency)
     exponential = np.exp(x)
     weight = x**4 * exponential / np.expm1(x) ** 2

@@ -19,7 +19,6 @@ FloatArray = NDArray[np.float64]
 _AMAGAT_NUMBER_DENSITY = 2.68678e19
 _HELIUM_THREE_BODY_BETA = 1.56e-19
 _HELIUM_THREE_BODY_BREAK_WAVENUMBER = 4000.0
-_HELIUM_THREE_BODY_MAXIMUM_WAVENUMBER = 6000.0
 
 _TEMPERATURE = np.asarray(
     [4200.0, 6300.0, 8400.0, 12600.0, 16800.0, 25200.0, 33600.0, 50400.0]
@@ -253,10 +252,13 @@ def helium_three_body_cia_linear_absorption_coefficient(
     absorptivity per density cubed is in cm^-1 amagat^-3, so the result scales
     as ``n(He I)^3``.  The fit was calculated for 1000--10000 K; temperatures
     outside that interval are held at the nearest boundary to avoid an
-    unphysical extrapolation in optically thick layers.  The molecular-
-    dynamics spectra only constrain wavenumbers through approximately
-    6000 cm^-1, and this implementation deliberately returns zero above that
-    limit (wavelengths shorter than about 1.67 micron).
+    unphysical temperature extrapolation in optically thick layers. The
+    published high-frequency exponential branch is continued smoothly beyond
+    6000 cm^-1, rather than imposing an artificial absorption edge at 1.67
+    micron. This declining tail is an extrapolation of the published fit,
+    not an independently validated optical CIA calculation. No new scale or
+    fitted taper is introduced; the slope is negative throughout the fitted
+    temperature interval.
 
     The coefficient is already a true linear absorptivity.  No additional
     stimulated-emission factor should be applied.
@@ -282,37 +284,21 @@ def helium_three_body_cia_linear_absorption_coefficient(
 
     fitted_temperature = np.clip(temperature, 1000.0, 10_000.0)
     wavenumber = 1.0e8 / wavelength
-    # Evaluate only inside the calibrated band.  Capping the temporary value
-    # also avoids overflow for mathematically valid but astrophysically
-    # irrelevant subatomic input wavelengths before the final mask is applied.
-    evaluated_wavenumber = np.minimum(
-        wavenumber, _HELIUM_THREE_BODY_MAXIMUM_WAVENUMBER
-    )
     gamma = (
         -0.0601248 + 1.55103e-6 * fitted_temperature
     ) * fitted_temperature**-0.393053
     omega_0 = _HELIUM_THREE_BODY_BREAK_WAVENUMBER
-    low_frequency = (
+    # Only evaluate the power law through the join. The high-frequency
+    # branch is exponential, so even very short wavelengths cannot overflow
+    # an unused wavenumber**2.5 expression before the exponential underflows.
+    low_wavenumber = np.minimum(wavenumber, omega_0)
+    per_amagat_cubed = (
         _HELIUM_THREE_BODY_BETA
-        * evaluated_wavenumber**2.5
-        * np.exp(gamma * evaluated_wavenumber)
-    )
-    value_at_break = (
-        _HELIUM_THREE_BODY_BETA
-        * omega_0**2.5
-        * np.exp(gamma * omega_0)
-    )
-    high_frequency = value_at_break * np.exp(
-        (gamma + 6.25e-4) * (evaluated_wavenumber - omega_0)
-    )
-    per_amagat_cubed = np.where(
-        evaluated_wavenumber <= omega_0, low_frequency, high_frequency
+        * low_wavenumber**2.5
+        * np.exp(gamma * low_wavenumber)
+        * np.exp((gamma + 6.25e-4) * np.maximum(wavenumber - omega_0, 0.0))
     )
     absorption = per_amagat_cubed * (
         neutral_density / _AMAGAT_NUMBER_DENSITY
     ) ** 3
-    return np.where(
-        wavenumber <= _HELIUM_THREE_BODY_MAXIMUM_WAVENUMBER,
-        np.maximum(absorption, 0.0),
-        0.0,
-    )
+    return np.maximum(absorption, 0.0)

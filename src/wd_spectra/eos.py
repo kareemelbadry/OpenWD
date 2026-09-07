@@ -1768,6 +1768,7 @@ def _hummer_mihalas_helium_specific_enthalpy(
     neutral_radius_scale: float,
     correlated_microfields: bool,
     helium_reos3_table: HeliumREOS3Table | None = None,
+    separate_neutral_translation: bool = False,
 ) -> tuple[FloatArray, HeliumLTEState]:
     state = (
         hummer_mihalas_helium_lte(
@@ -1796,15 +1797,31 @@ def _hummer_mihalas_helium_specific_enthalpy(
         correlated_microfields=correlated_microfields,
     )
     ideal_particle_density = state.helium_nuclei_density + state.electron_density
-    internal_energy_density = (
-        1.5 * BOLTZMANN * temperature * ideal_particle_density
-        + state.singly_ionized_he_density
+    reaction_energy_density = (
+        state.singly_ionized_he_density
         * (HELIUM_FIRST_IONIZATION_ENERGY + ion_excitation)
         + state.doubly_ionized_he_density
         * (HELIUM_FIRST_IONIZATION_ENERGY + HELIUM_SECOND_IONIZATION_ENERGY)
         + state.neutral_he_density * neutral_excitation
     )
-    enthalpy = (internal_energy_density + gas_pressure) / state.mass_density
+    if separate_neutral_translation:
+        if helium_reos3_table is not None:
+            raise ValueError(
+                "Neutral translation separation requires the ideal-pressure HM EOS"
+            )
+        # Compute h - (5/2) kT/m_He without subtracting that large ideal
+        # contribution from h. The remaining particle enthalpy is due only
+        # to electrons; reaction/excitation terms retain the same populations.
+        enthalpy = (
+            reaction_energy_density
+            + 2.5 * BOLTZMANN * temperature * state.electron_density
+        ) / state.mass_density
+    else:
+        internal_energy_density = (
+            1.5 * BOLTZMANN * temperature * ideal_particle_density
+            + reaction_energy_density
+        )
+        enthalpy = (internal_energy_density + gas_pressure) / state.mass_density
     if helium_reos3_table is not None:
         _, tabulated_internal_energy, inside = helium_reos3_table.evaluate(
             gas_pressure, temperature
@@ -1826,7 +1843,14 @@ def hummer_mihalas_helium_thermodynamics(
     correlated_microfields: bool = False,
     helium_reos3_table: HeliumREOS3Table | None = None,
 ) -> HeliumThermodynamics:
-    r"""Return numerical :math:`c_P`, :math:`Q`, and :math:`\nabla_ad` for He."""
+    r"""Return :math:`c_P`, :math:`Q`, and :math:`\nabla_ad` for He.
+
+    For ideal-pressure HM, differentiate reaction/ionization contributions
+    numerically but handle neutral translation analytically. This avoids
+    noise from differencing two nearly equal ideal-gas enthalpies/densities
+    in efficient convection. No temperature or ionization threshold is used.
+    The tabulated REOS derivative path is unchanged.
+    """
 
     temperature, gas_pressure = np.broadcast_arrays(
         np.asarray(temperature, dtype=np.float64),
@@ -1842,6 +1866,7 @@ def hummer_mihalas_helium_thermodynamics(
         neutral_radius_scale=neutral_radius_scale,
         correlated_microfields=correlated_microfields,
         helium_reos3_table=helium_reos3_table,
+        separate_neutral_translation=helium_reos3_table is None,
     )
     hotter_enthalpy, hotter = _hummer_mihalas_helium_specific_enthalpy(
         hotter_temperature,
@@ -1850,6 +1875,7 @@ def hummer_mihalas_helium_thermodynamics(
         neutral_radius_scale=neutral_radius_scale,
         correlated_microfields=correlated_microfields,
         helium_reos3_table=helium_reos3_table,
+        separate_neutral_translation=helium_reos3_table is None,
     )
     state = (
         hummer_mihalas_helium_lte(
@@ -1873,14 +1899,24 @@ def hummer_mihalas_helium_thermodynamics(
         (hotter_enthalpy - cooler_enthalpy)
         / (hotter_temperature - cooler_temperature)
     )
-    expansion = -(
-        np.log(hotter.mass_density) - np.log(cooler.mass_density)
-    ) / (2.0 * epsilon)
-    adiabatic_gradient = (
-        gas_pressure
-        * expansion
-        / (state.mass_density * temperature * specific_heat)
-    )
+    if helium_reos3_table is None:
+        specific_heat += 2.5 * BOLTZMANN / HELIUM_MASS
+        # rho = m_He P/[kT(1+Z)]. log1p retains the response of trace ions
+        # instead of losing it underneath the explicit -ln T dependence.
+        expansion = 1.0 + (
+            np.log1p(hotter.mean_ion_charge) - np.log1p(cooler.mean_ion_charge)
+        ) / (2.0 * epsilon)
+        adiabatic_gradient = (
+            BOLTZMANN * (1.0 + state.mean_ion_charge) * expansion
+            / (HELIUM_MASS * specific_heat)
+        )
+    else:
+        expansion = -(
+            np.log(hotter.mass_density) - np.log(cooler.mass_density)
+        ) / (2.0 * epsilon)
+        adiabatic_gradient = (
+            gas_pressure * expansion / (state.mass_density * temperature * specific_heat)
+        )
     return HeliumThermodynamics(
         specific_heat_constant_pressure=np.asarray(specific_heat),
         density_temperature_derivative=np.asarray(expansion),

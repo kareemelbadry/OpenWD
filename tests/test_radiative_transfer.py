@@ -3,12 +3,14 @@ import pytest
 
 from wd_spectra._compat import trapezoid
 from wd_spectra.radiative_transfer import (
+    coherent_scattering_feautrier_field,
     compiled_backend_available,
     emergent_flux,
     emergent_specific_intensity,
     emergent_stokes_specific_intensity,
     feautrier_radiation_field,
     integrated_emergent_flux_state_response,
+    integrated_coherent_scattering_feautrier_state_response,
     integrated_lambda_response,
     radiation_field,
 )
@@ -152,6 +154,202 @@ def test_feautrier_isothermal_surface_flux_and_deep_mean_intensity():
     np.testing.assert_allclose(
         field.mean_intensity[:, -3], source[:, -3], rtol=2.0e-6
     )
+
+
+def test_coupled_coherent_scattering_satisfies_source_equation():
+    tau = np.geomspace(1.0e-6, 100.0, 40)
+    planck = np.vstack((1.0 + 0.3 * np.log1p(tau),))
+    absorption = np.full_like(planck, 0.03)
+    scattering = np.full_like(planck, 0.97)
+    source, field = coherent_scattering_feautrier_field(
+        tau, planck, absorption, scattering, n_angle=3
+    )
+    expected = 0.03 * planck + 0.97 * field.mean_intensity
+    np.testing.assert_allclose(source, expected, rtol=3.0e-12, atol=1.0e-12)
+
+
+def test_coupled_source_closes_an_independent_formal_transfer_solve():
+    # Five wavelengths and chunks of two also exercise a partial final batch
+    # whose size differs from the angle count (important on NumPy 2).
+    tau = np.geomspace(1.0e-5, 50.0, 24)
+    planck = (np.arange(1.0, 6.0)[:, None]
+              * (1.0 + 0.3 * np.log1p(tau)))
+    for epsilon in (0.3, 0.03, 1.2e-6):
+        source, coupled = coherent_scattering_feautrier_field(
+            tau, planck, np.full_like(planck, epsilon),
+            np.full_like(planck, 1.0 - epsilon), n_angle=3,
+            wavelength_chunk_size=2,
+        )
+        # Not just S=epsilon*B+(1-epsilon)*J using the J that constructed S:
+        # propagate S through the independent scalar Feautrier implementation.
+        formal = feautrier_radiation_field(tau, source, n_angle=3)
+        np.testing.assert_allclose(formal.mean_intensity,
+                                   coupled.mean_intensity, rtol=2e-8, atol=2e-10)
+        np.testing.assert_allclose(source, epsilon*planck
+                                   + (1-epsilon)*formal.mean_intensity,
+                                   rtol=2e-8, atol=2e-10)
+        np.testing.assert_allclose(formal.interface_flux,
+                                   coupled.interface_flux, rtol=2e-8, atol=2e-10)
+
+
+def test_coupled_scattering_reduces_exactly_to_absorption_only():
+    tau = np.vstack(
+        (
+            np.geomspace(2.0e-6, 60.0, 24),
+            np.geomspace(9.0e-5, 140.0, 24),
+        )
+    )
+    depth = np.arange(tau.shape[1], dtype=np.float64)
+    planck = np.vstack((1.0 + 0.02 * depth**2, 2.0 + 0.15 * depth))
+    source, actual = coherent_scattering_feautrier_field(
+        tau,
+        planck,
+        np.ones_like(planck),
+        np.zeros_like(planck),
+        n_angle=4,
+    )
+    expected = feautrier_radiation_field(tau, planck, n_angle=4)
+    np.testing.assert_array_equal(source, planck)
+    np.testing.assert_array_equal(actual.mean_intensity, expected.mean_intensity)
+    np.testing.assert_array_equal(actual.interface_flux, expected.interface_flux)
+
+
+@pytest.mark.parametrize("step", [0.1, 0.2])
+def test_coupled_scattering_state_response_matches_finite_difference(step):
+    wavelength = np.array([900.0, 1800.0, 4200.0, 9000.0])
+    mass = np.geomspace(1.0e-5, 20.0, 6)
+    depth = np.arange(mass.size, dtype=np.float64)
+    planck = (
+        (1.0 + wavelength[:, np.newaxis] / 7000.0)
+        * (1.0 + 0.12 * depth[np.newaxis, :] ** 1.3)
+    )
+    absorption = (
+        8.0e-7
+        * (1.0 + wavelength[:, np.newaxis] / 12_000.0)
+        * (1.0 + 0.04 * depth[np.newaxis, :])
+    )
+    scattering = (
+        0.35
+        * (1.0 + 0.03 * depth[np.newaxis, :])
+        * (1.0 + 0.0 * wavelength[:, np.newaxis])
+    )
+    planck_derivative = 0.17 * planck
+    absorption_derivative = 0.08 * absorption
+    scattering_derivative = -0.025 * scattering
+
+    def optical_depth(extinction):
+        result = np.empty_like(extinction)
+        result[:, 0] = extinction[:, 0] * mass[0]
+        result[:, 1:] = result[:, [0]] + np.cumsum(
+            0.5
+            * (extinction[:, 1:] + extinction[:, :-1])
+            * np.diff(mass),
+            axis=1,
+        )
+        return result
+
+    extinction = absorption + scattering
+    tau = optical_depth(extinction)
+    source, field = coherent_scattering_feautrier_field(
+        tau, planck, absorption, scattering, n_angle=3
+    )
+    direct_source_derivative = (
+        absorption_derivative * planck
+        + absorption * planck_derivative
+        + scattering_derivative * field.mean_intensity
+        - (absorption_derivative + scattering_derivative) * source
+    ) / extinction
+    flux_response, mean_response, source_response = (
+        integrated_coherent_scattering_feautrier_state_response(
+            tau,
+            wavelength,
+            source,
+            direct_source_derivative,
+            planck_derivative,
+            scattering / extinction,
+            mass,
+            absorption_derivative + scattering_derivative,
+            n_angle=3,
+            wavelength_chunk_size=2,
+        )
+    )
+    assert mean_response is not None and source_response is not None
+    flux_only, omitted_mean, omitted_source = (
+        integrated_coherent_scattering_feautrier_state_response(
+            tau,
+            wavelength,
+            source,
+            direct_source_derivative,
+            planck_derivative,
+            scattering / extinction,
+            mass,
+            absorption_derivative + scattering_derivative,
+            n_angle=3,
+            wavelength_chunk_size=2,
+            return_auxiliary_response=False,
+        )
+    )
+    np.testing.assert_array_equal(flux_only, flux_response)
+    assert omitted_mean is None and omitted_source is None
+
+    # Thin surface cells amplify cancellation in a small, second-order
+    # finite difference. Use a fourth-order reference at two wider steps:
+    # this reduces roundoff without weakening the derivative tolerances.
+    for state_depth in range(mass.size):
+        changed = []
+        for direction in (-2.0, -1.0, 1.0, 2.0):
+            changed_planck = planck.copy()
+            changed_absorption = absorption.copy()
+            changed_scattering = scattering.copy()
+            changed_planck[:, state_depth] += (
+                direction * step * planck_derivative[:, state_depth]
+            )
+            changed_absorption[:, state_depth] += (
+                direction * step * absorption_derivative[:, state_depth]
+            )
+            changed_scattering[:, state_depth] += (
+                direction * step * scattering_derivative[:, state_depth]
+            )
+            changed_extinction = changed_absorption + changed_scattering
+            changed.append(
+                coherent_scattering_feautrier_field(
+                    optical_depth(changed_extinction),
+                    changed_planck,
+                    changed_absorption,
+                    changed_scattering,
+                    n_angle=3,
+                )
+            )
+        (far_lower_source, far_lower_field), (lower_source, lower_field), (upper_source, upper_field), (far_upper_source, far_upper_field) = changed
+        def derivative(far_lower, lower, upper, far_upper):
+            return (8 * (upper - lower) - (far_upper - far_lower)) / (12 * step)
+        assert lower_field.interface_flux is not None
+        assert upper_field.interface_flux is not None
+        numerical_flux = trapezoid(
+            derivative(far_lower_field.interface_flux, lower_field.interface_flux,
+                       upper_field.interface_flux, far_upper_field.interface_flux),
+            wavelength,
+            axis=0,
+        )
+        np.testing.assert_allclose(
+            numerical_flux,
+            flux_response[:, state_depth],
+            rtol=2.0e-4,
+            atol=2.0e-5,
+        )
+        np.testing.assert_allclose(
+            derivative(far_lower_field.mean_intensity, lower_field.mean_intensity,
+                       upper_field.mean_intensity, far_upper_field.mean_intensity),
+            mean_response[:, :, state_depth],
+            rtol=2.0e-4,
+            atol=2.0e-5,
+        )
+        np.testing.assert_allclose(
+            derivative(far_lower_source, lower_source, upper_source, far_upper_source),
+            source_response[:, :, state_depth],
+            rtol=2.0e-4,
+            atol=2.0e-5,
+        )
 
 
 def test_feautrier_linear_source_has_constant_deep_flux():

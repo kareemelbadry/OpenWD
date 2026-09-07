@@ -1,5 +1,11 @@
 # DB module
 
+The default solver has protected cold starts at **10000 and 22000 K**.
+The explicit experimental dense-He workflow also converges at **5000 and
+8000 K**, without making its trace-ion EOS a warm-star default. See
+[tested temperatures](../tested-temperature-ranges.md) and
+[reproduction commands](../../research/cool_models/README.md).
+
 `compute_db` solves a homogeneous pure-helium LTE atmosphere. It combines a
 Hummer--Mihalas/Q-MHD helium EOS, He I/II/III continuum opacity, corrected
 Doppler-convolved Beauchamp25-LD He I Stark profiles, Schoening/SYNSPEC He II
