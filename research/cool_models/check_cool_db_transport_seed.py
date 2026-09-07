@@ -324,6 +324,10 @@ def run(args):
         import wd_spectra.adaptive_structure as adaptive
         original_solve = adaptive.solve_adaptive_lte_structure
         def full_flux(*positional, **kwargs):
+            # This qualified worker already owns direct local-energy rows,
+            # thermal initialization and measured nonlinear-ML2 proposals.
+            # Do not apply the public atomic solver's completion a second time.
+            kwargs['enforce_local_energy_balance'] = False
             if args.finite_material_repair or args.nonlinear_materials:
                 from convective_consistency_experiment import MaterialCoefficients
                 material_context['materials'] = MaterialCoefficients(

@@ -34,7 +34,7 @@ AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
 ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
 
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
-_MODEL_PHYSICS_REVISION = "openwd-0.1.3-coupled-scattering-fixed-rosseland-cia-tails"
+_MODEL_PHYSICS_REVISION = "openwd-0.1.3-cold-local-energy-and-domain-v3"
 
 
 class AtmosphereConvergenceWarning(RuntimeWarning):
@@ -240,10 +240,32 @@ def atmosphere_matches_model_request(
 
     if atmosphere is None:
         return False
+    config = fingerprint.get("config", {})
+    if not isinstance(config, Mapping) or (
+        atmosphere.effective_temperature != config.get("effective_temperature")
+        or atmosphere.logg != config.get("logg")
+    ):
+        return False
     recorded = atmosphere.metadata.get("model_request_fingerprint")
     if not isinstance(recorded, Mapping):
         return False
     return dict(recorded) == dict(fingerprint)
+
+
+def fixed_synthesis_atmosphere(atmosphere: Atmosphere,
+                              fingerprint: Mapping[str, object]) -> Atmosphere:
+    """Retain an explicit exploratory structure, but not a mismatched claim.
+
+    The original atmosphere diagnostics still describe the original physical
+    problem. They must not certify a new composition, opacity policy or Teff.
+    Never mutate the caller's structure or silently re-relax it here.
+    """
+    matches = atmosphere_matches_model_request(atmosphere, fingerprint)
+    return replace(atmosphere, metadata={
+        **atmosphere.metadata,
+        "fixed_synthesis_request_verified": matches,
+        "fixed_synthesis_requested_fingerprint": dict(fingerprint),
+    })
 
 
 def atmosphere_with_model_request_fingerprint(
@@ -251,11 +273,14 @@ def atmosphere_with_model_request_fingerprint(
     fingerprint: Mapping[str, object],
 ) -> Atmosphere:
     """Attach immutable request provenance without mutating caller metadata."""
-
+    metadata = dict(atmosphere.metadata)
+    # A newly relaxed atmosphere is no longer a fixed-synthesis request.
+    metadata.pop("fixed_synthesis_request_verified", None)
+    metadata.pop("fixed_synthesis_requested_fingerprint", None)
     return replace(
         atmosphere,
         metadata={
-            **atmosphere.metadata,
+            **metadata,
             "model_request_fingerprint": dict(fingerprint),
         },
     )
@@ -270,10 +295,10 @@ def atmosphere_convergence_status(
         "mean_3d_temperature_differential_is_equilibrium_model"
     ) is False:
         return "unconverged"
-    value = atmosphere.metadata.get("radiative_equilibrium_converged")
-    if isinstance(value, (bool, np.bool_)):
-        return "converged" if bool(value) else "unconverged"
-    return "unknown"
+    if atmosphere.metadata.get("fixed_synthesis_request_verified") is False:
+        return "unconverged"
+    from .._convergence import recorded_equilibrium_status
+    return recorded_equilibrium_status(atmosphere.metadata)
 
 
 def warn_if_atmosphere_not_converged(
@@ -289,7 +314,14 @@ def warn_if_atmosphere_not_converged(
         detail = "records that radiative/convective equilibrium did not converge"
     else:
         detail = "does not record a verified atmosphere-convergence status"
+    if atmosphere.metadata.get("fixed_synthesis_request_verified") is False:
+        detail = "does not verify equilibrium for the requested parameters and physics (checkpoint request mismatch)"
+    elif atmosphere.metadata.get("radiative_equilibrium_solver_converged") is True:
+        detail = "passes the solver flux checks but does not pass all equilibrium certification checks"
     metrics = []
+    certificate = atmosphere.metadata.get("equilibrium_certificate", {})
+    if isinstance(certificate, Mapping) and certificate.get("failures"):
+        metrics.append("unverified checks=" + ", ".join(certificate["failures"]))
     residual = atmosphere.metadata.get(
         "maximum_all_depth_total_flux_residual",
         atmosphere.metadata.get("maximum_total_flux_residual"),
@@ -388,6 +420,8 @@ def load_atmosphere_checkpoint(
         raise FileNotFoundError(f"atmosphere checkpoint does not exist: {source}")
     stored_metadata: dict[str, object] = {}
     with np.load(source) as saved:
+        saved_teff = float(saved["effective_temperature"]) if "effective_temperature" in saved else None
+        saved_logg = float(saved["logg"]) if "logg" in saved else None
         def required(*names: str) -> FloatArray:
             for name in names:
                 if name in saved:
@@ -440,6 +474,59 @@ def load_atmosphere_checkpoint(
         "source_checkpoint": str(source.resolve()),
         "checkpoint_composition": composition,
     }
+    def reclosed_metadata(state):
+        """Changing the EOS invalidates certification even at identical T/P."""
+        record = dict(metadata)
+        for name, old in (("mass_density", saved_mass_density),
+                          ("electron_density", saved_electron_density)):
+            new = np.asarray(getattr(state, name), dtype=float)
+            if old is None or old.shape != new.shape or not np.allclose(old, new, rtol=1e-8, atol=0.):
+                record["radiative_equilibrium_converged"] = False
+                record.pop("equilibrium_certificate", None)
+                record.pop("model_request_fingerprint", None)
+                record["checkpoint_eos_changed_requires_relaxation"] = True
+        return record
+    request = stored_metadata.get("model_request_fingerprint", {})
+    old_config = request.get("config", {}) if isinstance(request, Mapping) else {}
+    if not isinstance(old_config, Mapping):
+        old_config = {}
+    old_kind = request.get("spectral_type") if isinstance(request, Mapping) else None
+    old_composition = ({"DA": "hydrogen", "DB": "helium", "DZ": "helium", "DAB": "mixed"}.get(old_kind)
+                       or stored_metadata.get("checkpoint_composition"))
+    changed = []
+    if saved_teff != effective_temperature:
+        changed.append("effective_temperature changed or unrecorded")
+    if saved_logg != logg:
+        changed.append("logg changed or unrecorded")
+    if old_composition is not None and old_composition != composition:
+        changed.append("composition changed")
+    if composition == "mixed":
+        old_abundance = old_config.get("log_hydrogen_to_helium",
+            stored_metadata.get("log_hydrogen_to_helium"))
+        if old_abundance != log_hydrogen_to_helium:
+            changed.append("H/He abundance changed or unrecorded")
+    if composition == "hydrogen":
+        old_molecules = old_config.get("include_molecules")
+        if old_molecules is None:
+            old_molecules = stored_metadata.get("includes_molecular_equilibrium", False)
+        if bool(old_molecules) != include_molecules:
+            changed.append("molecular chemistry changed")
+        old_negative = stored_metadata.get(
+            "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium",
+            stored_metadata.get("negative_hydrogen_in_charge_equilibrium"))
+        if old_negative is None or bool(old_negative) != include_negative_hydrogen:
+            changed.append("H- charge equilibrium changed or unrecorded")
+        old_partition = old_config.get("h3plus_partition_model",
+            stored_metadata.get("trihydrogen_ion_partition_model"))
+        if old_partition == "none":
+            old_partition = None
+        if old_partition != trihydrogen_ion_partition_model:
+            changed.append("H3+ partition changed or unrecorded")
+    if changed:
+        metadata["radiative_equilibrium_converged"] = False
+        metadata.pop("model_request_fingerprint", None)
+        metadata.pop("equilibrium_certificate", None)
+        metadata["checkpoint_changed_requires_relaxation"] = changed
     if stored_metadata.get("experimental_h2_partition"):
         # This loader rebuilds populations using the requested production EOS;
         # it cannot certify an external experiment's partition function or
@@ -447,6 +534,7 @@ def load_atmosphere_checkpoint(
         # but never inherit that experiment's convergence claim.
         metadata["radiative_equilibrium_converged"] = False
         metadata.pop("model_request_fingerprint", None)
+        metadata.pop("equilibrium_certificate", None)
         metadata["checkpoint_chemistry_changed_requires_relaxation"] = True
     zeros = np.zeros_like(temperature)
     if composition == "hydrogen":
@@ -471,7 +559,7 @@ def load_atmosphere_checkpoint(
             state.neutral_h_density,
             state.proton_density,
             state.electron_density,
-            metadata,
+            reclosed_metadata(state),
             hydrogen_lte_state=state,
         )
     if composition == "helium":
@@ -492,7 +580,7 @@ def load_atmosphere_checkpoint(
             zeros,
             zeros,
             state.electron_density,
-            metadata,
+            reclosed_metadata(state),
             helium_lte_state=state,
         )
     if composition == "mixed":
@@ -505,6 +593,7 @@ def load_atmosphere_checkpoint(
         if bool(stored_metadata.get("includes_molecular_equilibrium",False)) != include_molecules:
             metadata["radiative_equilibrium_converged"] = False
             metadata.pop("model_request_fingerprint",None)
+            metadata.pop("equilibrium_certificate",None)
             metadata["checkpoint_chemistry_changed_requires_relaxation"] = True
         metadata["includes_molecular_equilibrium"] = include_molecules
         metadata["mixed_chemical_model"] = ("molecular-h-he-hm" if include_molecules else "atomic-h-he-hm")
@@ -528,7 +617,7 @@ def load_atmosphere_checkpoint(
             hydrogen.neutral_h_density,
             hydrogen.proton_density,
             state.electron_density,
-            metadata,
+            reclosed_metadata(state),
             hydrogen_lte_state=hydrogen,
             helium_lte_state=state.helium_lte_state,
         )

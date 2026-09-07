@@ -95,11 +95,14 @@ sufficient screen is below `lower_boundary_screening_tolerance` (the requested
 flux tolerance). Failure of this conservative screen is not itself a measured
 flux error; it calls for a deeper-domain calculation.
 
-These diagnostics do not change the finite-grid equations or their convergence
-flag. Discrete atmosphere convergence is distinct from both lower-boundary
-adequacy and depth/wavelength resolution of an independently synthesized
-spectrum. Report the latter checks separately; do not normalize a deficient
-spectrum to conceal them.
+The shared equilibrium certificate now requires this screening evidence in
+addition to the finite-grid energy, source and correction checks. The
+helium-family public drivers can extend their own lower mesh when this is
+the only failed gate. `adaptive_domain_segments` records node counts and
+work in each segment; `radiative_equilibrium_iterations_including_domain_adaptation`
+includes all segments. This is not an external-atmosphere continuation.
+Depth/wavelength resolution remains separate; do not normalize a deficient
+spectrum to conceal it.
 
 ## Live progress
 
@@ -113,12 +116,36 @@ the actual convective-flux divergence is included. The last boundary node is
 not a cell-energy equation. Final metadata also records the signed array,
 the worst cell index, and `maximum_cell_energy_balance_defect_in_stellar_flux`.
 
-These are observational, not new convergence thresholds. A thin cell can have
+This local diagnostic is now an independent convergence gate. A thin cell can have
 a substantial relative heating error yet a negligible defect relative to
 stellar flux. Conversely, surface bolometric agreement does not certify local
-thermal balance. Use the local and global quantities together. See
-`solver-review-2026-09-05.md` for the measured cool-DB examples and explicitly
-opted-in research formulations.
+thermal balance. Use the local and global quantities together. The configured
+flux tolerance is applied to both; their normalizations remain different.
+See `cold-start-numerics-2026-09-07.md` for the completion algorithm and results.
+
+### Cold-start local-energy completion
+
+`rejected-step-phase-handoff` is an unsuccessful phase termination, never an
+equilibrium claim. After rejecting a whole flux-only direction, the driver can
+move to direct local energy if actual interface flux already passes its gate
+but cell energy does not. It carries the unchanged accepted state into the next
+phase, not the rejected trial. The same flux-only segment is not retried.
+
+`local_energy_enforcement_requested` records the requested policy;
+`local_energy_completion_used` records whether its energy equations were needed.
+The original formal-flux phases are retained before this completion. During
+`thermal-conditioning`, live `converged` is always false. The separate
+`thermal_conditioning` history records pseudo-time steps, temporal defects,
+actual flux/local-energy errors and provisional temperature changes; none of
+those initialization changes can certify equilibrium. `local-energy-completion`
+then measures a full unrestricted static correction.
+
+`radiative_equilibrium_iterations` includes thermal sweeps and static iterations.
+Nonlinear residual/Jacobian counts describe the static solver segments; thermal
+work is recorded separately, not hidden in those counters. Across lower-domain
+extensions, `thermal_sweeps_including_domain_adaptation` sums the provisional
+sweeps in all segments. `final_temperature_coordinates` identifies nodal log T
+versus the original normalization/gradient representation.
 
 ### Experimental convective trial correction
 

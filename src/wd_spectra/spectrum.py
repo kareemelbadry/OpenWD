@@ -12,6 +12,7 @@ from ._compat import trapezoid
 from .atmosphere import Atmosphere
 from .constants import BOLTZMANN, LIGHT_SPEED, PI, PLANCK, STEFAN_BOLTZMANN
 from .radiative_transfer import Backend, emergent_flux
+from ._spectrum_source import solve_spectrum_source
 
 if TYPE_CHECKING:
     from .d6 import TOPbasePhotoionizationDatabase
@@ -479,49 +480,12 @@ def synthesize_balmer_spectrum(
             wavelength[:, np.newaxis], atmosphere.temperature[np.newaxis, :]
         )
     )
-    source = planck
-    source_iterations = 0
-    source_converged = True
-    maximum_relative_source_change = 0.0
-    if np.any(scattering > 0.0):
-        from .radiative_transfer import radiation_field
-
-        ca_ii_scattering_enabled = (
-            (
-                ca_ii_resonance_collision_strengths is not None
-                or ca_ii_resonance_scattering_fraction > 0.0
-            )
-            and bool(np.any(metal_line_scattering > 0.0))
-        )
-        maximum_source_iterations = 24 if ca_ii_scattering_enabled else 4
-        source_converged = not ca_ii_scattering_enabled
-        for source_iterations in range(1, maximum_source_iterations + 1):
-            field = radiation_field(optical_depth, source, n_angle=n_angle)
-            updated_source = np.ascontiguousarray(
-                (absorption * planck + scattering * field.mean_intensity)
-                / total_opacity
-            )
-            if ca_ii_scattering_enabled:
-                important = metal_line_scattering > (
-                    1.0e-6 * np.max(metal_line_scattering)
-                )
-                relative_change = np.abs(updated_source - source) / np.maximum(
-                    planck, np.finfo(np.float64).tiny
-                )
-                maximum_relative_source_change = float(
-                    np.max(relative_change[important])
-                )
-            source = updated_source
-            if (
-                ca_ii_scattering_enabled
-                and maximum_relative_source_change < 1.0e-3
-            ):
-                source_converged = True
-                break
+    source, coupled, transfer_metadata = solve_spectrum_source(
+        optical_depth, planck, absorption, scattering,
+        wavelength=wavelength, n_angle=n_angle, discretization="formal-linear",
+    )
     if emergent_ray_mu is None:
-        flux = emergent_flux(
-            optical_depth, source, n_angle=n_angle, backend=backend
-        )
+        flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
         flux_convention = "surface F_lambda"
     else:
         from .radiative_transfer import emergent_specific_intensity
@@ -678,9 +642,7 @@ def synthesize_balmer_spectrum(
             "ca_ii_resonance_collision_strengths": (
                 ca_ii_resonance_collision_strengths or "disabled"
             ),
-            "source_iterations": source_iterations,
-            "source_converged": source_converged,
-            "maximum_relative_source_change": maximum_relative_source_change,
+            **transfer_metadata,
             "n_angle": int(n_angle),
             "emergent_ray_mu": emergent_ray_mu,
         },
@@ -824,7 +786,7 @@ def synthesize_helium_spectrum(
     excluded_metal_line_elements: Iterable[str] = (),
     n_angle: int = 4,
     backend: Backend = "auto",
-    transfer_discretization: Literal["optical-depth", "column-mass"] = "optical-depth",
+    transfer_discretization: Literal["formal-linear", "optical-depth", "feautrier-optical-depth", "column-mass"] = "formal-linear",
 ) -> Spectrum:
     """Synthesize an LTE pure-He spectrum with tabulated He I profiles.
 
@@ -834,8 +796,12 @@ def synthesize_helium_spectrum(
     profile provenance unambiguous.
     """
 
-    if transfer_discretization not in ("optical-depth", "column-mass"):
+    if transfer_discretization not in ("formal-linear", "optical-depth", "feautrier-optical-depth", "column-mass"):
         raise ValueError("unsupported spectrum transfer_discretization")
+    # Preserve the original explicit keyword's piecewise-linear equations.
+    # A new Feautrier formal calculation must be requested by its own name.
+    if transfer_discretization == "optical-depth":
+        transfer_discretization = "formal-linear"
     h_state = atmosphere.hydrogen_lte_state
     molecular_state = (h_state is not None and h_state.chemical_model == "molecular-h-he-hm")
     if molecular_state != (molecular_h_he is not None):
@@ -1087,66 +1053,15 @@ def synthesize_helium_spectrum(
             wavelength[:, np.newaxis], atmosphere.temperature[np.newaxis, :]
         )
     )
-    source = planck
-    source_iterations = 0
-    source_converged = True
-    maximum_relative_source_change = 0.0
-    transfer_metadata = {}
-    if transfer_discretization == "column-mass":
-        from ._mass_feautrier import mass_field
-        source, coupled = mass_field(
-            optical_depth, planck, absorption, scattering,
-            column_mass=atmosphere.column_mass, n_angle=n_angle,
-        )
-        _, prescribed = mass_field(
-            optical_depth, source, total, np.zeros_like(scattering),
-            column_mass=atmosphere.column_mass, n_angle=n_angle,
-        )
-        closure = source - (absorption*planck + scattering*prescribed.mean_intensity)/total
-        scaled_error = float(np.max(wavelength[:,None]*np.abs(closure)) /
-                             np.max(wavelength[:,None]*source))
-        if not np.isfinite(scaled_error) or scaled_error > 1e-10:
-            raise RuntimeError("column-mass spectrum failed independent source closure")
-        flux = coupled.interface_flux[:,0]
-        source_iterations = 1
-        transfer_metadata = {
-            "transfer_discretization": "column-mass",
-            "scattering_source_solver": "direct coupled Feautrier",
-            "independent_radiation_scaled_source_error": scaled_error,
-        }
-    elif np.any(scattering > 0.0):
-        from .radiative_transfer import radiation_field
-
-        ca_ii_scattering_enabled = (
-            (
-                ca_ii_resonance_collision_strengths is not None
-                or ca_ii_resonance_scattering_fraction > 0.0
-            )
-            and bool(np.any(metal_line_scattering > 0.0))
-        )
-        maximum_source_iterations = 24 if ca_ii_scattering_enabled else 4
-        source_converged = not ca_ii_scattering_enabled
-        for source_iterations in range(1, maximum_source_iterations + 1):
-            field = radiation_field(optical_depth, source, n_angle=n_angle)
-            updated_source = np.ascontiguousarray(
-                (absorption * planck + scattering * field.mean_intensity) / total
-            )
-            if ca_ii_scattering_enabled:
-                important = metal_line_scattering > (
-                    1.0e-6 * np.max(metal_line_scattering)
-                )
-                relative_change = np.abs(updated_source - source) / np.maximum(
-                    planck, np.finfo(np.float64).tiny
-                )
-                maximum_relative_source_change = float(
-                    np.max(relative_change[important])
-                )
-            source = updated_source
-            if ca_ii_scattering_enabled and maximum_relative_source_change < 1.0e-3:
-                source_converged = True
-                break
-    if transfer_discretization == "optical-depth":
-        flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
+    source, coupled, transfer_metadata = solve_spectrum_source(
+        optical_depth, planck, absorption, scattering,
+        wavelength=wavelength, n_angle=n_angle,
+        column_mass=(atmosphere.column_mass if transfer_discretization == "column-mass" else None),
+        discretization=("optical-depth" if transfer_discretization == "feautrier-optical-depth" else transfer_discretization),
+    )
+    transfer_metadata["transfer_discretization"] = transfer_discretization
+    flux = (emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
+            if transfer_discretization == "formal-linear" else coupled.interface_flux[:, 0])
     return Spectrum(
         wavelength_angstrom=wavelength,
         surface_flux_lambda=flux,
@@ -1221,9 +1136,6 @@ def synthesize_helium_spectrum(
             "ca_ii_resonance_collision_strengths": (
                 ca_ii_resonance_collision_strengths or "disabled"
             ),
-            "source_iterations": source_iterations,
-            "source_converged": source_converged,
-            "maximum_relative_source_change": maximum_relative_source_change,
             "c2_electronic_bands": (
                 c2_cross_section_table.source
                 if c2_cross_section_table is not None else "disabled"

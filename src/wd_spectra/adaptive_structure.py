@@ -98,14 +98,12 @@ def _adiabatic_asymptotic_convection_mask(
 
     interface_log_pressure_step = np.zeros_like(desired_gradient)
     interface_log_pressure_step[1:] = log_pressure_step
-    superadiabatic_temperature_increment = np.maximum(
-        desired_gradient - adiabatic_gradient, 0.0
-    ) * interface_log_pressure_step
-    asymptotic = (
-        desired_convective_flux > flux_tolerance * target_flux
-    ) & (
-        superadiabatic_temperature_increment
-        <= 0.25 * temperature_tolerance
+    superadiabatic_temperature_increment = (
+        np.maximum(desired_gradient - adiabatic_gradient, 0.0)
+        * interface_log_pressure_step
+    )
+    asymptotic = (desired_convective_flux > flux_tolerance * target_flux) & (
+        superadiabatic_temperature_increment <= 0.25 * temperature_tolerance
     )
     asymptotic[0] = False
     return superadiabatic_temperature_increment, asymptotic
@@ -165,8 +163,11 @@ def _cap_overcarrying_ml2_gradient(
 
 
 def _thermal_boundary_absorption_escape_bound(
-    wavelength: FloatArray, column_mass: FloatArray, absorption: FloatArray,
-    bottom_planck: FloatArray, target_flux: float,
+    wavelength: FloatArray,
+    column_mass: FloatArray,
+    absorption: FloatArray,
+    bottom_planck: FloatArray,
+    target_flux: float,
 ) -> float:
     """Conservative lower-boundary transparency diagnostic, in stellar fluxes.
 
@@ -177,13 +178,16 @@ def _thermal_boundary_absorption_escape_bound(
     This is independent of the discrete total-flux residual and does not
     rescale the spectrum or alter the solved equations.
     """
-    bottom_absorption_depth = (
-        absorption[:, 0] * column_mass[0]
-        + trapezoid(absorption, column_mass, axis=1)
+    bottom_absorption_depth = absorption[:, 0] * column_mass[0] + trapezoid(
+        absorption, column_mass, axis=1
     )
-    return float(trapezoid(
-        np.pi * bottom_planck * np.exp(-bottom_absorption_depth), wavelength
-    ) / target_flux)
+    return float(
+        trapezoid(
+            np.pi * bottom_planck * np.exp(-bottom_absorption_depth),
+            wavelength,
+        )
+        / target_flux
+    )
 
 
 def solve_adaptive_lte_structure(
@@ -218,8 +222,13 @@ def solve_adaptive_lte_structure(
     safeguard_surface_flux: bool = False,
     use_convective_trial_correction: bool = False,
     compute_local_energy_response: bool = False,
+    enforce_local_energy_balance: bool = False,
+    physical_temperature_coordinates: bool = True,
+    energy_thermal_sweeps: int = 40,
     use_precision_polish: bool = True,
-    transfer_discretization: Literal["optical-depth", "column-mass"] = "optical-depth",
+    transfer_discretization: Literal[
+        "optical-depth", "column-mass"
+    ] = "optical-depth",
     iteration_callback: IterationCallback | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> Atmosphere:
@@ -244,6 +253,15 @@ def solve_adaptive_lte_structure(
     ``compute_local_energy_response`` adds a direct thermal-energy tangent
     to the evaluation payload for explicitly requested research formulations.
     It is off by default and does not change the residual equations.
+    ``enforce_local_energy_balance`` adds a completion phase when the original
+    formal-flux solution fails cell-local energy or has no measured final
+    correction. Bounded thermal conditioning stabilizes the temperature field,
+    then an unpenalized Newton solve imposes both flux and direct cell energy.
+    Positive equation weights are frozen within each linearization, never the
+    physical material/transfer response. Final certification uses fresh actual
+    flux, local energy and the unrestricted correction. ``energy_thermal_sweeps``
+    bounds initialization work; it cannot certify equilibrium. Nodal log-T
+    coordinates are used by default for this phase, independently of Teff.
     ``use_precision_polish`` completes an already flux-balanced
     warm start with cancellation-resistant transfer arithmetic and an
     unpenalized Newton tangent when its last temperature step is oversized.
@@ -259,9 +277,22 @@ def solve_adaptive_lte_structure(
     if transfer_discretization not in ("optical-depth", "column-mass"):
         raise ValueError("unknown transfer discretization")
     mass_transfer = transfer_discretization == "column-mass"
+    if not isinstance(enforce_local_energy_balance, bool):
+        raise ValueError("local energy enforcement flag must be boolean")
+    if not isinstance(physical_temperature_coordinates, bool):
+        raise ValueError("temperature-coordinate selection must be boolean")
+    if (
+        isinstance(energy_thermal_sweeps, bool)
+        or not isinstance(energy_thermal_sweeps, int)
+        or energy_thermal_sweeps < 0
+    ):
+        raise ValueError("energy thermal sweeps must be a nonnegative integer")
     if mass_transfer:
         from ._mass_feautrier import (
-            mass_field, mass_response, mass_energy, mass_energy_response,
+            mass_field,
+            mass_response,
+            mass_energy,
+            mass_energy_response,
         )
 
     wavelength = np.asarray(wavelength, dtype=np.float64)
@@ -273,7 +304,9 @@ def solve_adaptive_lte_structure(
     target_flux = STEFAN_BOLTZMANN * seed.effective_temperature**4
     log_pressure = np.log(seed.gas_pressure)
     log_pressure_step = np.diff(log_pressure)
-    if np.any(~np.isfinite(log_pressure_step)) or np.any(log_pressure_step <= 0.0):
+    if np.any(~np.isfinite(log_pressure_step)) or np.any(
+        log_pressure_step <= 0.0
+    ):
         raise ValueError("seed pressure must be finite and increase inward")
     if temperature_normalization_anchor_rosseland_depth is not None and (
         not np.isfinite(temperature_normalization_anchor_rosseland_depth)
@@ -373,8 +406,7 @@ def solve_adaptive_lte_structure(
             "formal-flux resume requires a supplied initial temperature"
         )
     resume_in_formal_flux_phase = bool(
-        use_convective_gradient_preconditioner
-        and requested_formal_flux_resume
+        use_convective_gradient_preconditioner and requested_formal_flux_resume
     )
     if resume_in_formal_flux_phase:
         # A complete supplied structure is already the warm start.  Repeating
@@ -400,14 +432,21 @@ def solve_adaptive_lte_structure(
         (seed.n_depth, seed.n_depth), dtype=np.float64
     )
     interface_depth = np.arange(1, seed.n_depth)
-    interface_gradient_operator[
-        interface_depth, interface_depth - 1
-    ] = -1.0 / log_pressure_step
-    interface_gradient_operator[
-        interface_depth, interface_depth
-    ] = 1.0 / log_pressure_step
+    interface_gradient_operator[interface_depth, interface_depth - 1] = (
+        -1.0 / log_pressure_step
+    )
+    interface_gradient_operator[interface_depth, interface_depth] = (
+        1.0 / log_pressure_step
+    )
 
     use_physical_flux_residual = not use_convective_gradient_preconditioner
+    # Keep the established cold conditioning and flux solve intact. Local
+    # energy completion follows it only when the independently evaluated
+    # heating residual or stationary proposal still needs repair.
+    energy_completion_active = bool(
+        enforce_local_energy_balance
+        and not use_convective_gradient_preconditioner
+    )
     # A deep ML2-gradient residual is useful only as a nonlinear conditioner.
     # Keep it as a separate switch from ``use_physical_flux_residual`` so the
     # final phase can restore the exact discretized total-flux equation at
@@ -445,7 +484,9 @@ def solve_adaptive_lte_structure(
                 current.neutral_h_density
             ),
             proton_density=_positive_interface_values(current.proton_density),
-            electron_density=_positive_interface_values(current.electron_density),
+            electron_density=_positive_interface_values(
+                current.electron_density
+            ),
             metadata=current.metadata,
         )
 
@@ -461,7 +502,9 @@ def solve_adaptive_lte_structure(
         current_interface = interface_atmosphere(current)
         rosseland_interface = _positive_interface_values(rosseland)
         heat_capacity_interface = _arithmetic_interface_values(
-            np.asarray(thermo.specific_heat_constant_pressure, dtype=np.float64)
+            np.asarray(
+                thermo.specific_heat_constant_pressure, dtype=np.float64
+            )
         )
         expansion_interface = _arithmetic_interface_values(
             np.asarray(thermo.density_temperature_derivative, dtype=np.float64)
@@ -486,11 +529,7 @@ def solve_adaptive_lte_structure(
             * STEFAN_BOLTZMANN
             * current_interface.gravity
             * current_interface.temperature**4
-            / (
-                3.0
-                * rosseland_interface
-                * current_interface.gas_pressure
-            )
+            / (3.0 * rosseland_interface * current_interface.gas_pressure)
         )
         formal_radiative_coefficient = diffusion_radiative_coefficient
         if radiative_flux_interface is not None:
@@ -564,14 +603,21 @@ def solve_adaptive_lte_structure(
         # first Jacobian row remains purely radiative.
         actual_convective_flux_gradient_derivative[0] = 0.0
         convective_flux_gradient_derivative[0] = 0.0
-        _, ml2_loss, ml2_coefficient = _ml2_local_coefficients_from_thermodynamics(
-            current_interface, rosseland_interface, heat_capacity_interface,
-            expansion_interface, adiabatic_gradient_interface,
-            mixing_length_alpha,
+        _, ml2_loss, ml2_coefficient = (
+            _ml2_local_coefficients_from_thermodynamics(
+                current_interface,
+                rosseland_interface,
+                heat_capacity_interface,
+                expansion_interface,
+                adiabatic_gradient_interface,
+                mixing_length_alpha,
+            )
         )
         return {
             "rosseland": rosseland,
-            "specific_heat": np.asarray(thermo.specific_heat_constant_pressure),
+            "specific_heat": np.asarray(
+                thermo.specific_heat_constant_pressure
+            ),
             "expansion": np.asarray(thermo.density_temperature_derivative),
             "node_adiabatic_gradient": np.asarray(
                 thermo.adiabatic_temperature_gradient
@@ -619,18 +665,24 @@ def solve_adaptive_lte_structure(
         hot_thermo = thermodynamics(hotter)
         hot_rosseland = np.asarray(rosseland_opacity(hotter), dtype=np.float64)
         base_fields = (
-            current.temperature, current.mass_density, transport["rosseland"],
-            transport["specific_heat"], transport["expansion"],
+            current.temperature,
+            current.mass_density,
+            transport["rosseland"],
+            transport["specific_heat"],
+            transport["expansion"],
             transport["node_adiabatic_gradient"],
         )
         hot_fields = (
-            hotter.temperature, hotter.mass_density, hot_rosseland,
+            hotter.temperature,
+            hotter.mass_density,
+            hot_rosseland,
             hot_thermo.specific_heat_constant_pressure,
             hot_thermo.density_temperature_derivative,
             hot_thermo.adiabatic_temperature_gradient,
         )
         base_coefficients = (
-            transport["adiabatic_gradient"], transport["ml2_radiative_loss"],
+            transport["adiabatic_gradient"],
+            transport["ml2_radiative_loss"],
             transport["ml2_flux_coefficient"],
         )
         responses = tuple(
@@ -644,18 +696,24 @@ def solve_adaptive_lte_structure(
                 for base, hot in zip(base_fields, hot_fields)
             )
             perturbed_interface = replace(
-                interface, temperature=_positive_interface_values(temperature),
+                interface,
+                temperature=_positive_interface_values(temperature),
                 mass_density=_positive_interface_values(density),
             )
-            perturbed_coefficients = _ml2_local_coefficients_from_thermodynamics(
-                perturbed_interface, _positive_interface_values(opacity),
-                _arithmetic_interface_values(cp),
-                _arithmetic_interface_values(expansion),
-                _arithmetic_interface_values(adiabatic), mixing_length_alpha,
+            perturbed_coefficients = (
+                _ml2_local_coefficients_from_thermodynamics(
+                    perturbed_interface,
+                    _positive_interface_values(opacity),
+                    _arithmetic_interface_values(cp),
+                    _arithmetic_interface_values(expansion),
+                    _arithmetic_interface_values(adiabatic),
+                    mixing_length_alpha,
+                )
             )
             column = np.where(
                 interface_depth % 2 == parity,
-                interface_depth, interface_depth - 1,
+                interface_depth,
+                interface_depth - 1,
             )
             for response, perturbed, base in zip(
                 responses, perturbed_coefficients, base_coefficients
@@ -681,6 +739,14 @@ def solve_adaptive_lte_structure(
         # evaluated EOS, opacity, scattering source, transfer solution, and
         # convection closure; only the hotter tangent state and exact response
         # remain to be built.
+        energy_equations_active = bool(
+            energy_completion_active
+            and use_physical_flux_residual
+            and not use_deep_gradient_conditioner
+        )
+        stable_arithmetic_active = bool(
+            precision_polish_active or energy_equations_active
+        )
         same_as_cached_residual = (
             cached_no_jacobian_evaluation is not None
             and cached_no_jacobian_solver_phase == solver_phase
@@ -764,7 +830,8 @@ def solve_adaptive_lte_structure(
                 wavelength[:, np.newaxis], current_temperature[np.newaxis, :]
             )
             field_solver = (
-                cancellation_safe_field if precision_polish_active
+                cancellation_safe_field
+                if stable_arithmetic_active
                 else coherent_scattering_feautrier_field
             )
             field_options = {}
@@ -779,21 +846,33 @@ def solve_adaptive_lte_structure(
                 n_angle=n_angle,
                 **field_options,
             )
-            source, source_negative_clipped_count, (
-                source_maximum_negative_relative
+            (
+                source,
+                source_negative_clipped_count,
+                (source_maximum_negative_relative),
             ) = _clip_roundoff_negative_scattering_source(source)
             # Check closure with the independent fixed-source formal solver.
             # Using the coupled J that constructed S would test an algebraic
             # identity, not whether the returned source solves transfer.
             closure_field = (
                 mass_field(
-                    optical_depth, source, extinction, np.zeros_like(extinction),
-                    column_mass=current.column_mass, n_angle=n_angle,
+                    optical_depth,
+                    source,
+                    extinction,
+                    np.zeros_like(extinction),
+                    column_mass=current.column_mass,
+                    n_angle=n_angle,
                 )[1]
-                if mass_transfer and np.any(scattering > 0.0) else
-                (cancellation_safe_scalar_field if precision_polish_active
-                 else feautrier_radiation_field)(optical_depth, source, n_angle=n_angle)
-                if np.any(scattering > 0.0) else field
+                if mass_transfer and np.any(scattering > 0.0)
+                else (
+                    (
+                        cancellation_safe_scalar_field
+                        if stable_arithmetic_active
+                        else feautrier_radiation_field
+                    )(optical_depth, source, n_angle=n_angle)
+                    if np.any(scattering > 0.0)
+                    else field
+                )
             )
             source_equation = (
                 absorption * planck + scattering * closure_field.mean_intensity
@@ -812,7 +891,9 @@ def solve_adaptive_lte_structure(
             source_worst_wavelength_index, source_worst_depth_index = (
                 np.unravel_index(source_worst_flat_index, source.shape)
             )
-            if field.interface_flux is None:  # pragma: no cover - API invariant
+            if (
+                field.interface_flux is None
+            ):  # pragma: no cover - API invariant
                 raise RuntimeError(
                     "Feautrier solver did not return interface fluxes"
                 )
@@ -828,7 +909,9 @@ def solve_adaptive_lte_structure(
             convective_flux = np.zeros_like(current_temperature)
             convective_flux_interface = np.zeros_like(current_temperature)
             transport = convection_transport(
-                current, temperature_gradient, radiative_flux_interface,
+                current,
+                temperature_gradient,
+                radiative_flux_interface,
             )
             if transport is not None:
                 convective_flux_interface = transport["convective_flux"]
@@ -859,15 +942,12 @@ def solve_adaptive_lte_structure(
                 # ML2 limit, scaling by nabla itself admits a harmless-looking
                 # residual whose raw flux error can be thousands of times the
                 # target because dF_conv/dnabla is enormous.
-                stiff_flux_derivative = (
-                    np.asarray(
-                        transport["formal_radiative_coefficient"],
-                        dtype=np.float64,
-                    )
-                    + np.asarray(
-                        transport["convective_flux_gradient_derivative"],
-                        dtype=np.float64,
-                    )
+                stiff_flux_derivative = np.asarray(
+                    transport["formal_radiative_coefficient"],
+                    dtype=np.float64,
+                ) + np.asarray(
+                    transport["convective_flux_gradient_derivative"],
+                    dtype=np.float64,
                 )
                 transport_gradient_scale[asymptotic] = (
                     target_flux
@@ -925,16 +1005,31 @@ def solve_adaptive_lte_structure(
                 * gradient_residual
             )
 
+        local_energy_active = bool(
+            compute_local_energy_response
+            or (
+                energy_completion_active
+                and use_physical_flux_residual
+                and not use_deep_gradient_conditioner
+            )
+        )
         jacobian = None
         if need_jacobian:
+
             def material_probe(offset):
                 point = with_temperature(current_temperature * np.exp(offset))
                 return (
-                    point, np.asarray(true_absorption(point), dtype=np.float64),
+                    point,
+                    np.asarray(true_absorption(point), dtype=np.float64),
                     np.asarray(scattering_opacity(point), dtype=np.float64),
                 )
-            primary_probe, opposite_probe, logarithmic_step = temperature_response_probes(
-                material_probe, 2.0e-4, centered=compute_local_energy_response,
+
+            primary_probe, opposite_probe, logarithmic_step = (
+                temperature_response_probes(
+                    material_probe,
+                    2.0e-4,
+                    centered=local_energy_active,
+                )
             )
             hotter, hotter_absorption, hotter_scattering = primary_probe
             hotter_temperature = current_temperature * np.exp(logarithmic_step)
@@ -954,17 +1049,22 @@ def solve_adaptive_lte_structure(
                 # are harmless in a flux-only tangent. Use centered material
                 # differences for the experimental direct-energy response;
                 # retain the established default tangent unchanged.
-                colder_temperature = current_temperature * np.exp(-logarithmic_step)
+                colder_temperature = current_temperature * np.exp(
+                    -logarithmic_step
+                )
                 colder, colder_absorption, colder_scattering = opposite_probe
                 colder_planck = planck_lambda_angstrom(
-                    wavelength[:, None], colder_temperature[None, :])
-                planck_derivative = (hotter_planck-colder_planck)/(2*logarithmic_step)
+                    wavelength[:, None], colder_temperature[None, :]
+                )
+                planck_derivative = (hotter_planck - colder_planck) / (
+                    2 * logarithmic_step
+                )
                 absorption_derivative = (
                     hotter_absorption - colder_absorption
-                ) / (2*logarithmic_step)
+                ) / (2 * logarithmic_step)
                 scattering_derivative = (
                     hotter_scattering - colder_scattering
-                ) / (2*logarithmic_step)
+                ) / (2 * logarithmic_step)
             extinction_derivative = (
                 absorption_derivative + scattering_derivative
             )
@@ -974,44 +1074,61 @@ def solve_adaptive_lte_structure(
                 + scattering_derivative * field.mean_intensity
                 - extinction_derivative * source
             ) / extinction
-            if compute_local_energy_response:
+            if local_energy_active:
                 energy_response_solver = (
-                    mass_energy_response if mass_transfer
+                    mass_energy_response
+                    if mass_transfer
                     else integrated_radiative_cell_energy_state_response
                 )
-                radiative_flux_jacobian, radiative_cell_energy_jacobian, thermal_emission_jacobian = (
-                    energy_response_solver(
-                        wavelength, optical_depth, current.column_mass, planck,
-                        field.mean_intensity, source, absorption, scattering,
-                        planck_derivative, absorption_derivative, scattering_derivative,
-                        n_angle=n_angle,
-                        response_solver=(cancellation_safe_response
-                                         if precision_polish_active and not mass_transfer else None),
-                    )
+                (
+                    radiative_flux_jacobian,
+                    radiative_cell_energy_jacobian,
+                    thermal_emission_jacobian,
+                ) = energy_response_solver(
+                    wavelength,
+                    optical_depth,
+                    current.column_mass,
+                    planck,
+                    field.mean_intensity,
+                    source,
+                    absorption,
+                    scattering,
+                    planck_derivative,
+                    absorption_derivative,
+                    scattering_derivative,
+                    n_angle=n_angle,
+                    response_solver=(
+                        cancellation_safe_response
+                        if stable_arithmetic_active and not mass_transfer
+                        else None
+                    ),
                 )
-            elif mass_transfer or precision_polish_active or np.any(scattering > 0.0):
+            elif (
+                mass_transfer
+                or stable_arithmetic_active
+                or np.any(scattering > 0.0)
+            ):
                 response_solver = (
-                    cancellation_safe_response if precision_polish_active
+                    cancellation_safe_response
+                    if stable_arithmetic_active
                     else integrated_coherent_scattering_feautrier_state_response
                 )
                 response_options = {}
                 if mass_transfer:
                     response_solver = mass_response
                     response_options["extinction"] = extinction
-                radiative_flux_jacobian, _, _ = (
-                    response_solver(
-                        optical_depth,
-                        wavelength,
-                        source,
-                        source_derivative,
-                        planck_derivative,
-                        scattering / extinction,
-                        current.column_mass,
-                        extinction_derivative,
-                        n_angle=n_angle,
-                        return_auxiliary_response=False,
-                        **response_options,
-                    )
+                radiative_flux_jacobian, _, _ = response_solver(
+                    optical_depth,
+                    wavelength,
+                    source,
+                    source_derivative,
+                    planck_derivative,
+                    scattering / extinction,
+                    current.column_mass,
+                    extinction_derivative,
+                    n_angle=n_angle,
+                    return_auxiliary_response=False,
+                    **response_options,
                 )
             else:
                 radiative_flux_jacobian = (
@@ -1027,31 +1144,39 @@ def solve_adaptive_lte_structure(
                 )
             jacobian = radiative_flux_jacobian / target_flux
             if transport is not None:
-                ml2_coefficients, ml2_responses = convection_coefficient_response(
-                    current, hotter, transport, logarithmic_step,
+                ml2_coefficients, ml2_responses = (
+                    convection_coefficient_response(
+                        current,
+                        hotter,
+                        transport,
+                        logarithmic_step,
+                    )
                 )
                 if centered_material_response:
                     _, cold_ml2_responses = convection_coefficient_response(
-                        current, colder, transport, -logarithmic_step)
+                        current, colder, transport, -logarithmic_step
+                    )
                     ml2_responses = tuple(
-                        .5*(hot+cold) for hot, cold in zip(ml2_responses, cold_ml2_responses))
-            if (
-                transport is not None
-                and use_physical_flux_residual
-            ):
+                        0.5 * (hot + cold)
+                        for hot, cold in zip(ml2_responses, cold_ml2_responses)
+                    )
+            if transport is not None and use_physical_flux_residual:
                 # Differentiate both the gradient and the material state.
                 # Freezing cp, Q, nabla_ad, density and opacity can even give
                 # the wrong sign for Newton's convective response.
                 jacobian += (
-                    transport[
-                        "actual_convective_flux_gradient_derivative"
-                    ][:, np.newaxis]
+                    transport["actual_convective_flux_gradient_derivative"][
+                        :, np.newaxis
+                    ]
                     * interface_gradient_operator
                     / target_flux
                 )
-                jacobian += _ml2_flux_coefficient_response(
-                    temperature_gradient, ml2_coefficients, ml2_responses
-                ) / target_flux
+                jacobian += (
+                    _ml2_flux_coefficient_response(
+                        temperature_gradient, ml2_coefficients, ml2_responses
+                    )
+                    / target_flux
+                )
             if (
                 transport is not None
                 and transport_gradient_scale is not None
@@ -1065,9 +1190,8 @@ def solve_adaptive_lte_structure(
                 formal_coefficient_derivative = np.zeros_like(
                     radiative_flux_jacobian
                 )
-                formal_branch = (
-                    (temperature_gradient > 1.0e-8)
-                    & (radiative_flux_interface > 0.0)
+                formal_branch = (temperature_gradient > 1.0e-8) & (
+                    radiative_flux_interface > 0.0
                 )
                 formal_coefficient_derivative[formal_branch] = (
                     radiative_flux_jacobian[formal_branch]
@@ -1079,12 +1203,11 @@ def solve_adaptive_lte_structure(
                     -transport["desired_gradient"][:, np.newaxis]
                     * formal_coefficient_derivative
                     - _ml2_flux_coefficient_response(
-                        transport["desired_gradient"], ml2_coefficients,
+                        transport["desired_gradient"],
+                        ml2_coefficients,
                         ml2_responses,
                     )
-                ) / (
-                        formal_coefficient + convective_derivative
-                )[:, np.newaxis]
+                ) / (formal_coefficient + convective_derivative)[:, np.newaxis]
                 gradient_jacobian = (
                     interface_gradient_operator[gradient_preconditioned]
                     - desired_gradient_derivative[gradient_preconditioned]
@@ -1092,9 +1215,7 @@ def solve_adaptive_lte_structure(
                     gradient_preconditioned, np.newaxis
                 ]
                 jacobian[gradient_preconditioned] = (
-                    physical_flux_weight[
-                        gradient_preconditioned, np.newaxis
-                    ]
+                    physical_flux_weight[gradient_preconditioned, np.newaxis]
                     * jacobian[gradient_preconditioned]
                     + (
                         1.0
@@ -1122,8 +1243,11 @@ def solve_adaptive_lte_structure(
             "atmosphere": current,
             "lower_boundary_absorption_escape_bound": (
                 _thermal_boundary_absorption_escape_bound(
-                    wavelength, current.column_mass, absorption,
-                    planck[:, -1], target_flux,
+                    wavelength,
+                    current.column_mass,
+                    absorption,
+                    planck[:, -1],
+                    target_flux,
                 )
             ),
             "radiative_flux_interface": radiative_flux_interface,
@@ -1153,48 +1277,109 @@ def solve_adaptive_lte_structure(
         }
         if mass_transfer:
             radiative_cell_defect, thermal_cell_emission = mass_energy(
-                wavelength, current.column_mass, planck, field.mean_intensity, absorption,
+                wavelength,
+                current.column_mass,
+                planck,
+                field.mean_intensity,
+                absorption,
             )
         else:
-            radiative_cell_defect, thermal_cell_emission = discrete_radiative_cell_energy_balance(
-                wavelength, optical_depth, planck, field.mean_intensity,
-                absorption / extinction,
+            radiative_cell_defect, thermal_cell_emission = (
+                discrete_radiative_cell_energy_balance(
+                    wavelength,
+                    optical_depth,
+                    planck,
+                    field.mean_intensity,
+                    absorption / extinction,
+                )
             )
-        cell_defect = radiative_cell_defect + np.diff(convective_flux_interface)
+        cell_defect = radiative_cell_defect + np.diff(
+            convective_flux_interface
+        )
         cell_scale = np.maximum(
-            thermal_cell_emission + np.abs(convective_flux_interface[:-1])
-            + np.abs(convective_flux_interface[1:]), np.finfo(float).tiny)
+            thermal_cell_emission
+            + np.abs(convective_flux_interface[:-1])
+            + np.abs(convective_flux_interface[1:]),
+            np.finfo(float).tiny,
+        )
         payload["radiative_cell_energy_defect"] = radiative_cell_defect
         payload["thermal_cell_emission"] = thermal_cell_emission
         payload["cell_energy_scale"] = cell_scale
-        payload["cell_energy_balance_relative_residual"] = cell_defect / cell_scale
-        payload["cell_energy_balance_defect_in_stellar_flux"] = cell_defect / target_flux
+        payload["cell_energy_balance_relative_residual"] = (
+            cell_defect / cell_scale
+        )
+        payload["cell_energy_balance_defect_in_stellar_flux"] = (
+            cell_defect / target_flux
+        )
         payload["energy_balance_is_physical_flux"] = bool(
             use_physical_flux_residual and not np.any(gradient_preconditioned)
         )
         if need_jacobian and transport is not None:
-            payload["radiative_flux_log_temperature_jacobian"] = radiative_flux_jacobian
-            payload["ml2_coefficient_log_temperature_responses"] = ml2_responses
-        if need_jacobian and compute_local_energy_response:
-            payload["material_temperature_response_domain_limited"] = not centered_material_response
+            payload["radiative_flux_log_temperature_jacobian"] = (
+                radiative_flux_jacobian
+            )
+            payload["ml2_coefficient_log_temperature_responses"] = (
+                ml2_responses
+            )
+        if need_jacobian and local_energy_active:
+            payload["radiative_flux_log_temperature_jacobian"] = (
+                radiative_flux_jacobian
+            )
+            payload["convective_flux_log_temperature_jacobian"] = (
+                np.zeros_like(radiative_flux_jacobian)
+            )
+            payload["material_temperature_response_domain_limited"] = (
+                not centered_material_response
+            )
             payload["radiative_cell_energy_log_temperature_jacobian"] = (
                 radiative_cell_energy_jacobian
             )
             cell_jacobian = radiative_cell_energy_jacobian.copy()
             cell_scale_jacobian = thermal_emission_jacobian.copy()
             if transport is not None:
-                actual_convection_jacobian = (
-                    transport["actual_convective_flux_gradient_derivative"][:, None]
-                    * interface_gradient_operator
-                    + _ml2_flux_coefficient_response(
-                        temperature_gradient, ml2_coefficients, ml2_responses)
+                actual_convection_jacobian = transport[
+                    "actual_convective_flux_gradient_derivative"
+                ][
+                    :, None
+                ] * interface_gradient_operator + _ml2_flux_coefficient_response(
+                    temperature_gradient, ml2_coefficients, ml2_responses
                 )
-                payload["convective_flux_log_temperature_jacobian"] = actual_convection_jacobian
+                payload["convective_flux_log_temperature_jacobian"] = (
+                    actual_convection_jacobian
+                )
                 cell_jacobian += np.diff(actual_convection_jacobian, axis=0)
-                cell_scale_jacobian += actual_convection_jacobian[:-1] + actual_convection_jacobian[1:]
+                cell_scale_jacobian += (
+                    actual_convection_jacobian[:-1]
+                    + actual_convection_jacobian[1:]
+                )
             payload["cell_energy_log_temperature_jacobian"] = cell_jacobian
-            payload["thermal_cell_emission_log_temperature_jacobian"] = thermal_emission_jacobian
-            payload["cell_energy_scale_log_temperature_jacobian"] = cell_scale_jacobian
+            payload["thermal_cell_emission_log_temperature_jacobian"] = (
+                thermal_emission_jacobian
+            )
+            payload["cell_energy_scale_log_temperature_jacobian"] = (
+                cell_scale_jacobian
+            )
+        if (
+            energy_completion_active
+            and use_physical_flux_residual
+            and not use_deep_gradient_conditioner
+        ):
+            # An invertible combination of constant-flux and directly
+            # evaluated cell-heating equations. No Teff/convection mask and
+            # no subtraction of nearly identical flux-Jacobian rows.
+            residual = flux_residual.copy()
+            residual[:-1] -= cell_defect / cell_scale
+            if need_jacobian:
+                jacobian = radiative_flux_jacobian.copy() / target_flux
+                if transport is not None:
+                    jacobian += actual_convection_jacobian / target_flux
+                jacobian[:-1] -= cell_jacobian / cell_scale[:, None]
+                jacobian[:-1] += (cell_defect / cell_scale**2)[
+                    :, None
+                ] * cell_scale_jacobian
+            payload["energy_balance_is_physical_flux"] = True
+            payload["local_energy_equations_enforced"] = True
+            payload["physical_flux_residual_weight"] = np.ones(seed.n_depth)
         evaluation = NonlinearEvaluation(residual, jacobian, payload)
         if not need_jacobian:
             cached_no_jacobian_log_temperature = np.asarray(
@@ -1242,7 +1427,24 @@ def solve_adaptive_lte_structure(
         else:
             log_temperature_from_state[interface:, interface] = pressure_step
 
+    nodal_coordinates = bool(
+        physical_temperature_coordinates
+        and energy_completion_active
+        and use_physical_flux_residual
+        and not use_deep_gradient_conditioner
+    )
+    identity_temperature_map = np.eye(seed.n_depth)
+
+    def temperature_map():
+        return (
+            identity_temperature_map
+            if nodal_coordinates
+            else log_temperature_from_state
+        )
+
     def state_from_log_temperature(log_temperature: FloatArray) -> FloatArray:
+        if nodal_coordinates:
+            return np.asarray(log_temperature).copy()
         state = np.empty_like(log_temperature)
         state[0] = log_temperature[normalization_anchor_index]
         state[1:] = np.diff(log_temperature) / log_pressure_step
@@ -1252,21 +1454,21 @@ def solve_adaptive_lte_structure(
         state: FloatArray, need_jacobian: bool
     ) -> NonlinearEvaluation[dict[str, object]]:
         evaluation = evaluate_log_temperature(
-            log_temperature_from_state @ state, need_jacobian
+            temperature_map() @ state, need_jacobian
         )
         jacobian = evaluation.jacobian
         payload = evaluation.payload
         if jacobian is not None:
-            jacobian = jacobian @ log_temperature_from_state
+            jacobian = jacobian @ temperature_map()
             if "radiative_flux_log_temperature_jacobian" in payload:
                 payload = dict(payload)
                 # Expose existing tangents to isolated auxiliary-variable
                 # experiments without extra matrix products on the default path.
-                payload["log_temperature_from_state"] = log_temperature_from_state
-                payload["interface_gradient_operator"] = interface_gradient_operator
-        return NonlinearEvaluation(
-            evaluation.residual, jacobian, payload
-        )
+                payload["log_temperature_from_state"] = temperature_map()
+                payload["interface_gradient_operator"] = (
+                    interface_gradient_operator
+                )
+        return NonlinearEvaluation(evaluation.residual, jacobian, payload)
 
     def report_iteration(record, state, evaluation) -> None:
         if iteration_callback is None:
@@ -1281,9 +1483,7 @@ def solve_adaptive_lte_structure(
             payload["convective_flux_interface"], dtype=np.float64
         )
         flux_residual = total / target_flux - 1.0
-        monitored = np.asarray(
-            payload["physical_flux_monitored"], dtype=bool
-        )
+        monitored = np.asarray(payload["physical_flux_monitored"], dtype=bool)
         maximum_depth = int(np.argmax(np.abs(flux_residual)))
         transport = payload["convection_transport"]
         desired_gradient = (
@@ -1323,7 +1523,11 @@ def solve_adaptive_lte_structure(
                     np.max(np.abs(flux_residual))
                 ),
                 "maximum_relative_cell_energy_balance_residual": float(
-                    np.max(np.abs(payload["cell_energy_balance_relative_residual"]))
+                    np.max(
+                        np.abs(
+                            payload["cell_energy_balance_relative_residual"]
+                        )
+                    )
                 ),
                 "bottom_radiative_flux_ratio": float(
                     radiative[-1] / target_flux
@@ -1355,7 +1559,8 @@ def solve_adaptive_lte_structure(
                 ),
                 "solver_phase": solver_phase,
                 "converged": bool(
-                    record.residual_maximum < flux_tolerance
+                    solver_phase != "thermal-conditioning"
+                    and record.residual_maximum < flux_tolerance
                     and record.maximum_step < temperature_tolerance
                     and np.max(np.abs(flux_residual)) < flux_tolerance
                 ),
@@ -1366,14 +1571,45 @@ def solve_adaptive_lte_structure(
         total = np.asarray(
             evaluation.payload["total_flux_interface"], dtype=np.float64
         )
-        return bool(
-            np.max(np.abs(total / target_flux - 1.0)) < flux_tolerance
-        )
+        return bool(np.max(np.abs(total / target_flux - 1.0)) < flux_tolerance)
 
     def phase_converged(state, evaluation, maximum_step) -> bool:
         if not use_physical_flux_residual or use_deep_gradient_conditioner:
             return True
-        return physical_flux_converged(state, evaluation, maximum_step)
+        return bool(
+            physical_flux_converged(state, evaluation, maximum_step)
+            and (
+                not energy_completion_active
+                or np.max(
+                    np.abs(
+                        evaluation.payload[
+                            "cell_energy_balance_relative_residual"
+                        ]
+                    )
+                )
+                < flux_tolerance
+            )
+        )
+
+    def local_energy_handoff(state, evaluation) -> bool:
+        # Once flux is already balanced, a failed flux-only direction can be
+        # caused by unresolved local heating. Use its direct equations rather
+        # than repeat this representation through trust collapse/restarts.
+        # A successful original direction, or an already-qualified atmosphere,
+        # follows the original path unchanged. No Teff or new tolerance here.
+        return bool(
+            enforce_local_energy_balance
+            and not energy_completion_active
+            and use_physical_flux_residual
+            and not use_deep_gradient_conditioner
+            and physical_flux_converged(state, evaluation, 0.0)
+            and np.max(
+                np.abs(
+                    evaluation.payload["cell_energy_balance_relative_residual"]
+                )
+            )
+            >= flux_tolerance
+        )
 
     def surface_flux_error(evaluation) -> float:
         total = np.asarray(
@@ -1384,8 +1620,7 @@ def solve_adaptive_lte_structure(
     def seed_merit(evaluation) -> float:
         residual = evaluation.residual
         return float(
-            np.sqrt(np.mean(residual**2))
-            + 0.25 * np.max(np.abs(residual))
+            np.sqrt(np.mean(residual**2)) + 0.25 * np.max(np.abs(residual))
         )
 
     initial_log_temperature = np.log(seed.temperature)
@@ -1488,9 +1723,7 @@ def solve_adaptive_lte_structure(
             candidate_gradient = initial_gradient + projection_damping * (
                 projected_gradient - initial_gradient
             )
-            candidate_log_temperature = np.empty_like(
-                initial_log_temperature
-            )
+            candidate_log_temperature = np.empty_like(initial_log_temperature)
             candidate_log_temperature[0] = initial_log_temperature[0]
             for depth in range(1, seed.n_depth):
                 if (
@@ -1554,7 +1787,8 @@ def solve_adaptive_lte_structure(
             # fresh convective-gradient warm start.
             break
         initial_total_flux = np.asarray(
-            initial_evaluation.payload["total_flux_interface"], dtype=np.float64
+            initial_evaluation.payload["total_flux_interface"],
+            dtype=np.float64,
         )
         initial_flux_ratio = float(initial_total_flux[0] / target_flux)
         if (
@@ -1563,9 +1797,9 @@ def solve_adaptive_lte_structure(
             or abs(initial_flux_ratio - 1.0) < flux_tolerance
         ):
             break
-        gray_log_correction = float(np.clip(
-            -0.25 * np.log(initial_flux_ratio), -0.12, 0.12
-        ))
+        gray_log_correction = float(
+            np.clip(-0.25 * np.log(initial_flux_ratio), -0.12, 0.12)
+        )
         accepted = False
         for damping in (1.0, 0.5, 0.25):
             log_correction = damping * gray_log_correction
@@ -1578,11 +1812,10 @@ def solve_adaptive_lte_structure(
                 candidate_log_temperature, False
             )
             initial_bolometric_rescaling_evaluations += 1
-            if (
-                surface_flux_error(candidate_evaluation)
-                < surface_flux_error(initial_evaluation)
-                and seed_merit(candidate_evaluation)
-                < seed_merit(initial_evaluation)
+            if surface_flux_error(candidate_evaluation) < surface_flux_error(
+                initial_evaluation
+            ) and seed_merit(candidate_evaluation) < seed_merit(
+                initial_evaluation
             ):
                 initial_log_temperature = candidate_log_temperature
                 initial_evaluation = candidate_evaluation
@@ -1616,19 +1849,27 @@ def solve_adaptive_lte_structure(
 
     def correct_convective_trial(old_state, proposed_state):
         nonlocal convective_trial_correction_count
-        log_temperature = log_temperature_from_state @ proposed_state
+        log_temperature = temperature_map() @ proposed_state
         current = with_temperature(np.exp(log_temperature))
         gradient = interface_gradient_operator @ log_temperature
         transport = convection_transport(current, gradient)
         if transport is None:
             return proposed_state
-        corrected = _cap_overcarrying_ml2_gradient(gradient, transport, target_flux)
+        corrected = _cap_overcarrying_ml2_gradient(
+            gradient, transport, target_flux
+        )
         if np.array_equal(corrected, gradient):
             return proposed_state
         # Preserve the normalization degree of freedom. Changing the actual
         # gradient variables changes T consistently at all affected depths.
         result = proposed_state.copy()
-        result[1:] = corrected[1:]
+        if nodal_coordinates:
+            gradient_state = np.r_[
+                log_temperature[normalization_anchor_index], corrected[1:]
+            ]
+            result = log_temperature_from_state @ gradient_state
+        else:
+            result[1:] = corrected[1:]
         convective_trial_correction_count += 1
         return result
 
@@ -1644,6 +1885,7 @@ def solve_adaptive_lte_structure(
         ),
         callback=report_iteration,
         convergence_test=phase_converged,
+        rejected_step_handoff=local_energy_handoff,
         acceptance_test=(
             (
                 lambda old, trial: surface_flux_error(trial)
@@ -1653,13 +1895,11 @@ def solve_adaptive_lte_structure(
             else None
         ),
         step_measure=lambda old_state, new_state: float(
-            np.max(
-                np.abs(
-                    log_temperature_from_state @ (new_state - old_state)
-                )
-            )
+            np.max(np.abs(temperature_map() @ (new_state - old_state)))
         ),
     )
+    if energy_completion_active:
+        nonlinear_options["allow_initial_convergence"] = False
     if use_convective_trial_correction and mixing_length_alpha is not None:
         nonlinear_options["trial_projector"] = correct_convective_trial
     initial_options = dict(nonlinear_options)
@@ -1668,9 +1908,7 @@ def solve_adaptive_lte_structure(
         # problem.  It is a warm-start construction, not a second atmosphere
         # solve, so spending the full production iteration budget here when
         # the local objective stalls only delays the conservative flux solve.
-        initial_options["maximum_iterations"] = (
-            preconditioner_iteration_limit
-        )
+        initial_options["maximum_iterations"] = preconditioner_iteration_limit
         initial_options["stationary_completion_iterations"] = (
             preconditioner_stationary_completion_iterations
         )
@@ -1743,9 +1981,14 @@ def solve_adaptive_lte_structure(
         use_deep_gradient_conditioner = False
         solver_phase = "formal-radiative-flux-completion"
         completion_state = np.asarray(result.state, dtype=np.float64).copy()
+        if physical_temperature_coordinates and energy_completion_active:
+            completion_state = log_temperature_from_state @ completion_state
+            nodal_coordinates = True
         completion_options = dict(nonlinear_options)
         completion_options["allow_initial_convergence"] = bool(
-            result.history and result.history[-1].maximum_step < temperature_tolerance
+            not energy_completion_active
+            and result.history
+            and result.history[-1].maximum_step < temperature_tolerance
         )
         precision_polish_active = bool(
             use_precision_polish
@@ -1770,8 +2013,8 @@ def solve_adaptive_lte_structure(
     # A trust-region collapse means that the accumulated Broyden history,
     # not the accepted atmosphere, has become unhelpful.  Rebuilding the
     # tangent and trust state from the last accepted atmosphere is a general
-    # nonlinear continuation, equivalent to restarting a saved checkpoint
-    # but without user intervention.  Apply it to every exact physical-flux
+    # Newton restart within this calculation; no external atmosphere or
+    # neighboring stellar model is involved. Apply it to every physical-flux
     # solve, including a composition-matched checkpoint that correctly
     # bypassed the provisional convective-gradient phase above.  Previously
     # that direct-resume path accidentally bypassed continuation as well.
@@ -1779,6 +2022,11 @@ def solve_adaptive_lte_structure(
     # still returns as unconverged rather than looping indefinitely.
     if use_physical_flux_residual and not use_deep_gradient_conditioner:
         for _ in range(maximum_formal_flux_continuations):
+            if (
+                result.diagnostics.terminal_reason
+                == "rejected-step-phase-handoff"
+            ):
+                break
             if result.converged:
                 break
             if result.iterations == 0:
@@ -1789,7 +2037,9 @@ def solve_adaptive_lte_structure(
             if precision_polish_active:
                 continuation_options["linear_regularization"] = 0.0
             continuation_options["allow_initial_convergence"] = bool(
-                result.history and result.history[-1].maximum_step < temperature_tolerance
+                not energy_completion_active
+                and result.history
+                and result.history[-1].maximum_step < temperature_tolerance
             )
             result = solve_trust_region_newton(
                 result.state, evaluate_state, **continuation_options
@@ -1803,6 +2053,88 @@ def solve_adaptive_lte_structure(
                     **nonlinear_result_metadata(result),
                 }
             )
+
+    thermal_metadata = None
+    if (
+        enforce_local_energy_balance
+        and not energy_completion_active
+        and (
+            not result.converged
+            or not result.history
+            or np.max(
+                np.abs(
+                    result.evaluation.payload[
+                        "cell_energy_balance_relative_residual"
+                    ]
+                )
+            )
+            >= flux_tolerance
+        )
+    ):
+        solver_iteration_offset += result.iterations
+        completion_state = temperature_map() @ result.state
+        energy_completion_active = True
+        use_physical_flux_residual = True
+        use_deep_gradient_conditioner = False
+        solver_phase = "local-energy-completion"
+        nodal_coordinates = bool(physical_temperature_coordinates)
+        completion_state = state_from_log_temperature(completion_state)
+        energy_options = dict(
+            nonlinear_options,
+            allow_initial_convergence=False,
+            linear_regularization=0.0,
+        )
+        from ._thermal_conditioning import (
+            thermal_condition,
+            frozen_energy_evaluator,
+            equilibrated_direction,
+        )
+        from .nonlinear import NonlinearIteration
+
+        solver_phase = "thermal-conditioning"
+
+        def thermal_report(record, state, ev):
+            report_iteration(
+                NonlinearIteration(
+                    iteration=record["iteration"],
+                    residual_rms=float(np.sqrt(np.mean(ev.residual**2))),
+                    residual_maximum=float(np.max(abs(ev.residual))),
+                    maximum_step=record["maximum_log_temperature_change"],
+                    trust_radius=0.04,
+                    line_search_factor=1.0,
+                    jacobian_recomputed=True,
+                    residual_merit=float(np.linalg.norm(ev.residual)),
+                    worst_residual_index=int(np.argmax(abs(ev.residual))),
+                    rejected_trial_evaluations=0,
+                    model_agreement=None,
+                ),
+                state,
+                ev,
+            )
+
+        completion_state, thermal_metadata = thermal_condition(
+            completion_state,
+            evaluate_state,
+            maximum_sweeps=min(max_iterations, energy_thermal_sweeps),
+            local_tolerance=flux_tolerance,
+            callback=thermal_report,
+        )
+        solver_iteration_offset += thermal_metadata["iterations"]
+        solver_phase = "local-energy-completion"
+        energy_options.update(
+            jacobian_refresh_interval=1,
+            step_builder=lambda state, ev, jac, radius: equilibrated_direction(
+                jac, ev.residual
+            ),
+        )
+        result = solve_trust_region_newton(
+            completion_state,
+            frozen_energy_evaluator(evaluate_state),
+            **energy_options,
+        )
+        nonlinear_solver_segments.append(
+            dict(phase=solver_phase, **nonlinear_result_metadata(result))
+        )
 
     total_solver_iterations = solver_iteration_offset + result.iterations
     payload = result.evaluation.payload
@@ -1856,11 +2188,7 @@ def solve_adaptive_lte_structure(
         * np.diff(final_atmosphere.column_mass)
     )
     final_residual = total_flux_interface / target_flux - 1.0
-    final_step = (
-        result.history[-1].maximum_step
-        if result.history
-        else (0.0 if result.converged else None)
-    )
+    final_step = result.history[-1].maximum_step if result.history else None
     common_metadata: dict[str, object] = {
         "model": (
             "non-gray-radiative-convective-equilibrium"
@@ -1881,7 +2209,9 @@ def solve_adaptive_lte_structure(
             np.argmax(np.abs(payload["cell_energy_balance_relative_residual"]))
         ),
         "maximum_cell_energy_balance_defect_in_stellar_flux": float(
-            np.max(np.abs(payload["cell_energy_balance_defect_in_stellar_flux"]))
+            np.max(
+                np.abs(payload["cell_energy_balance_defect_in_stellar_flux"])
+            )
         ),
         "lower_boundary_absorption_escape_bound": float(
             payload["lower_boundary_absorption_escape_bound"]
@@ -1891,11 +2221,25 @@ def solve_adaptive_lte_structure(
         ),
         "lower_boundary_screening_tolerance": float(flux_tolerance),
         "structure_solver": "adaptive-trust-region-newton",
-        "convective_trial_correction_enabled": bool(use_convective_trial_correction),
-        "convective_trial_correction_proposals": int(convective_trial_correction_count),
+        "convective_trial_correction_enabled": bool(
+            use_convective_trial_correction
+        ),
+        "convective_trial_correction_proposals": int(
+            convective_trial_correction_count
+        ),
         "adaptive_structure_driver": "shared-lte",
+        "local_energy_enforcement_requested": enforce_local_energy_balance,
+        "local_energy_completion_used": energy_completion_active,
+        "thermal_conditioning": thermal_metadata,
+        "final_temperature_coordinates": (
+            "nodal-log-temperature"
+            if nodal_coordinates
+            else "normalization-and-gradients"
+        ),
         "structure_residual": (
-            "bounded ML2-gradient warm starts followed by conservative "
+            "conservative interface flux minus directly evaluated local energy; no replaced ML2 flux"
+            if energy_completion_active
+            else "bounded ML2-gradient warm starts followed by conservative "
             "formal interface total flux, with an equivalent ML2-gradient "
             "equation only where superadiabaticity is sub-resolution"
         ),
@@ -1910,7 +2254,8 @@ def solve_adaptive_lte_structure(
         ),
         "convective_preconditioner_iteration_limit": (
             preconditioner_iteration_limit
-            if use_convective_gradient_preconditioner else 0
+            if use_convective_gradient_preconditioner
+            else 0
         ),
         "resumed_directly_in_formal_flux_phase": (
             resume_in_formal_flux_phase
@@ -1920,7 +2265,10 @@ def solve_adaptive_lte_structure(
             restart_reconditioned_after_bolometric_rescaling
         ),
         "formal_flux_completion_used": bool(
-            solver_phase == "formal-radiative-flux-completion"
+            any(
+                segment["phase"] == "formal-radiative-flux-completion"
+                for segment in nonlinear_solver_segments
+            )
         ),
         "formal_flux_continuations": formal_flux_continuations,
         "precision_polish_requested": use_precision_polish,
@@ -1992,6 +2340,16 @@ def solve_adaptive_lte_structure(
         "radiative_equilibrium_maximum_log_temperature_correction": (
             None if final_step is None else float(final_step)
         ),
+        "temperature_correction_measured": bool(
+            result.history
+            and result.history[-1].unrestricted_maximum_step is not None
+            and result.history[-1].trust_radius >= temperature_tolerance
+        ),
+        "maximum_unrestricted_log_temperature_correction": (
+            result.history[-1].unrestricted_maximum_step
+            if result.history
+            else None
+        ),
         "radiative_equilibrium_flux_ratio": float(
             total_flux_interface[0] / target_flux
         ),
@@ -1999,9 +2357,7 @@ def solve_adaptive_lte_structure(
         "radiative_equilibrium_maximum_total_flux_residual": float(
             np.max(np.abs(final_residual))
         ),
-        "maximum_total_flux_residual": float(
-            np.max(np.abs(final_residual))
-        ),
+        "maximum_total_flux_residual": float(np.max(np.abs(final_residual))),
         "maximum_all_depth_total_flux_residual": float(
             np.max(np.abs(final_residual))
         ),
@@ -2106,10 +2462,24 @@ def solve_adaptive_lte_structure(
         ),
     }
     if metadata is not None:
-        common_metadata.update(metadata)
+        # Caller/seed provenance must never overwrite newly measured results.
+        common_metadata = {**metadata, **common_metadata}
     if mass_transfer:
         # Do not let copied seed metadata mislabel the equations actually used.
         common_metadata["transfer_discretization"] = "column-mass"
+    from ._convergence import equilibrium_certificate
+
+    common_metadata["radiative_equilibrium_solver_converged"] = (
+        common_metadata["radiative_equilibrium_converged"]
+    )
+    common_metadata["equilibrium_certificate"] = equilibrium_certificate(
+        common_metadata,
+        flux_tolerance=flux_tolerance,
+        temperature_tolerance=temperature_tolerance,
+    )
+    common_metadata["radiative_equilibrium_converged"] = common_metadata[
+        "equilibrium_certificate"
+    ]["verified"]
     return Atmosphere(
         effective_temperature=final_atmosphere.effective_temperature,
         logg=final_atmosphere.logg,

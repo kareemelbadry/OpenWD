@@ -4,7 +4,8 @@ import warnings
 import numpy as np
 import pytest
 
-from wd_spectra.atmosphere import Atmosphere
+from wd_spectra.atmosphere import Atmosphere, gray_helium_atmosphere
+from wd_spectra._convergence import equilibrium_certificate
 from wd_spectra.models import (
     AtmosphereConvergenceWarning,
     DBConfig,
@@ -31,20 +32,23 @@ def test_dz_default_uses_paper_figure_physics():
 
 
 def _atmosphere(metadata=None):
-    depth = np.array([1.0e-6, 1.0e-2, 1.0])
-    return Atmosphere(
-        effective_temperature=10_000.0,
-        logg=8.0,
-        rosseland_optical_depth=depth,
-        column_mass=depth,
-        temperature=np.array([8_000.0, 9_000.0, 11_000.0]),
-        gas_pressure=np.array([1.0e2, 1.0e5, 1.0e8]),
-        mass_density=np.array([1.0e-8, 1.0e-5, 1.0e-2]),
-        neutral_h_density=np.zeros(3),
-        proton_density=np.zeros(3),
-        electron_density=np.full(3, 1.0e10),
-        metadata={} if metadata is None else dict(metadata),
-    )
+    # A real EOS state is required to test a same-physics checkpoint round trip.
+    return replace(gray_helium_atmosphere(10000.,8.,n_depth=3),
+                   metadata={} if metadata is None else dict(metadata))
+
+
+def _certified_metadata():
+    """Synthetic passing diagnostics for API wiring tests, not a model run."""
+    data = dict(radiative_equilibrium_converged=True,
+        radiative_equilibrium_solver_converged=True,
+        maximum_all_depth_total_flux_residual=1e-5,
+        maximum_relative_cell_energy_balance_residual=1e-5,
+        temperature_correction_measured=True,
+        radiative_equilibrium_maximum_log_temperature_correction=1e-5,
+        electron_scattering_source_final_maximum_relative_residual=1e-12,
+        lower_boundary_absorption_escape_bound=1e-5)
+    data['equilibrium_certificate']=equilibrium_certificate(data)
+    return data
 
 
 def _spectrum():
@@ -81,7 +85,7 @@ def test_model_request_fingerprint_is_order_independent_and_request_scoped(
 
 def test_only_an_exact_fingerprint_authorizes_direct_resume(tmp_path):
     data = ModelData(tmp_path)
-    requested = model_request_fingerprint("DB", DBConfig(), data)
+    requested = model_request_fingerprint("DB", DBConfig(effective_temperature=10000.), data)
     other = model_request_fingerprint(
         "DB", DBConfig(mixing_length_alpha=0.8), data
     )
@@ -128,7 +132,7 @@ def test_unconverged_and_unknown_atmospheres_warn_without_blocking():
 
 
 def test_converged_atmosphere_does_not_warn():
-    atmosphere = _atmosphere({"radiative_equilibrium_converged": True})
+    atmosphere = _atmosphere(_certified_metadata())
     with warnings.catch_warnings():
         warnings.simplefilter("error", AtmosphereConvergenceWarning)
         assert warn_if_atmosphere_not_converged(atmosphere, "DB") == "converged"
@@ -137,7 +141,7 @@ def test_converged_atmosphere_does_not_warn():
 
 def test_checkpoint_round_trip_preserves_request_fingerprint(tmp_path):
     data = ModelData(tmp_path)
-    fingerprint = model_request_fingerprint("DB", DBConfig(), data)
+    fingerprint = model_request_fingerprint("DB", DBConfig(effective_temperature=10000.), data)
     atmosphere = atmosphere_with_model_request_fingerprint(
         _atmosphere({"radiative_equilibrium_converged": True}), fingerprint
     )
@@ -209,10 +213,10 @@ def test_compute_db_warns_and_returns_an_unconverged_exploratory_result(
 
 def test_compute_db_exact_fingerprint_controls_direct_resume(monkeypatch, tmp_path):
     data = ModelData(tmp_path)
-    config = DBConfig(quality="quick")
+    config = DBConfig(effective_temperature=10000., quality="quick")
     fingerprint = model_request_fingerprint("DB", config, data)
     checkpoint = atmosphere_with_model_request_fingerprint(
-        _atmosphere({"radiative_equilibrium_converged": True}), fingerprint
+        _atmosphere(_certified_metadata()), fingerprint
     )
     captured = {}
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
