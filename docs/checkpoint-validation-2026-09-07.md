@@ -99,3 +99,13 @@ Full raw logs and XML reports are retained locally under
 workspace; they are not runtime inputs. The small continuation checkpoints
 and generated HNC table shipped here have separately documented checksums.
 No controlled speed benchmark is claimed from these concurrent runs.
+
+## CI portability follow-up
+
+The initial push passed Python 3.12 and both research-component jobs. The
+Python 3.9 / NumPy 2.0.2 / Linux job exposed one additional cancellation-limited
+finite-difference comparison in the stable-transfer tangent test (difference
+2.38e-7 against an approximately 2.0e-7 allowance). Its reference now uses
+fourth-order differences at two wider step sizes, retaining all physical
+cases and the original tolerances. This follow-up changes only tests and
+this note, not atmosphere/source code or solver settings.

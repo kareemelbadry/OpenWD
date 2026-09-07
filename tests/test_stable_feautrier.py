@@ -99,7 +99,8 @@ def test_stable_blocks_reproduce_existing_well_resolved_equations(fraction):
 
 @pytest.mark.parametrize("surface_tau", [1e-3, 1e-12])
 @pytest.mark.parametrize("epsilon", [0.1, 1e-6])
-def test_temperature_and_opacity_response_finite_difference(surface_tau, epsilon):
+@pytest.mark.parametrize("step", [1e-3, 2e-3])
+def test_temperature_and_opacity_response_finite_difference(surface_tau, epsilon, step):
     mass = np.geomspace(surface_tau, 100.0, 24)
     wave = np.array([2000.0, 5000.0, 15000.0])
     base_b = np.broadcast_to(1 + mass * 0.2, (3, len(mass))).copy()
@@ -128,13 +129,24 @@ def test_temperature_and_opacity_response_finite_difference(surface_tau, epsilon
         mass,
         exponent_a * a + exponent_s * s,
     )
+    # A 1e-5 centered probe subtracts nearly identical scattering-dominated
+    # fields and amplifies platform-dependent solve roundoff. Fourth-order
+    # differences at two wider steps control truncation AND cancellation;
+    # retain the original tangent tolerances and all optical-depth cases.
     for index in [0, 8, 20, 23]:
-        dx = np.eye(len(mass))[index] * 1e-5
+        dx = np.eye(len(mass))[index] * step
         _, plus, _ = field(dx)
         _, minus, _ = field(-dx)
-        measured_mean = (plus.mean_intensity - minus.mean_intensity) / (2e-5)
+        _, far_plus, _ = field(2 * dx)
+        _, far_minus, _ = field(-2 * dx)
+        measured_mean = (
+            8 * (plus.mean_intensity - minus.mean_intensity)
+            - (far_plus.mean_intensity - far_minus.mean_intensity)
+        ) / (12 * step)
         measured_flux = trapezoid(
-            (plus.interface_flux - minus.interface_flux) / (2e-5), wave, axis=0
+            (8 * (plus.interface_flux - minus.interface_flux)
+             - (far_plus.interface_flux - far_minus.interface_flux)) / (12 * step),
+            wave, axis=0,
         )
         np.testing.assert_allclose(
             mean_j[:, :, index], measured_mean, rtol=3e-5, atol=2e-7
