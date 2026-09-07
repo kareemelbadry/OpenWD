@@ -1,5 +1,9 @@
 # Recovered solver baseline
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 OpenWD 0.1.1 checkpoints the conservative atmosphere solver recovered and
 revalidated on 2026-09-03. This is a stability baseline, not a claim that the
 solver is complete. In particular, cooler hydrogen-rich and helium-rich

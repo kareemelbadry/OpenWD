@@ -1,10 +1,6 @@
 # DB module
 
-The default solver has protected cold starts at **10000 and 22000 K**.
-The explicit experimental dense-He workflow also converges at **5000 and
-8000 K**, without making its trace-ion EOS a warm-star default. See
-[tested temperatures](../tested-temperature-ranges.md) and
-[reproduction commands](../../research/cool_models/README.md).
+[Model guide](README.md) · [Getting started](../getting-started.md)
 
 `compute_db` solves a homogeneous pure-helium LTE atmosphere. It combines a
 Hummer--Mihalas/Q-MHD helium EOS, He I/II/III continuum opacity, corrected
@@ -17,5 +13,17 @@ python examples/one_shot_db.py --teff 20000 --logg 8.0 \
 ```
 
 Typical standard calculations take roughly 3--10 minutes on a current laptop;
-cool neutral-line models can be slower. A same-parameter atmosphere checkpoint
-can be supplied with `--restart-atmosphere` for formal synthesis only.
+cool neutral-line models can be slower. No previous atmosphere is needed.
+
+## Cool helium
+
+Use `run_model(DBConfig(...), output_directory)` to select the experimental
+dense-neutral helium treatment when indicated by the local material screen.
+It combines the tabulated bulk EOS with approximate chemical potentials and
+trace-ion chemistry, without inserting that closure into warm ionized helium.
+The `compute_db` preset does not automatically select this workflow.
+
+Protected cold starts cover the established prescription at 10000 and 22000 K
+and the dense workflow at 5000 and 8000 K. See [tested points](../tested-temperature-ranges.md),
+[cool-model setup](../getting-started.md#cool-helium-and-mixed-atmospheres), and
+[physical limitations](../limitations.md#physical-approximations).

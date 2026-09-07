@@ -1,5 +1,9 @@
 # Molecular physics in the cool mixed H/He model
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 ## Finding and status
 
 The 5000 K DAB/DBA comparison used an **atomic** H/He atmosphere. Its excellent

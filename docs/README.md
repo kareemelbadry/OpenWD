@@ -1,0 +1,27 @@
+# OpenWD documentation
+
+OpenWD turns a white dwarf's temperature, surface gravity, and composition
+into a model atmosphere and surface spectrum. Start with one fresh calculation,
+inspect its convergence status, then change the parameters for your application.
+
+## Using OpenWD
+
+1. [Get started](getting-started.md): install, run a model, and read the outputs.
+2. [Interactive notebook](../examples/generate_spectrum.ipynb): edit parameters
+   and plot the resulting spectrum.
+3. [Choose a model](models/README.md): DA, DB, DAB/DBA, and DZ/DBZ physics.
+4. [Caveats and limitations](limitations.md): convergence, accuracy, and
+   [tested temperatures and compositions](tested-temperature-ranges.md).
+
+## Developing OpenWD
+
+- [Development and regression policy](development/README.md): local workflow
+  and checks that protect existing models.
+- [Performance](development/performance.md): compiled acceleration and threads.
+- [Solver diagnostics](development/solver-telemetry.md): interpreting iteration
+  logs and convergence evidence.
+- [Research history](development/history/README.md): dated investigations,
+  rejected experiments, and detailed validation records. These are not the
+  current user instructions.
+
+See also the [data attribution and licenses](../THIRD_PARTY_NOTICES.md).

@@ -1,5 +1,9 @@
 # Helium physics applicability and solver isolation — 2026-09-06
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 ## What changed
 
 1. The shared adaptive solver now has an explicit per-call

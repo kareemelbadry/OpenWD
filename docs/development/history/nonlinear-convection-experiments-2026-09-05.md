@@ -1,5 +1,9 @@
 # Convergence experiments: nonlinear convection inside the trial step
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 Follow-up work and stricter local-energy checks are recorded in
 `direct-local-energy-experiments-2026-09-05.md`.
 

@@ -1,5 +1,9 @@
 # Isolated He2+ charge/energy/opacity experiment
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This follows the completed numerical work in
 `direct-local-energy-experiments-2026-09-05.md`. No production EOS, opacity
 default, public checkpoint format or solver dispatch is changed here.

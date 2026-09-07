@@ -1,5 +1,32 @@
 # Development and regression policy
 
+[Documentation home](../README.md)
+
+Use the [user guide](../getting-started.md) for model generation. This section
+is for changing the implementation and checking it safely; detailed previous
+investigations live in the [research history](history/README.md).
+
+## Run the checks
+
+From the repository root:
+
+```bash
+python -m pip install -e '.[test,research]'
+python -m pytest
+python -m pytest research/cool_models -o addopts=-ra
+python -m pytest tests/test_protected_model_canaries.py -o addopts=-ra
+```
+
+The last command runs slow, no-fallback atmosphere controls. Additional
+automatic cool-model checks and their data setup are described in the
+[cool-model workflow guide](../../research/cool_models/README.md). Missing
+required data do not count as a passing physical test. CI also includes
+notebook interface and documentation-link tests; those do not replace solver
+qualification. See [telemetry](solver-telemetry.md) for live logs and
+[performance](performance.md) for controlling parallelism.
+
+## Protect existing models
+
 The standalone OpenWD repository is the source of truth for the released
 Python package. Research results, private observations, and large validation
 products may live in an adjacent workspace, but must import this checkout

@@ -1,5 +1,9 @@
 # Reliability and automatic physics selection
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This work tightens certification, isolates automatic physics selection, and
 repairs the previously exposed local-energy and stationarity failures with
 cold-start numerical completion. It preserves material physics and the original
@@ -154,7 +158,7 @@ changes are committed and pushed.
 
 Current cold-start results and the numerical implementation are recorded in
 [the numerical report](cold-start-numerics-2026-09-07.md). The supported-point
-table is [cold-start based](tested-temperature-ranges.md); the previous
+table is [cold-start based](../../tested-temperature-ranges.md); the previous
 checkpoint-dependent 7500/9000/10000 DAB demonstrations have been replaced by
 fresh calculations with final molecular/line physics.
 

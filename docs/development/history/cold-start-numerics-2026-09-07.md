@@ -1,5 +1,9 @@
 # Cold-start numerical repair — 7 September 2026
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 ## What was wrong
 
 The strict certificate exposed a real numerical weakness, not just a reporting
@@ -111,7 +115,7 @@ pass with the final molecular and Lyman/Stark policy, using the same fresh
 80-node recipe and 40 provisional thermal sweeps. Their subsequent static
 solves and independent refined wavelength/16-angle audits pass. The historical
 8000 K fresh demonstration is retained; the old 7750 K continuation is excluded
-from the public cold-start table. See [tested temperatures](tested-temperature-ranges.md)
+from the public cold-start table. See [tested temperatures](../../tested-temperature-ranges.md)
 for the numerical values and physical limitations.
 
 ## Spectral protection and a disclosed change
