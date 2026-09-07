@@ -1,5 +1,9 @@
 # Atmosphere solver review and controlled experiments — 2026-09-05
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 For the subsequent bounded-step and nonlinear-convection experiments, see
 [the follow-up tranche](nonlinear-convection-experiments-2026-09-05.md).
 It adds a cancellation-safe ML2 root and reports a faster fresh-seed 8000 K

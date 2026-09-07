@@ -15,7 +15,7 @@ def source_paths():
     import wd_spectra
     actual = Path(wd_spectra.__file__).resolve()
     if not actual.is_relative_to(REPOSITORY / "src"):
-        raise RuntimeError("Cool research workflows require this checkout: pip install -e '.[research]'")
+        raise RuntimeError("Cool research workflows require this checkout: pip install -e .")
     return sorted([p.relative_to(REPOSITORY) for p in
         list((REPOSITORY / "research/cool_models").glob("*.py"))
         + list((REPOSITORY / "src/wd_spectra").rglob("*.py"))])

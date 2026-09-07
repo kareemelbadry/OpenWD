@@ -1,5 +1,9 @@
 # Direct local-energy response and cool-model continuation
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 Numerical milestone after `nonlinear-convection-experiments-2026-09-05.md`.
 Experimental energy/proposal methods remain research-only. Convergence
 certification and the guarded final precision correction below are in the

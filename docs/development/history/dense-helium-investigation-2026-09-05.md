@@ -1,5 +1,9 @@
 # Dense-helium EOS and ionization investigation
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This is a research experiment, **not a production default or a validated
 dense-He atmosphere model**. No production Python or C source was changed in
 this investigation. The production worktree already contained the earlier

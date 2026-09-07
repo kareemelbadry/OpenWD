@@ -1,5 +1,9 @@
 # Cross-model checks with the experimental changes enabled
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This is a regression investigation, not a production/default change. The
 production worktree's earlier edits were preserved. No solver tolerance,
 iteration-limit assertion, reference spectrum, or production Python/C source

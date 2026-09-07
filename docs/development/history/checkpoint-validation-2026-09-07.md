@@ -1,9 +1,13 @@
 # Cool-model checkpoint validation — 2026-09-07
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This checkpoint collects the successful work since `dcd3037`. It does not
 claim that the dense-He or molecular research equations are complete physics,
 nor that their availability makes them safe replacements for every warm model.
-The [tested-temperature table](tested-temperature-ranges.md) is the concise
+The [tested-temperature table](../../tested-temperature-ranges.md) is the concise
 statement of the qualified points and limitations.
 
 ## Included changes

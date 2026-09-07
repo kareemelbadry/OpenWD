@@ -1,5 +1,9 @@
 # Solver consistency tranche: 2026-09-04
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 Local work on the authoritative OpenWD checkout, starting from `dcd3037` and
 the previous turn's uncommitted scattering/cool-DA work. No GitHub push or new
 branch is part of this tranche.

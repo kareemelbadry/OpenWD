@@ -1,5 +1,7 @@
 # Tested cold starts and limitations — September 2026
 
+[Documentation home](README.md) · [Limitations overview](limitations.md)
+
 These are **tested points**, not a guarantee throughout an interval.
 Unless noted, log g = 8 and quality is production. Numerical convergence
 certifies the declared equations on the structure grid, not complete physics
@@ -8,7 +10,7 @@ The separately synthesized spectrum also has known transfer-consistency
 limitations: the retained public method integrates to 0.98613 of stellar flux
 for DA 3000 and 0.99314 for DB 10000 in a broad-wavelength audit. The unfinished
 matched-transfer experiment is not enabled. See the
-[checkpoint's known spectrum limits](cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
+[checkpoint's known spectrum limits](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
 Public generation starts from scratch. No saved atmosphere or neighboring
 stellar model is required. Provisional thermal conditioning and lower-boundary
@@ -27,8 +29,8 @@ experiments remain in the research record but are excluded from this table.
 The revised solver repairs local energy errors that previously survived a
 small interface-flux residual. It does not inherit historical success flags,
 renormalize spectra, or impose convective flux as a remainder.
-See [numerical repair](cold-start-numerics-2026-09-07.md) and
-[certificate definitions](reliability-2026-09-07.md).
+See [numerical repair](development/history/cold-start-numerics-2026-09-07.md) and
+[certificate definitions](development/history/reliability-2026-09-07.md).
 
 ## Reproduction from scratch
 
@@ -53,7 +55,8 @@ dab = run_model(DABConfig(effective_temperature=7500, quality="production"),
 ```
 
 Use a new output directory for each calculation. Cool workers require a source
-checkout, research dependencies, and the [declared molecular data](../research/cool_models/README.md).
+checkout with the normal installation and, for DAB, the
+[declared molecular data](../research/cool_models/README.md).
 Missing data or invalid material domains fail explicitly; there is no alternate
 physics retry. `run_model` rejects checkpoint inputs.
 
@@ -133,5 +136,5 @@ faint far-UV tail change by about 10%. This is disclosed, not described as an
 identical spectrum. The original boundary was not absorption-screened.
 
 Historical investigations, including unsuccessful runs and continuation
-experiments, remain under `docs/`. They document chronology, not current
-public reproduction instructions.
+experiments, remain in the [research archive](development/history/README.md).
+They document chronology, not current public reproduction instructions.

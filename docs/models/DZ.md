@@ -1,5 +1,7 @@
 # DZ/DBZ module
 
+[Model guide](README.md) · [Getting started](../getting-started.md)
+
 `compute_dz` solves a helium-dominated polluted LTE atmosphere at fixed input
 abundances. Metals contribute electrons, bound-free opacity, sampled line
 blanketing, and therefore feed back on the relaxed structure. The default GD
@@ -27,3 +29,8 @@ replaces the entire default abundance dictionary. The model does not refit
 about 30 minutes to several hours. `dense_helium_eos="reos3"` is available in
 the Python configuration as an explicitly experimental bulk-EOS option; the
 validated production default remains the chemical-picture EOS.
+
+Paper-spectrum regression and cold-start convergence are separate checks.
+See [tested points](../tested-temperature-ranges.md) and
+[reference-comparison limitations](../limitations.md#spectrum-accuracy-and-reference-comparisons)
+for the status of PG 1225 and SDSS J0738+1835.

@@ -1,5 +1,7 @@
 # Solver telemetry
 
+[Documentation home](../README.md)
+
 Adaptive atmosphere calculations store structured nonlinear diagnostics in
 the returned atmosphere metadata. These fields are observational: they do not
 change residuals, Jacobians, step acceptance, or convergence tolerances.

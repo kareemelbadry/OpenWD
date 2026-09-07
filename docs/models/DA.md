@@ -1,8 +1,6 @@
 # DA module
 
-Protected cold starts reach **3000 K** at log g=8, with additional checks at
-4000, 5000 and 20000 K. See [tested temperature limits](../tested-temperature-ranges.md)
-for settings, convergence gates and the scope of that statement.
+[Model guide](README.md) · [Getting started](../getting-started.md)
 
 `compute_da` solves a pure-hydrogen plane-parallel LTE atmosphere in
 hydrostatic and radiative/convective equilibrium. It includes Hummer--Mihalas
@@ -26,3 +24,7 @@ Warm standard models normally take minutes; cool convective production models
 can take tens of minutes. `quick` verifies the interface but is not a science
 atmosphere. Wavelengths are vacuum Angstrom and output fluxes are surface
 `F_lambda`.
+
+Protected cold starts reach 3000 K at log g = 8, with additional checks at
+4000, 5000, and 20000 K. See [tested points](../tested-temperature-ranges.md)
+and [limitations](../limitations.md) for settings and the scope of that evidence.

@@ -1,5 +1,9 @@
 # Cool DB / molecular DAB: material consistency investigation
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 This follows `cool-dab-molecular-2026-09-05.md`. The target is **pure DB and
 helium-dominated molecular DAB**, not pure DA. All new atmosphere experiments
 below use log g=8; DAB uses log10(N_H/N_He)=-2. No GitHub push was made.

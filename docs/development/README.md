@@ -1,5 +1,32 @@
 # Development and regression policy
 
+[Documentation home](../README.md)
+
+Use the [user guide](../getting-started.md) for model generation. This section
+is for changing the implementation and checking it safely; detailed previous
+investigations live in the [research history](history/README.md).
+
+## Run the checks
+
+From the repository root:
+
+```bash
+python -m pip install -e '.[test]'
+python -m pytest
+python -m pytest research/cool_models -o addopts=-ra
+python -m pytest tests/test_protected_model_canaries.py -o addopts=-ra
+```
+
+The last command runs slow, no-fallback atmosphere controls. Additional
+automatic cool-model checks and their data setup are described in the
+[cool-model workflow guide](../../research/cool_models/README.md). Missing
+required data do not count as a passing physical test. CI also includes
+notebook interface and documentation-link tests; those do not replace solver
+qualification. See [telemetry](solver-telemetry.md) for live logs and
+[performance](performance.md) for controlling parallelism.
+
+## Protect existing models
+
 The standalone OpenWD repository is the source of truth for the released
 Python package. Research results, private observations, and large validation
 products may live in an adjacent workspace, but must import this checkout
@@ -29,6 +56,11 @@ Outer temperatures previously unconstrained by interface flux may change only
 with explained local-energy corrections and independently checked spectra.
 Runtime budgets account for the added physical completion, not relaxed physical
 tolerances. Fixed-atmosphere synthesis has separate, tighter regression bounds.
+Iteration ceilings are coarse work guards, not equilibrium criteria. The two
+100-layer ultracool DA canaries share a 120-iteration ceiling; a verified
+4000 K calculation took 61 iterations on one CI run and 59 on another, making
+the former 60-iteration test ceiling too tight. All physical and spectral
+checks remain mandatory and unchanged.
 
 Public generation and examples are cold-start workflows. `run_model` rejects
 checkpoint inputs. Low-level checkpoint/fixed-synthesis utilities are retained

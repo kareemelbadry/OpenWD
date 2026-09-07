@@ -1,5 +1,9 @@
 # Molecular DAB conservative-transport investigation
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 Partial implementation report. The requested 5000–10000 K reliability claim
 has **not** been established. All experiment workers were stopped or finished
 at handoff. No default stellar physics was changed and no push

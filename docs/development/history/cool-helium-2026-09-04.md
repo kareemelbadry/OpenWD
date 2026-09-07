@@ -1,5 +1,9 @@
 # Cool helium investigation (2026-09-04)
 
+> Research record: this page describes work at the time it was written.
+> For current usage and status, see the [user guide](../../getting-started.md)
+> and [tested points](../../tested-temperature-ranges.md).
+
 ## Scope and retained changes
 
 The 5000/8000 K, log(g)=8 pure-He production cold starts were stopped at the
