@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "mpmath>=1.2"]
 research = ["scipy>=1.10", "mpmath>=1.2"]
 
 [tool.setuptools]

@@ -980,6 +980,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
     max_iterations: int = 500,
     temperature_tolerance: float = 2.0e-4,
     flux_tolerance: float = 2.0e-3,
+    enforce_local_energy_balance: bool = True,
     n_continuum_wavelength: int = 600,
     include_balmer_lines: bool = True,
     include_paschen_lines: bool = True,
@@ -1693,6 +1694,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
         return solve_adaptive_lte_structure(
             adaptive_seed,
             wavelength,
+            enforce_local_energy_balance=enforce_local_energy_balance,
             with_temperature=with_temperature,
             true_absorption=true_absorption,
             scattering_opacity=scattering_opacity,
@@ -2580,6 +2582,7 @@ def radiative_equilibrium_helium_atmosphere(
     structure_solver: Literal["adaptive-newton", "lambda"] = "lambda",
     temperature_tolerance: float = 3.0e-4,
     flux_tolerance: float = 3.0e-3,
+    enforce_local_energy_balance: bool = True,
     consecutive_convergence_iterations: int = 3,
     n_continuum_wavelength: int = 500,
     include_lines: bool = True,
@@ -3528,6 +3531,7 @@ def radiative_equilibrium_helium_atmosphere(
         return solve_adaptive_lte_structure(
             adaptive_seed,
             wavelength,
+            enforce_local_energy_balance=enforce_local_energy_balance,
             with_temperature=with_temperature,
             true_absorption=true_absorption,
             scattering_opacity=scattering_opacity,

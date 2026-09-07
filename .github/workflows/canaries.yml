@@ -1,6 +1,22 @@
 name: protected model canaries
 
 on:
+  push:
+    paths:
+      - 'src/**'
+      - 'research/cool_models/**'
+      - 'research/validate_public_cold_start.py'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'pyproject.toml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'research/cool_models/**'
+      - 'research/validate_public_cold_start.py'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'pyproject.toml'
   workflow_dispatch:
   schedule:
     - cron: "17 9 * * 1"
@@ -8,10 +24,19 @@ on:
 permissions:
   contents: read
 
+env:
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  OPENWD_NUM_THREADS: "1"
+
 jobs:
   protected-models:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ['protected_db or standard_db', 'protected_da', 'ultracool_da']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,4 +48,99 @@ jobs:
       - name: Verify compiled acceleration backend
         run: python -c "from wd_spectra import _rt; assert hasattr(_rt, 'hydrogen_stark_lorentz_convolution')"
       - name: Run no-fallback atmosphere canaries
-        run: python -m pytest -m canary -o 'addopts=-ra'
+        run: python -m pytest tests/test_protected_model_canaries.py -k '${{ matrix.group }}' -o 'addopts=-ra'
+
+  atomic-mixed-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[test]'
+      - name: Cold 20000 K DAB, strict equilibrium and paper-spectrum control
+        run: python -u research/validate_public_cold_start.py dab-20000 results/cold-dab-20000
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atomic-dab-20000-cold-start
+          path: results/cold-dab-20000
+          retention-days: 7
+
+  automatic-dense-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        temperature: [5000, 8000]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[test,research]'
+      - name: Automatic physics selection, fresh start, strict qualification
+        run: |
+          python -u - <<'PY'
+          from wd_spectra import DBConfig, run_model
+          result = run_model(DBConfig(effective_temperature=${{ matrix.temperature }}, quality='production'),
+                             'results/automatic-db', require_convergence=True)
+          assert result.selection.workflow == 'dense-db'
+          assert result.convergence_verified
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dense-db-${{ matrix.temperature }}
+          path: results/automatic-db
+          retention-days: 7
+
+  automatic-molecular-cold-start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        temperature: [7500, 9000, 10000]
+    env:
+      OPENWD_RESEARCH_DATA: ${{ github.workspace }}/.cache/molecular-opacity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[test,research]'
+      - uses: actions/cache@v4
+        id: molecular-data
+        with:
+          path: .cache/molecular-opacity
+          key: molecular-4f0eb9cd69a1c383-276f5a36d094e7e1
+      - name: Fetch the declared public tables (no alternate input)
+        if: steps.molecular-data.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$OPENWD_RESEARCH_DATA"
+          curl --fail --location --retry 2 https://hitran.org/data/CIA/main/H2-He_2011.cia --output "$OPENWD_RESEARCH_DATA/H2-He_2011.cia"
+          curl --fail --location --retry 2 https://exomol.com/db/H2/1H2/RACPPK/1H2__RACPPK.states.bz2 --output "$OPENWD_RESEARCH_DATA/1H2__RACPPK.states.bz2"
+      - name: Check checksums even on cache hits
+        run: python research/cool_models/check_data.py
+      - name: Fresh DAB, no saved atmosphere or neighboring model
+        run: |
+          python -u - <<'PY'
+          from wd_spectra import DABConfig, run_model
+          result = run_model(DABConfig(effective_temperature=${{ matrix.temperature }}, quality='production'),
+                             'results/automatic-dab',
+                             require_convergence=True)
+          assert result.selection.workflow == 'molecular-dab'
+          assert result.convergence_verified
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: molecular-dab-${{ matrix.temperature }}-cold-start
+          path: results/automatic-dab
+          retention-days: 7

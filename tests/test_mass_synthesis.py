@@ -29,6 +29,19 @@ def test_explicit_mass_synthesis_and_default_isolation(monkeypatch):
     assert len(seen)==2
     np.testing.assert_array_equal(before.surface_flux_lambda,after.surface_flux_lambda)
     assert before.metadata==after.metadata
+    legacy=synthesize_helium_spectrum(a,wave,transfer_discretization='optical-depth',**options)
+    np.testing.assert_array_equal(before.surface_flux_lambda,legacy.surface_flux_lambda)
+    assert before.metadata==legacy.metadata
+
+
+def test_optical_feautrier_requires_its_own_explicit_name():
+    a=gray_helium_atmosphere(8000.,8.,n_depth=12)
+    result=synthesize_helium_spectrum(a,np.geomspace(1000.,1e5,60),stark_table=None,
+        include_lines=False,include_uv_resonance_lines=False,include_helium_ii_lines=False,
+        transfer_discretization='feautrier-optical-depth')
+    assert result.metadata['transfer_discretization']=='feautrier-optical-depth'
+    assert result.metadata['scattering_source_solver']=='direct coupled Feautrier'
+    assert result.metadata['independent_radiation_scaled_source_error']<1e-10
 
 
 def test_invalid_synthesis_discretization_fails_before_opacity():

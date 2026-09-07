@@ -40,6 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("temperature", type=int)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--allow-unqualified", action="store_true",
+        help="retain and return a completed exploratory result with failed qualification (never replace it)")
     parser.add_argument("--interaction-table", type=Path,
         default=HERE / "data/molecular-hnc-electron-domain-table.npz")
     args = parser.parse_args()
@@ -57,7 +59,11 @@ def main():
         subprocess.run(command, check=True)
     qualified = json.loads((audit / "qualification.json").read_text())
     if qualified.get("numerically_qualified_for_declared_experimental_physics") is not True:
-        raise SystemExit("Numerical qualification FAILED. Exploratory outputs retained; no replacement used.")
+        message="Numerical qualification FAILED. Exploratory outputs retained; no replacement used."
+        if not args.allow_unqualified:
+            raise SystemExit(message)
+        print(message,flush=True)
+        return
     print("Declared-equation numerical checks passed; this is not full-physics or depth-grid validation.", flush=True)
 
 

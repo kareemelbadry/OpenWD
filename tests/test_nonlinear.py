@@ -19,6 +19,28 @@ def test_alternative_step_builder_cannot_bypass_physical_trust_limit():
     assert not result.converged
 
 
+def test_rejected_direction_handoff_never_accepts_trial_or_claims_convergence():
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(state-1., np.eye(2) if need_jacobian else None, None)
+    initial=np.zeros(2)
+    result=solve_trust_region_newton(initial,evaluate,
+        step_builder=lambda *args: -np.ones(2),
+        rejected_step_handoff=lambda state,ev: True)
+    assert result.diagnostics.terminal_reason=='rejected-step-phase-handoff'
+    assert not result.converged
+    assert not result.history
+    np.testing.assert_array_equal(result.state,initial)
+    assert result.diagnostics.rejected_trial_evaluations>0
+
+
+def test_handoff_does_not_intercept_a_successful_direction():
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(state-.01, np.eye(2) if need_jacobian else None, None)
+    def forbidden(*args):raise AssertionError('handoff on successful direction')
+    result=solve_trust_region_newton(np.zeros(2),evaluate,rejected_step_handoff=forbidden)
+    assert result.converged
+
+
 @pytest.mark.parametrize("penalty", [-1., np.inf, np.nan])
 def test_linear_regularization_must_be_finite_nonnegative(penalty):
     with pytest.raises(ValueError, match="linear_regularization"):

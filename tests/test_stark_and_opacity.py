@@ -1241,7 +1241,9 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
         structure_solver="adaptive-newton",
     )
 
-    assert atmosphere.metadata["radiative_equilibrium_converged"]
+    # This coarse flux-control test is not a local-energy/grid certificate.
+    assert atmosphere.metadata["radiative_equilibrium_solver_converged"]
+    assert atmosphere.metadata["radiative_equilibrium_converged"] == atmosphere.metadata["equilibrium_certificate"]["verified"]
     assert atmosphere.metadata["structure_solver"] == (
         "adaptive-trust-region-newton"
     )
@@ -1252,7 +1254,9 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
     assert atmosphere.metadata["maximum_total_flux_residual"] < 2.0e-3
     segments = atmosphere.metadata["nonlinear_solver_segments"]
     assert segments
-    assert segments[-1]["phase"] == "formal-radiative-flux-completion"
+    assert segments[-1]["phase"] == "local-energy-completion"
+    assert atmosphere.metadata["formal_flux_completion_used"]
+    assert atmosphere.metadata["maximum_relative_cell_energy_balance_residual"] < 2.0e-3
     assert atmosphere.metadata["nonlinear_solver_terminal_reason"] == (
         segments[-1]["terminal_reason"]
     )
@@ -1297,11 +1301,13 @@ def test_adaptive_newton_converges_warm_radiative_flux_control_with_ml2():
         structure_solver="adaptive-newton",
     )
 
-    assert atmosphere.metadata["radiative_equilibrium_converged"]
+    assert atmosphere.metadata["radiative_equilibrium_solver_converged"]
+    assert atmosphere.metadata["radiative_equilibrium_converged"] == atmosphere.metadata["equilibrium_certificate"]["verified"]
     assert atmosphere.metadata["maximum_total_flux_residual"] < 2.0e-3
     assert atmosphere.metadata["nonlinear_solver_segments"][-1]["phase"] == (
-        "formal-radiative-flux-completion"
+        "local-energy-completion"
     )
+    assert atmosphere.metadata["maximum_relative_cell_energy_balance_residual"] < 2.0e-3
 
 
 def test_adaptive_hydrogen_supplied_temperature_remains_a_warm_start():

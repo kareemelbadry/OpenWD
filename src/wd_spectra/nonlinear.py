@@ -56,10 +56,12 @@ class NonlinearIteration:
     worst_residual_index: int
     rejected_trial_evaluations: int
     model_agreement: float | None
+    unrestricted_maximum_step: float | None = None
 
 
 NonlinearTerminalReason = Literal[
     "initial-state-converged",
+    "rejected-step-phase-handoff",
     "residual-and-step-converged",
     "stationary-warm-start-complete",
     "stationary-residual-converged",
@@ -165,6 +167,7 @@ def nonlinear_result_metadata(
                 "residual_merit": record.residual_merit,
                 "worst_residual_index": record.worst_residual_index,
                 "maximum_step": record.maximum_step,
+                "unrestricted_maximum_step": record.unrestricted_maximum_step,
                 "trust_radius": record.trust_radius,
                 "line_search_factor": record.line_search_factor,
                 "rejected_trial_evaluations": (
@@ -232,6 +235,10 @@ def solve_trust_region_newton(
         [NonlinearEvaluation[Payload], NonlinearEvaluation[Payload]], bool
     ]
     | None = None,
+    rejected_step_handoff: Callable[
+        [FloatArray, NonlinearEvaluation[Payload]], bool
+    ]
+    | None = None,
     step_measure: Callable[[FloatArray, FloatArray], float] | None = None,
     stationary_completion_iterations: int | None = None,
     allow_initial_convergence: bool = True,
@@ -258,6 +265,9 @@ def solve_trust_region_newton(
     before evaluation. Its actual displacement must satisfy the trust radius;
     the repaired state, not the original proposal, is evaluated and retained.
     This hook cannot bypass merit reduction or the convergence tests.
+    ``rejected_step_handoff`` may request a different residual representation
+    after a whole direction is rejected. It returns the unchanged accepted
+    state with ``converged=False``; it cannot certify or accept a rejected trial.
     An optional ``step_builder(state, evaluation, jacobian, radius)`` supplies
     an alternative proposal direction. It still passes through the same
     physical step measure, trust limit, trial evaluation and acceptance gates.
@@ -472,6 +482,7 @@ def solve_trust_region_newton(
             worst_residual_index=int(np.argmax(np.abs(residual))),
             rejected_trial_evaluations=0,
             model_agreement=None,
+            unrestricted_maximum_step=stationary_step,
         )
         history.append(record)
         if callback is not None:
@@ -657,6 +668,9 @@ def solve_trust_region_newton(
                 iteration, rejected_trials_this_iteration,
                 np.max(np.abs(evaluation.residual)), trust_radius,
             )
+            if (rejected_step_handoff is not None
+                    and rejected_step_handoff(state.copy(), evaluation)):
+                return finished("rejected-step-phase-handoff", False, iteration - 1)
             # The backtracking evaluations have measured a true directional
             # derivative even though none of their steps lowered the merit.
             # Retain that information instead of immediately rebuilding the
@@ -838,6 +852,7 @@ def solve_trust_region_newton(
             model_agreement=(
                 float(agreement) if np.isfinite(agreement) else None
             ),
+            unrestricted_maximum_step=step_maximum,
         )
         history.append(record)
         if callback is not None:

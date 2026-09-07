@@ -10,6 +10,7 @@ from typing import Callable, Literal, Mapping
 
 import numpy as np
 from numpy.typing import ArrayLike
+from .._domain import solve_with_screened_boundary
 
 from ..atmosphere import (
     Atmosphere,
@@ -50,6 +51,7 @@ from .common import (
     atmosphere_convergence_status,
     atmosphere_matches_model_request,
     atmosphere_with_model_request_fingerprint,
+    fixed_synthesis_atmosphere,
     model_request_fingerprint,
     numerical_resolution,
     validate_wavelength,
@@ -467,6 +469,8 @@ def compute_da(
         atmosphere = atmosphere_with_model_request_fingerprint(
             atmosphere, request_fingerprint
         )
+    else:
+        atmosphere = fixed_synthesis_atmosphere(atmosphere, request_fingerprint)
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DA")
     spectrum = synthesize_hydrogen_spectrum(
         atmosphere,
@@ -589,7 +593,7 @@ def compute_db(
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
     if relax_atmosphere:
-        atmosphere = radiative_equilibrium_helium_atmosphere(
+        atmosphere = solve_with_screened_boundary(radiative_equilibrium_helium_atmosphere,
             config.effective_temperature,
             config.logg,
             stark_table=he_i,
@@ -628,6 +632,8 @@ def compute_db(
         atmosphere = atmosphere_with_model_request_fingerprint(
             atmosphere, request_fingerprint
         )
+    else:
+        atmosphere = fixed_synthesis_atmosphere(atmosphere, request_fingerprint)
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DB")
     spectrum = synthesize_helium_spectrum(
         atmosphere,
@@ -735,7 +741,7 @@ def compute_dab(
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
     if relax_atmosphere:
-        atmosphere = radiative_equilibrium_hydrogen_helium_atmosphere(
+        atmosphere = solve_with_screened_boundary(radiative_equilibrium_hydrogen_helium_atmosphere,
             config.effective_temperature,
             config.logg,
             config.log_hydrogen_to_helium,
@@ -783,6 +789,8 @@ def compute_dab(
         atmosphere = atmosphere_with_model_request_fingerprint(
             atmosphere, request_fingerprint
         )
+    else:
+        atmosphere = fixed_synthesis_atmosphere(atmosphere, request_fingerprint)
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DAB")
     hstate = atmosphere.hydrogen_lte_state
     has_molecules = hstate is not None and hstate.chemical_model == "molecular-h-he-hm"
@@ -1012,7 +1020,7 @@ def compute_dz(
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
     if relax_atmosphere:
-        atmosphere = radiative_equilibrium_helium_atmosphere(
+        atmosphere = solve_with_screened_boundary(radiative_equilibrium_helium_atmosphere,
             config.effective_temperature,
             config.logg,
             stark_table=he_i,
@@ -1071,6 +1079,8 @@ def compute_dz(
         atmosphere = atmosphere_with_model_request_fingerprint(
             atmosphere, request_fingerprint
         )
+    else:
+        atmosphere = fixed_synthesis_atmosphere(atmosphere, request_fingerprint)
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DZ")
     spectrum = synthesize_helium_spectrum(
         atmosphere,

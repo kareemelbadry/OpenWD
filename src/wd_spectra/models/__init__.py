@@ -22,6 +22,8 @@ from .stellar import (
     compute_db,
     compute_dz,
 )
+from .selection import PhysicsSelection, PhysicsSelectionPolicy, select_physics
+from .automatic import ModelRun, run_model
 
 __all__ = [
     "AtmosphereConvergenceWarning",
@@ -31,6 +33,11 @@ __all__ = [
     "DZConfig",
     "ModelData",
     "ModelResult",
+    "ModelRun",
+    "PhysicsSelection",
+    "PhysicsSelectionPolicy",
+    "select_physics",
+    "run_model",
     "NumericalResolution",
     "Quality",
     "atmosphere_convergence_status",

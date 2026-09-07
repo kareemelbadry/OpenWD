@@ -15,10 +15,16 @@ structure rather than interpolating a precomputed spectral grid.
 > result scientifically.
 
 Tested cool points now reach **3000 K for DA, 5000 K for pure-He DB, and
-7500 K for a 1%-hydrogen DAB mixture**, at log g = 8. DB/DAB cool results use
-explicit experimental workflows; these are not blanket default-API or
-full-physics validity ranges. See [tested temperatures and limitations](docs/tested-temperature-ranges.md)
+7500 K for a 1%-hydrogen DAB mixture**, at log g = 8. These are tested
+cold-start points, not blanket full-equilibrium or full-physics validity
+ranges. Cold-start numerical completion now enforces local energy as well as
+flux conservation and a measured temperature correction in the tested models.
+DB/DAB cool results use experimental workflows, now selectable automatically.
+See [tested temperatures and limitations](docs/tested-temperature-ranges.md)
 and [reproduction commands](research/cool_models/README.md).
+The atmosphere certificate is not a guarantee of the separately synthesized
+spectrum's bolometric or depth-grid accuracy; see the
+[known spectrum-consistency limits](docs/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
 ## Installation
 
@@ -53,9 +59,35 @@ The equivalent entry points are `compute_db`, `compute_dab`, and `compute_dz`.
 Each returns the atmosphere, emergent surface spectrum, input configuration,
 and detailed provenance metadata. Exploratory spectra from incomplete or
 legacy atmospheres remain available, but emit
-`AtmosphereConvergenceWarning`. Saved models retain a request fingerprint;
-only an exact configuration, physics-revision, and data-root match is allowed
-to bypass fresh-start conditioning on a later relaxation.
+`AtmosphereConvergenceWarning`. Generation needs no saved model; checkpoints
+are retained for explicit fixed-atmosphere diagnostics and provenance checks.
+
+### Automatic physics selection
+
+```python
+from wd_spectra import DBConfig, run_model
+
+run = run_model(DBConfig(effective_temperature=5000, logg=8, quality="production"),
+                "results/my-db-5000", require_convergence=True)
+print(run.selection)                  # chosen physics and material diagnostics
+surface_flux = run.spectrum.surface_flux_lambda
+```
+
+`run_model` chooses once, before relaxation, using composition and provisional
+local density/ionization/molecular-chemistry diagnostics, not a Teff switch or
+a failed solve. It writes `model-run.json` and preserves the solver artifacts.
+Public runs start from scratch: `run_model` rejects supplied checkpoints and
+never retries with different physics. Initialization and any mesh adaptation
+belong to the same calculation, not a sequence of neighboring stellar models.
+Existing `compute_*` calls remain explicit, backward-compatible presets.
+
+The cool workers currently need a source checkout, `pip install -e '.[research]'`,
+log g = 8 and production quality; unsupported overrides raise an explanation
+instead of being ignored. Molecular DAB additionally needs the pinned public
+tables described in the [data instructions](research/cool_models/README.md).
+Selection indicates physical relevance, **not** a promise of convergence at
+an untested temperature, gravity or abundance. Full details and limitations:
+[automatic selection and reliability](docs/reliability-2026-09-07.md).
 
 ## One-shot calculations
 
@@ -144,10 +176,13 @@ python -m pip install -e ".[test]"
 pytest -q
 ```
 
-The ordinary suite contains over 450 solver, EOS, opacity, line-profile,
-transfer, model-component, acceleration-equivalence, and safety tests. Slow
-no-fallback atmosphere canaries run separately in GitHub Actions every week
-and on manual request. Run them locally with:
+The ordinary suite includes solver, EOS, opacity, line-profile, transfer,
+model-component, acceleration-equivalence, safety and ten broad-spectrum
+regressions. Slow no-fallback atmosphere controls and strict automatically
+selected cool-model checks run separately on source/test changes, weekly,
+and on manual request. The molecular cold-start job downloads and checks
+the exact declared public inputs; missing data do not count as a pass.
+Run the established cold-start controls locally with:
 
 ```bash
 pytest tests/test_protected_model_canaries.py -o addopts=-ra

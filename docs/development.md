@@ -23,11 +23,18 @@ unconverged or provenance-unknown atmospheres, but issue
 `AtmosphereConvergenceWarning` and report `atmosphere_convergence_status` in
 the result metadata. Tests and production workflows should turn that warning
 into an error and assert the atmosphere's all-depth convergence metrics.
+Cold-start canaries must pass all five certificate gates and spectral comparisons
+against immutable controls. They must not be replaced with checkpoint starts.
+Outer temperatures previously unconstrained by interface flux may change only
+with explained local-energy corrections and independently checked spectra.
+Runtime budgets account for the added physical completion, not relaxed physical
+tolerances. Fixed-atmosphere synthesis has separate, tighter regression bounds.
 
-Exact checkpoint continuation requires the `model_request_fingerprint` stored
-in atmosphere metadata. A missing or mismatched fingerprint is not an error:
-the atmosphere remains a useful warm start, but receives normal conditioning
-instead of entering the final formal-flux phase directly.
+Public generation and examples are cold-start workflows. `run_model` rejects
+checkpoint inputs. Low-level checkpoint/fixed-synthesis utilities are retained
+for explicit diagnostics, not as prerequisites or recovery paths for users.
+Refining or extending the mesh inside a fresh calculation is allowed, provided
+the same physics is retained and the final state is independently certified.
 
 Adaptive solvers must preserve the structured fields documented in
 `solver-telemetry.md`. New numerical changes should be justified with those
