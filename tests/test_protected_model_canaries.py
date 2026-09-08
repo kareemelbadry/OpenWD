@@ -6,6 +6,8 @@ synthesis has separate, tighter checks in test_spectral_regressions.py.
 """
 
 import logging
+import json
+import os
 import time
 import warnings
 from pathlib import Path
@@ -21,7 +23,9 @@ from wd_spectra.models import (
     DBConfig,
     compute_da,
     compute_db,
+    save_model_result,
 )
+from wd_spectra.models.common import _jsonable
 
 
 pytestmark = pytest.mark.canary
@@ -32,6 +36,8 @@ _FORMAL_WAVELENGTH = np.unique(
 
 
 def _assert_solver_control(result, case, step_tolerance, caught):
+    if os.environ.get("OPENWD_TEST_ARTIFACTS"):
+        save_model_result(result, Path(os.environ["OPENWD_TEST_ARTIFACTS"]) / case)
     m = result.atmosphere.metadata
     assert m["radiative_equilibrium_solver_converged"]
     history = [
@@ -67,10 +73,7 @@ def _assert_solver_control(result, case, step_tolerance, caught):
         # not relative to near-zero Wien-tail bins. The bound is the existing
         # 0.3% equilibrium flux accuracy, common to every model, not a fitted
         # per-star spectral tolerance. Fixed-atmosphere tests remain stricter.
-        assert (
-            np.max(wave * abs(actual - expected)) / np.max(wave * expected)
-            < 3e-3
-        )
+        assert np.max(wave * abs(actual - expected)) / np.max(wave * expected) < 3e-3
         target = STEFAN_BOLTZMANN * result.atmosphere.effective_temperature**4
         assert trapezoid(abs(actual - expected), wave) / target < 3e-3
         for lo, hi in ((1150, 3000), (3500, 7000), (7000, 300000)):
@@ -79,9 +82,7 @@ def _assert_solver_control(result, case, step_tolerance, caught):
                 continue
             old_band = trapezoid(expected[take], wave[take])
             if old_band / target >= 1e-3:
-                change = (
-                    trapezoid((actual - expected)[take], wave[take]) / old_band
-                )
+                change = trapezoid((actual - expected)[take], wave[take]) / old_band
                 assert abs(change) < 3e-3
     certificate = m["equilibrium_certificate"]
     assert certificate["verified"], certificate["failures"]
@@ -91,9 +92,7 @@ def _assert_solver_control(result, case, step_tolerance, caught):
         "converged" if certificate["verified"] else "unconverged"
     )
     convergence_warnings = [
-        w
-        for w in caught
-        if issubclass(w.category, AtmosphereConvergenceWarning)
+        w for w in caught if issubclass(w.category, AtmosphereConvergenceWarning)
     ]
     assert bool(convergence_warnings) == (not certificate["verified"])
     assert m["nonlinear_solver_terminal_reason"] != "initial-state-converged"
@@ -107,9 +106,7 @@ def _live_nonlinear_diagnostics(capsys, request):
     class LiveHandler(logging.Handler):
         def emit(self, record):
             with capsys.disabled():
-                print(
-                    f"[{request.node.name}] {record.getMessage()}", flush=True
-                )
+                print(f"[{request.node.name}] {record.getMessage()}", flush=True)
 
     logger = logging.getLogger("wd_spectra.nonlinear")
     handler = LiveHandler()
@@ -128,11 +125,31 @@ def _progress_callback(label, capsys):
 
     start = time.monotonic()
     with capsys.disabled():
-        print(
-            f"[{label}] starting cold atmosphere (no checkpoint)", flush=True
-        )
+        print(f"[{label}] starting cold atmosphere (no checkpoint)", flush=True)
 
     def report(iteration, _atmosphere, diagnostics):
+        artifact_root = os.environ.get("OPENWD_TEST_ARTIFACTS")
+        if artifact_root:
+            directory = Path(artifact_root)
+            directory.mkdir(parents=True, exist_ok=True)
+            record = dict(
+                iteration=iteration,
+                elapsed_seconds=time.monotonic() - start,
+                diagnostic_only=True,
+                diagnostics=diagnostics,
+            )
+            with (directory / "iterations.jsonl").open("a") as stream:
+                stream.write(json.dumps(_jsonable(record)) + "\n")
+            # Last accepted state for diagnosis only; no test ever loads it.
+            temporary = directory / "last-iteration.tmp.npz"
+            np.savez_compressed(
+                temporary,
+                temperature=_atmosphere.temperature,
+                column_mass=_atmosphere.column_mass,
+                gas_pressure=_atmosphere.gas_pressure,
+                diagnostic_only=True,
+            )
+            temporary.replace(directory / "last-iteration.npz")
         maximum_flux = diagnostics.get(
             "maximum_all_depth_total_flux_residual",
             diagnostics.get("maximum_total_flux_residual", np.nan),
@@ -179,13 +196,11 @@ def test_protected_db_cold_starts_converge_without_fallback(
 
     metadata = result.atmosphere.metadata
     assert 80 <= result.atmosphere.n_depth <= 160
-    _assert_solver_control(
-        result, f"db-{effective_temperature:g}", 3e-4, caught
-    )
+    _assert_solver_control(result, f"db-{effective_temperature:g}", 3e-4, caught)
     assert metadata["maximum_all_depth_total_flux_residual"] < 3.0e-3
-    assert metadata[
-        "radiative_equilibrium_iterations_including_domain_adaptation"
-    ] <= (maximum_expected_iterations)
+    assert metadata["radiative_equilibrium_iterations_including_domain_adaptation"] <= (
+        maximum_expected_iterations
+    )
     assert metadata["cold_start"]
     assert not result.metadata["checkpoint_matches_model_request"]
 
@@ -196,9 +211,7 @@ def test_standard_db_22000_enters_exact_flux_verification(capsys):
         result = compute_db(
             DBConfig(effective_temperature=22_000.0, quality="standard"),
             _FORMAL_WAVELENGTH,
-            iteration_callback=_progress_callback(
-                "DB-22000K-standard", capsys
-            ),
+            iteration_callback=_progress_callback("DB-22000K-standard", capsys),
         )
 
     metadata = result.atmosphere.metadata
@@ -206,10 +219,7 @@ def test_standard_db_22000_enters_exact_flux_verification(capsys):
     _assert_solver_control(result, "db-22000-standard", 3e-4, caught)
     assert metadata["maximum_all_depth_total_flux_residual"] < 3.0e-3
     assert (
-        metadata[
-            "radiative_equilibrium_iterations_including_domain_adaptation"
-        ]
-        <= 60
+        metadata["radiative_equilibrium_iterations_including_domain_adaptation"] <= 60
     )
     assert metadata["nonlinear_solver_segments"][-1]["phase"] in (
         "formal-radiative-flux-completion",
@@ -247,13 +257,9 @@ def test_protected_da_cold_starts_converge_without_fallback(
 
     metadata = result.atmosphere.metadata
     assert result.atmosphere.n_depth == 100
-    _assert_solver_control(
-        result, f"da-{effective_temperature:g}", 3e-4, caught
-    )
+    _assert_solver_control(result, f"da-{effective_temperature:g}", 3e-4, caught)
     assert metadata["maximum_total_flux_residual"] < 3.0e-3
-    assert metadata["radiative_equilibrium_iterations"] <= (
-        maximum_expected_iterations
-    )
+    assert metadata["radiative_equilibrium_iterations"] <= (maximum_expected_iterations)
     assert result.metadata["atmosphere_initialization"] == "gray"
 
 
@@ -277,9 +283,7 @@ def test_ultracool_da_cold_starts_converge_with_exact_flux_verification(
 
     metadata = result.atmosphere.metadata
     assert result.atmosphere.n_depth == 100
-    _assert_solver_control(
-        result, f"da-{effective_temperature:g}", 2e-4, caught
-    )
+    _assert_solver_control(result, f"da-{effective_temperature:g}", 2e-4, caught)
     assert metadata["maximum_all_depth_total_flux_residual"] < 2.0e-3
     # A shared work guard for the two 100-layer ultracool controls, including
     # conditioning and the final stationarity probe. Exact iteration counts

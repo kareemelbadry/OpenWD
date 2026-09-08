@@ -44,6 +44,13 @@ a broad-wavelength audit integrated to 0.98613 of the expected stellar flux for
 DA 3000 K and 0.99314 for DB 10000 K. Spectra are not renormalized to hide this.
 See the [numerical report](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
+Different atmosphere and synthesis methods are intentional, not by themselves
+a convergence failure. The established Feautrier atmosphere and formal-integral
+synthesis remain the defaults; the experimental matched-transfer and forced
+fine-wavelength atmosphere calculations are not enabled. Convergence checks
+and spectral-accuracy checks remain separate. Default DA regression tests cover
+absolute flux and Balmer cores/wings without selecting an alternative method.
+
 Regression controls protect previously calculated spectra; they are not
 independent observational validation. Published-grid and observational spectra
 are not distributed in this repository. The fresh production SDSS J0738+1835
@@ -55,8 +62,9 @@ of the lower-resolution paper model. These distinctions are recorded in the
 ## Physical approximations
 
 All current modules are plane-parallel LTE models. DAB/DBA assumes a homogeneous
-mixture, not a stratified hydrogen layer; DZ/DBZ assumes a helium-dominated host
-with fixed input abundances. Hot NLTE, magnetic, PG 1159, and D6 models are not
+mixture, not a stratified hydrogen layer; DAZ assumes a hydrogen-dominated host,
+and DZ/DBZ a helium-dominated host, with fixed input abundances. Hot NLTE,
+magnetic, PG 1159, and D6 models are not
 part of the public modules.
 
 The dense pure-He treatment combines tabulated bulk thermodynamics with

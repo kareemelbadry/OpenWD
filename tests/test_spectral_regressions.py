@@ -23,6 +23,7 @@ from wd_spectra.models import (
 )
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
+pytestmark = pytest.mark.spectral
 CASES = [
     "da-3000",
     "da-4000",

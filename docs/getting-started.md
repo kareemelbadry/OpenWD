@@ -83,19 +83,22 @@ checks does not certify all physical approximations or grid accuracy; see
 Replace the configuration above, keeping the same `run_model` call:
 
 ```python
-from wd_spectra import DBConfig, DABConfig, DZConfig
+from wd_spectra import DBConfig, DABConfig, DAZConfig, DZConfig
 
 helium = DBConfig(effective_temperature=22_000, logg=8.0, quality="standard")
 mixed = DABConfig(effective_temperature=20_000, logg=8.0,
                   log_hydrogen_to_helium=-2.0, quality="standard")
 polluted = DZConfig(effective_temperature=15_300, logg=8.0, quality="standard")
+polluted_hydrogen = DAZConfig(effective_temperature=11_820, logg=8.40,
+                             quality="standard")
 ```
 
 `log_hydrogen_to_helium=-2` means N(H)/N(He) = 0.01, not a hydrogen mass
 fraction. DZ defaults to a bundled GD 40 composition; supplying an
 `abundances` dictionary replaces that complete dictionary. See the
 [composition guides](models/README.md) for details. Example parameters are
-not guarantees of convergence or paper-spectrum reproduction.
+not guarantees of convergence or paper-spectrum reproduction. For DAZ, metal
+abundances are relative to hydrogen, and the defaults describe G29-38.
 
 ### Cool helium and mixed atmospheres
 
@@ -141,9 +144,15 @@ these examples to other temperatures, gravities, or mixtures.
 - The notebook optionally saves PNG and PDF plots alongside the numerical
   results. Display normalization does not change the saved physical flux.
 
+The final spectrum uses the established formal integral; it need not use the
+atmosphere's numerical transfer method or grid and is not rescaled. Its `bolometric_flux`
+property integrates the supplied wavelengths only. To check total flux against
+sigma Teff^4, the grid must cover the thermal spectrum and resolve its lines.
+See [spectrum accuracy](limitations.md#spectrum-accuracy-and-reference-comparisons).
+
 ## Explicit presets and command-line examples
 
-The existing `compute_da`, `compute_db`, `compute_dab`, and `compute_dz`
+The existing `compute_da`, `compute_daz`, `compute_db`, `compute_dab`, and `compute_dz`
 interfaces return both an atmosphere and a spectrum in memory. They remain
 useful when you deliberately want a particular preset, but they do **not**
 provide the automatic dense/molecular workflow selection. Prefer `run_model`

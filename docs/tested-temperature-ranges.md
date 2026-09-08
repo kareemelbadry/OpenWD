@@ -25,6 +25,7 @@ experiments remain in the research record but are excluded from this table.
 | Molecular DAB/DBA, `run_model`, log10(N_H/N_He) = -2 | 7500, 8000, 9000, 10000 K | Fresh initialization with the final molecular/line physics. Strict static checks and independent fixed-state wavelength/angular audits. |
 | Atomic DAB, `compute_dab` or automatically selected at 20000 K | 20000 K | Strict cold-start convergence and the paper-spectrum comparison gate pass. |
 | DZ, PG 1225 composition, `compute_dz` | 10800 K | Strict production cold-start convergence; identical atmosphere to a same-resolution original-GitHub cold run. This is not exact reproduction of the 40-node paper spectrum. |
+| DAZ, `compute_daz` or `run_model`, standard 40-layer resolution | G149-28: 8600 K, log g = 8.10; G29-38: 11820 K, log g = 8.40; GALEX J1931+0117: 20890 K, log g = 7.90 | Fresh public cold starts with each object's metal composition pass all five structure-grid certificate gates. These are individual points, not a temperature/abundance grid. |
 
 The revised solver repairs local energy errors that previously survived a
 small interface-flux residual. It does not inherit historical success flags,
@@ -87,10 +88,22 @@ full static solve must independently pass every physical gate.
 | Molecular DAB 8000 | 1.91e-10 | 1.75e-6 | Independent flux 1.53e-4, local 6.39e-5 |
 | Molecular DAB 9000 | 1.16e-10 | 2.53e-7 | Independent flux 3.16e-4, local 5.98e-5 |
 | Molecular DAB 10000 | 2.23e-10 | 4.85e-8 | Independent flux 4.63e-4, local 8.66e-5 |
+| DAZ G149-28, standard | 4.10e-6 | 2.54e-6 | Structure grid only; 32 iterations |
+| DAZ G29-38, standard | 6.12e-5 | 4.05e-6 | Structure grid only; 58 iterations |
+| DAZ GALEX J1931+0117, standard | 7.92e-6 | 8.88e-4 | Structure grid only; 97 iterations |
 
 Independent quadrature audits hold the newly calculated atmosphere fixed.
 They are checks of that result, not re-relaxations or inputs needed for a cold
 start. They do not replace stationarity or depth-resolution tests.
+
+The three DAZ cases were rerun from scratch on September 8 with the established
+atmosphere and formal-integral synthesis methods. Temperatures, gas pressures,
+column masses and saved spectra exactly reproduce their pre-experiment cold
+results. The configurations and metal abundances are in
+[`research/validate_daz_cold_start.py`](../research/validate_daz_cold_start.py).
+The separate fixed-atmosphere DAZ paper comparisons also pass; these do not
+imply that a new cold atmosphere is identical to a paper checkpoint or that
+its final-spectrum integral is certified. See the [DAZ guide](models/DAZ.md).
 
 The 8000 K DAB depth study compared 80, 159 and 317 layers: integrated absolute
 spectral differences decreased from 0.688% to 0.172% of stellar flux, approximately

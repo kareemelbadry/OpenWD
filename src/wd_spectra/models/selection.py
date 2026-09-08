@@ -11,6 +11,7 @@ from typing import Mapping
 import numpy as np
 
 from .stellar import DAConfig, DBConfig, DABConfig, DZConfig
+from .daz import DAZConfig
 from .common import ModelData
 
 
@@ -119,6 +120,14 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
             "Established hydrogen EOS/opacity policy",
             {},
             g == 8 and t in (3000, 4000, 5000, 20000),
+            False,
+        )
+    if isinstance(config, DAZConfig):
+        return PhysicsSelection(
+            "daz",
+            "Hydrogen host with coupled H/metal charge closure and opacity",
+            {},
+            False,
             False,
         )
     if isinstance(config, DZConfig):

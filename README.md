@@ -12,6 +12,7 @@ precomputed spectral grid.
 The code supports plane-parallel, LTE models of:
 
 - **DA:** hydrogen atmospheres.
+- **DAZ:** hydrogen-dominated atmospheres polluted by metals.
 - **DB:** helium atmospheres.
 - **DAB/DBA:** homogeneous hydrogen–helium mixtures.
 - **DZ/DBZ:** helium-dominated atmospheres polluted by metals.

@@ -38,4 +38,5 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
   "canary: slow end-to-end atmosphere and spectrum regressions",
+  "spectral: fixed-atmosphere spectrum regressions, not cold-start qualification",
 ]

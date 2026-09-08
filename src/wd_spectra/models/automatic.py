@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import warnings
 import numpy as np
 
@@ -33,6 +34,7 @@ from .stellar import (
     compute_dz,
 )
 from .selection import select_physics, PhysicsSelectionPolicy, PhysicsSelection
+from .daz import DAZConfig, compute_daz
 from ..spectrum import Spectrum
 
 
@@ -185,11 +187,9 @@ def run_model(
     if selection.experimental:
         if not (research / "run_cool_db.py").is_file():
             raise FileNotFoundError(
-                'Automatic cool workflows need a source checkout with research/cool_models; install with pip install -e .'
+                "Automatic cool workflows need a source checkout with research/cool_models; install with pip install -e ."
             )
-        commands, spectrum_path = _cool_commands(
-            config, selection, directory, research
-        )
+        commands, spectrum_path = _cool_commands(config, selection, directory, research)
         environment["PYTHONPATH"] = os.pathsep.join(
             (str(research.parents[1] / "src"), str(research))
         )
@@ -228,9 +228,7 @@ def run_model(
     )
 
     def record():
-        (directory / "model-run.json").write_text(
-            json.dumps(manifest, indent=2) + "\n"
-        )
+        (directory / "model-run.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     record()
     try:
@@ -238,16 +236,24 @@ def run_model(
             atmosphere = None
             compute = {
                 DAConfig: compute_da,
+                DAZConfig: compute_daz,
                 DBConfig: compute_db,
                 DABConfig: compute_dab,
                 DZConfig: compute_dz,
             }[type(config)]
+
+            started = time.monotonic()
 
             def progress(iteration, atmosphere, diagnostic):
                 print(
                     json.dumps(
                         dict(
                             iteration=iteration,
+                            elapsed_seconds=time.monotonic() - started,
+                            phase=diagnostic.get("solver_phase"),
+                            local_energy=diagnostic.get(
+                                "maximum_relative_cell_energy_balance_residual"
+                            ),
                             flux=diagnostic.get(
                                 "maximum_all_depth_total_flux_residual"
                             ),
@@ -267,9 +273,7 @@ def run_model(
             )
             save_model_result(result, directory)
             spectrum_path = directory / "spectrum.txt"
-            qualified = (
-                result.metadata["atmosphere_convergence_status"] == "converged"
-            )
+            qualified = result.metadata["atmosphere_convergence_status"] == "converged"
         else:
             for command in commands:
                 subprocess.run(command, env=environment, check=True)
@@ -283,9 +287,7 @@ def run_model(
                             / temperature
                             / "qualification.json"
                         ).read_text()
-                    )[
-                        "numerically_qualified_for_declared_experimental_physics"
-                    ]
+                    )["numerically_qualified_for_declared_experimental_physics"]
                     is True
                 )
             else:
@@ -317,9 +319,7 @@ def run_model(
                     )
                 qualified = report["structure_grid_convergence_verified"]
                 if (check.returncode == 0) != qualified:
-                    raise RuntimeError(
-                        "Inconsistent molecular qualification report"
-                    )
+                    raise RuntimeError("Inconsistent molecular qualification report")
         spectrum_values = np.loadtxt(spectrum_path)
         if (
             spectrum_values.ndim != 2
