@@ -39,9 +39,10 @@ calculation never selects an alternative physics prescription automatically.
 
 Atmosphere qualification does not by itself establish wavelength, angle, or
 depth-grid independence, nor the accuracy of a separately synthesized spectrum.
-The retained established spectrum method has known transfer-consistency limits:
+The former piecewise-linear spectrum method has known transfer-consistency limits:
 a broad-wavelength audit integrated to 0.98613 of the expected stellar flux for
-DA 3000 K and 0.99314 for DB 10000 K. Spectra are not renormalized to hide this.
+DA 3000 K and 0.99314 for DB 10000 K. These historical numbers are not measurements
+of the new cubic DA default. Spectra are not renormalized to hide flux errors.
 See the [numerical report](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
 Different atmosphere and synthesis methods are intentional, not by themselves
@@ -51,6 +52,15 @@ fine-wavelength atmosphere calculations are not enabled. Convergence checks
 and spectral-accuracy checks remain separate. Default DA regression tests cover
 absolute flux and Balmer cores/wings without selecting an alternative method.
 
+DA calculations now default to `synthesis_transfer="formal-pchip"`
+for higher-order source interpolation on the same atmosphere. Explicit
+`synthesis_transfer="formal-linear"` retains the former interpolation. The checked
+12000-K standard model's broad sampled flux ratio improves from about 0.980
+to 1.0002 without flux rescaling. This is not a universal flux-conservation
+guarantee. Separate checked cold-state controls now protect the new DA default
+at 12000 and 20000 K; the historical spectral controls remain unchanged.
+See the [DA guide](models/DA.md#spectrum-synthesis).
+
 Regression controls protect previously calculated spectra; they are not
 independent observational validation. Published-grid and observational spectra
 are not distributed in this repository. The fresh production SDSS J0738+1835
@@ -58,6 +68,15 @@ atmosphere passes static checks but does not pass the paper-spectrum comparison.
 PG 1225's production cold-start check is also distinct from exact reproduction
 of the lower-resolution paper model. These distinctions are recorded in the
 [tested-point details](tested-temperature-ranges.md#limits-and-preservation-of-established-results).
+
+The undoubled Q-MHD critical-field correction intentionally changes some
+warm-model higher-series features beyond the old spectral regression bounds.
+Reviewed corrected outputs are now protected by separate regression controls;
+the historical files and numerical tolerances have not been overwritten or
+relaxed. This is not a claim of improved agreement at every wavelength.
+See the [microphysics audit](development/history/microphysics-audit-2026-09-10.md)
+for the distinction between corrected equations, cold-start convergence, and
+preservation of historical spectra.
 
 ## Physical approximations
 

@@ -9,6 +9,7 @@ from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceW
 
 pytestmark = pytest.mark.spectral
 CONTROLS = Path(__file__).parent / "data/daz_regressions"
+APPROVED = Path(__file__).parent / "data/approved_regressions/fixed"
 
 
 @pytest.mark.parametrize("case", ["g149_28", "galex1931"])
@@ -16,7 +17,10 @@ def test_daz_paper_spectrum(case, monkeypatch):
     path = CONTROLS / (case + ".npz")
     with np.load(path) as saved:
         config = DAZConfig(**json.loads(str(saved["config_json"])))
-        wave, expected = saved["wavelength"], saved["original_surface_flux"]
+        wave = saved["wavelength"]
+    with np.load(APPROVED / ("daz-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = approved["surface_flux"]
     molecules = config.effective_temperature <= 12000
     atmosphere = load_atmosphere_checkpoint(
         path,

@@ -34,7 +34,7 @@ AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
 ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
 
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
-_MODEL_PHYSICS_REVISION = "openwd-0.1.3-cold-local-energy-and-domain-v3"
+_MODEL_PHYSICS_REVISION = "openwd-0.1.3-qmhd-undoubled-v4"
 
 
 class AtmosphereConvergenceWarning(RuntimeWarning):

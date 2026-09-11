@@ -1,8 +1,10 @@
 """Fast, unmarked public-default DA regressions: no atmosphere iterations.
 
 Unlike an operator-consistency test, these compare with frozen flux arrays and
-NEVER select a synthesis method in the public call. A new default must satisfy
-the same physical-output checks. These are regressions, not observational or
+NEVER select a synthesis method in the public call. The approved cubic default
+has separate corrected cold-state fixtures; historical linear controls remain
+untouched in spectral_regressions. The numerical tolerances are unchanged.
+These are regressions, not observational or
 cold-start equilibrium certificates; separate tests cover those questions.
 """
 
@@ -14,9 +16,11 @@ import numpy as np
 import pytest
 from wd_spectra import DAConfig, compute_da
 from wd_spectra._compat import trapezoid
+from wd_spectra.constants import STEFAN_BOLTZMANN
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
+DEFAULT_CONTROLS = Path(__file__).parent / "data/da_cubic_regressions"
 SPECTRUM_RTOL = 1e-3  # 0.1% in significant flux, one common numerical budget.
 LINE_ATOL = 1e-3  # 0.1 percentage point of local continuum, including dark cores.
 WINDOWS = ((6250, 6900), (4700, 5025), (4250, 4450), (4020, 4180))
@@ -60,7 +64,7 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
         raise AssertionError("Fast spectral regression must not converge an atmosphere")
 
     monkeypatch.setattr(stellar, "radiative_equilibrium_hydrogen_atmosphere", forbidden)
-    path = CONTROLS / (case + ".npz")
+    path = DEFAULT_CONTROLS / (case + ".npz")
     with np.load(path) as saved:
         cfg = DAConfig(**json.loads(str(saved["config_json"])))
         wave, expected = saved["wavelength"], saved["original_surface_flux"]
@@ -76,10 +80,18 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
             include_negative_hydrogen=molecular,
             trihydrogen_ion_partition_model="neale-tennyson-1995",
         )
-        # Deliberately omit spectrum_transfer_discretization. Do not bypass a
+        # Deliberately omit synthesis_transfer. Do not bypass a
         # failing default by opting into the reference's operator here.
         result = compute_da(cfg, wave, initial_atmosphere=state, relax_atmosphere=False)
+    assert result.spectrum.metadata['transfer_discretization'] == 'formal-pchip'
     assert_spectrum_preserved(wave, result.spectrum.surface_flux_lambda, expected)
+    # Independent stellar-flux guard for these two broad, warm-DA controls.
+    # No fitted scale enters the calculation or this check. This does not
+    # claim universal bolometric accuracy for arbitrary requested bandpasses.
+    ratio = trapezoid(result.spectrum.surface_flux_lambda, wave) / (
+        STEFAN_BOLTZMANN * cfg.effective_temperature**4
+    )
+    assert abs(ratio - 1.0) < 3e-3
 
 
 @pytest.mark.parametrize("damage", ["scale", "core", "wings"])

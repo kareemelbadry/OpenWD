@@ -311,13 +311,16 @@ def compute_da(
     data: ModelData | None = None,
     initial_atmosphere: Atmosphere | None = None,
     relax_atmosphere: bool = True,
+    synthesis_transfer: Literal["formal-linear", "formal-pchip"] = "formal-pchip",
     iteration_callback: Callable[
         [int, Atmosphere, Mapping[str, object]], None
     ]
     | None = None,
 ) -> ModelResult:
-    """Calculate one DA atmosphere and spectrum with accepted DA physics."""
+    """Calculate a DA with cubic synthesis and the established atmosphere solve."""
 
+    if synthesis_transfer not in ("formal-linear", "formal-pchip"):
+        raise ValueError("unsupported DA synthesis_transfer")
     data = ModelData.default() if data is None else data
     request_fingerprint = model_request_fingerprint("DA", config, data)
     resolution = numerical_resolution(config.quality)
@@ -486,6 +489,7 @@ def compute_da(
             config.balmer_self_broadening_truncation_closure
         ),
         n_angle=resolution.n_angle,
+        transfer_discretization=synthesis_transfer,
     )
     low_temperature_allard = (
         allard is not None
@@ -869,6 +873,7 @@ def compute_dz(
     data: ModelData | None = None,
     initial_atmosphere: Atmosphere | None = None,
     relax_atmosphere: bool = True,
+    synthesis_transfer: Literal["formal-linear", "formal-pchip"] = "formal-linear",
     iteration_callback: Callable[
         [int, Atmosphere, Mapping[str, object]], None
     ]
@@ -876,6 +881,8 @@ def compute_dz(
 ) -> ModelResult:
     """Calculate one warm DZ/DBZ atmosphere with metal structural feedback."""
 
+    if synthesis_transfer not in ("formal-linear", "formal-pchip"):
+        raise ValueError("unsupported DZ synthesis_transfer")
     data = ModelData.default() if data is None else data
     request_fingerprint = model_request_fingerprint("DZ", config, data)
     checkpoint_matches_request = atmosphere_matches_model_request(
@@ -1113,6 +1120,7 @@ def compute_dz(
             else None
         ),
         n_angle=resolution.n_angle,
+        transfer_discretization=synthesis_transfer,
     )
     return ModelResult(
         "DZ",

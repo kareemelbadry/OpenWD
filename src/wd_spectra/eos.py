@@ -214,7 +214,10 @@ def charged_particle_hydrogen_occupation_probability(
     of a hydrogenic radiator (one for H I, two for He II).  Omitting
     ``temperature`` selects ``a=0``, the original MHD/Holtsmark limit.  The
     normalization and charge-dependent correlation term follow TLUSTY's
-    ``WN`` routine directly.
+    modern ``WN`` convention: BERGFC=1 (reference manual II, 2017,
+    eqs. 107--108). The historical empirical doubling of the critical field
+    is not applied, consistently with the non-ideal Tremblay--Bergeron
+    hydrogen line profiles.
     """
 
     electron_density = np.asarray(electron_density, dtype=np.float64)
@@ -257,7 +260,7 @@ def charged_particle_hydrogen_occupation_probability(
     positive_density = electron_density > 0.0
     safe_density = np.where(positive_density, electron_density, 1.0)
     beta_critical = (
-        2.0 * (3.0 / (4.0 * PI)) ** (2.0 / 3.0)
+        (3.0 / (4.0 * PI)) ** (2.0 / 3.0)
         * correction
         * binding_energy**2
         / (4.0 * ELEMENTARY_CHARGE_ESU**4)

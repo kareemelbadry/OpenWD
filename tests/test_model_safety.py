@@ -111,6 +111,27 @@ def test_only_an_exact_fingerprint_authorizes_direct_resume(tmp_path):
     )
 
 
+def test_undoubled_microfields_invalidate_doubled_physics_checkpoints(
+    monkeypatch, tmp_path
+):
+    from wd_spectra.models import common
+
+    data = ModelData(tmp_path)
+    config = DBConfig(effective_temperature=10000.)
+    with monkeypatch.context() as historical:
+        historical.setattr(
+            common, "_MODEL_PHYSICS_REVISION",
+            "openwd-0.1.3-cold-local-energy-and-domain-v3",
+        )
+        old = model_request_fingerprint("DB", config, data)
+    requested = model_request_fingerprint("DB", config, data)
+    checkpoint = atmosphere_with_model_request_fingerprint(
+        _atmosphere({"checkpoint_composition_verified": True}), old
+    )
+    assert requested["physics_revision"] != old["physics_revision"]
+    assert not atmosphere_matches_model_request(checkpoint, requested)
+
+
 def test_unconverged_and_unknown_atmospheres_warn_without_blocking():
     unconverged = _atmosphere(
         {

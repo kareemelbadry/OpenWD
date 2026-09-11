@@ -7,9 +7,12 @@ Unless noted, log g = 8 and quality is production. Numerical convergence
 certifies the declared equations on the structure grid, not complete physics
 or depth-grid independence.
 The separately synthesized spectrum also has known transfer-consistency
-limitations: the retained public method integrates to 0.98613 of stellar flux
-for DA 3000 and 0.99314 for DB 10000 in a broad-wavelength audit. The unfinished
-matched-transfer experiment is not enabled. See the
+limitations. Historical linear-synthesis audits gave 0.98613 of stellar flux
+for DA 3000 and 0.99314 for DB 10000. DA now defaults to monotone cubic synthesis;
+the checked 12000-K standard cold model integrates to 1.00016 without scaling.
+The other public synthesis defaults are unchanged. The unfinished
+matched-transfer experiment is not enabled. See the [DA guide](models/DA.md#spectrum-synthesis)
+and the
 [checkpoint's known spectrum limits](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
 Public generation starts from scratch. No saved atmosphere or neighboring
@@ -19,12 +22,12 @@ experiments remain in the research record but are excluded from this table.
 
 | Composition / public workflow | Cold-start tested temperatures | Evidence |
 | --- | --- | --- |
-| DA, `compute_da` or `run_model` | 3000, 4000, 5000, 20000 K | All-depth flux, cell-local energy, measured unrestricted correction, scattering closure and bottom screening pass. |
+| DA, `compute_da` or `run_model` | 3000, 4000, 5000, 12000, 20000 K | All-depth flux, cell-local energy, measured unrestricted correction, scattering closure and bottom screening pass. The 12000-K default comparison also tests standard 40-layer resolution. |
 | Dense pure-He DB, `run_model` | 5000, 8000 K | Fresh 80-layer initialization, static convergence and independent wavelength/angular/source audits. Experimental dense physics. |
 | Established pure-He DB, `compute_db` or `run_model` | 10000, 22000 K | Strict structure-grid checks pass; 22000 K also tested at standard 40-layer resolution. The 10000 K calculation extends its own lower boundary from 80 to 84 nodes. |
 | Molecular DAB/DBA, `run_model`, log10(N_H/N_He) = -2 | 7500, 8000, 9000, 10000 K | Fresh initialization with the final molecular/line physics. Strict static checks and independent fixed-state wavelength/angular audits. |
-| Atomic DAB, `compute_dab` or automatically selected at 20000 K | 20000 K | Strict cold-start convergence and the paper-spectrum comparison gate pass. |
-| DZ, PG 1225 composition, `compute_dz` | 10800 K | Strict production cold-start convergence; identical atmosphere to a same-resolution original-GitHub cold run. This is not exact reproduction of the 40-node paper spectrum. |
+| Atomic DAB, `compute_dab` or automatically selected at 20000 K | 20000 K | Strict cold-start convergence and reviewed corrected-spectrum checks. The undoubled critical field intentionally changes high-series features relative to the old paper control. |
+| DZ, PG 1225 composition, `compute_dz` | 10800 K | Strict production cold-start convergence. This is not exact reproduction of the 40-node paper spectrum. |
 | DAZ, `compute_daz` or `run_model`, standard 40-layer resolution | G149-28: 8600 K, log g = 8.10; G29-38: 11820 K, log g = 8.40; GALEX J1931+0117: 20890 K, log g = 7.90 | Fresh public cold starts with each object's metal composition pass all five structure-grid certificate gates. These are individual points, not a temperature/abundance grid. |
 
 The revised solver repairs local energy errors that previously survived a
@@ -68,6 +71,10 @@ molecular transport workflow. Use `run_model` for that automatic selection.
 
 ## Numerical evidence
 
+The table below retains the September 7–8 checkpoint measurements, not newly
+measured residuals for every subsequent release. The
+[microphysics audit](development/history/microphysics-audit-2026-09-10.md)
+records the corrected cold starts and reviewed regression promotion.
 Errors below are fractions, not percentages. Local energy uses each cell's
 exchange scale, not total stellar luminosity. Fresh molecular models use
 80 layers and the same 40-sweep provisional thermal budget; a subsequent
@@ -133,8 +140,9 @@ depth grids; neither comparison establishes universal depth independence.
   The new local-energy completion and thermal step selection introduce no
   additional Teff/composition switch.
 
-Immutable fixed-atmosphere controls protect UV, optical lines and IR for
+Separate reviewed corrected controls now protect UV, optical lines and IR for
 DA/DB, the paper DAB 9000/20000 models, PG 1225-079 and SDSS J0738+1835.
+Historical atmosphere/flux files remain unchanged, with hashes checked by tests.
 Those checks alone are not cold-start or equilibrium evidence. The legacy
 atomic 9000 K paper spectrum remains a spectral control; automatic generation
 at that point selects molecular physics.

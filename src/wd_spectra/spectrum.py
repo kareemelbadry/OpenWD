@@ -191,6 +191,7 @@ def synthesize_balmer_spectrum(
     emergent_ray_mu: float | None = None,
     n_angle: int = 4,
     backend: Backend = "auto",
+    transfer_discretization: Literal["formal-linear", "formal-pchip"] = "formal-linear",
 ) -> Spectrum:
     """Synthesize hydrogen lines on a supplied pure-H atmosphere structure.
 
@@ -201,6 +202,11 @@ def synthesize_balmer_spectrum(
     use a coherent, isotropic source. The atmospheric structure may be gray or
     independently frequency-converged.
     """
+
+    if transfer_discretization not in ("formal-linear", "formal-pchip"):
+        raise ValueError("unsupported hydrogen transfer_discretization")
+    if transfer_discretization == "formal-pchip" and emergent_ray_mu is not None:
+        raise ValueError("formal-pchip currently supports angle-integrated spectra only")
 
     from .opacity import (
         balmer_mass_absorption_coefficient,
@@ -482,9 +488,14 @@ def synthesize_balmer_spectrum(
     )
     source, coupled, transfer_metadata = solve_spectrum_source(
         optical_depth, planck, absorption, scattering,
-        wavelength=wavelength, n_angle=n_angle, discretization="formal-linear",
+        wavelength=wavelength, n_angle=n_angle, discretization=transfer_discretization,
     )
-    if emergent_ray_mu is None:
+    if transfer_discretization == "formal-pchip":
+        from ._monotone_formal import CubicFormal
+
+        flux = CubicFormal(optical_depth, n_angle).field(source)[1]
+        flux_convention = "surface F_lambda"
+    elif emergent_ray_mu is None:
         flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
         flux_convention = "surface F_lambda"
     else:
@@ -687,6 +698,7 @@ def synthesize_hydrogen_spectrum(
     excluded_metal_line_elements: Iterable[str] = (),
     n_angle: int = 4,
     backend: Backend = "auto",
+    transfer_discretization: Literal["formal-linear", "formal-pchip"] = "formal-linear",
 ) -> Spectrum:
     """Synthesize the Lyman through Brackett series on a pure-H atmosphere."""
 
@@ -738,6 +750,7 @@ def synthesize_hydrogen_spectrum(
         excluded_metal_line_elements=excluded_metal_line_elements,
         n_angle=n_angle,
         backend=backend,
+        transfer_discretization=transfer_discretization,
     )
 
 
@@ -786,7 +799,7 @@ def synthesize_helium_spectrum(
     excluded_metal_line_elements: Iterable[str] = (),
     n_angle: int = 4,
     backend: Backend = "auto",
-    transfer_discretization: Literal["formal-linear", "optical-depth", "feautrier-optical-depth", "column-mass"] = "formal-linear",
+    transfer_discretization: Literal["formal-linear", "formal-pchip", "optical-depth", "feautrier-optical-depth", "column-mass"] = "formal-linear",
 ) -> Spectrum:
     """Synthesize an LTE pure-He spectrum with tabulated He I profiles.
 
@@ -796,7 +809,7 @@ def synthesize_helium_spectrum(
     profile provenance unambiguous.
     """
 
-    if transfer_discretization not in ("formal-linear", "optical-depth", "feautrier-optical-depth", "column-mass"):
+    if transfer_discretization not in ("formal-linear", "formal-pchip", "optical-depth", "feautrier-optical-depth", "column-mass"):
         raise ValueError("unsupported spectrum transfer_discretization")
     # Preserve the original explicit keyword's piecewise-linear equations.
     # A new Feautrier formal calculation must be requested by its own name.
@@ -1060,8 +1073,13 @@ def synthesize_helium_spectrum(
         discretization=("optical-depth" if transfer_discretization == "feautrier-optical-depth" else transfer_discretization),
     )
     transfer_metadata["transfer_discretization"] = transfer_discretization
-    flux = (emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
-            if transfer_discretization == "formal-linear" else coupled.interface_flux[:, 0])
+    if transfer_discretization == "formal-linear":
+        flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
+    elif transfer_discretization == "formal-pchip":
+        from ._monotone_formal import CubicFormal
+        flux = CubicFormal(optical_depth, n_angle).field(source)[1]
+    else:
+        flux = coupled.interface_flux[:, 0]
     return Spectrum(
         wavelength_angstrom=wavelength,
         surface_flux_lambda=flux,

@@ -1,0 +1,42 @@
+[
+  {
+    "case": "da-12000-public",
+    "cold_metadata": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/da-flux-normalization-20260910/public-cold-default/cubic/metadata.json",
+      "sha256": "6f4b99492634c5944ab1152601d6a5018a3fc326eb645d4a2fc7b6d2d4d379d8"
+    },
+    "cold_atmosphere": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/da-flux-normalization-20260910/public-cold-default/cubic/atmosphere.npz",
+      "sha256": "7a3ab3304fcfd34d3149ba3fc8b5073df9be1bdec2c558d91b04f4fa4a152a78"
+    },
+    "spectrum": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/da-flux-normalization-20260910/public-cold-default/cubic/spectrum.txt",
+      "sha256": "ff2f981d08a647cc20bb79e4c1cb142db71fb1e6fb55964f35ac17ceecd17e7f"
+    },
+    "selection": "Every fourth evaluated wavelength, 900-300000 Angstrom",
+    "atmosphere_cold_start_verified": true,
+    "interpolation": "formal-pchip",
+    "historical_controls_preserved": true,
+    "reason": "User-approved cubic default after corrected cold-start/paper comparisons"
+  },
+  {
+    "case": "da-20000",
+    "cold_metadata": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/figure1-microphysics-20260910/models/t20000_g8.00/metadata.json",
+      "sha256": "051bcbb2306ae5dc2a288ca83ab1133937e1a569a86739d05bec4be1138d2489"
+    },
+    "cold_atmosphere": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/figure1-microphysics-20260910/models/t20000_g8.00/atmosphere.npz",
+      "sha256": "40051b0e0f7c5509d7e9fbee8779b2449a687a2ee986d33423f21392bd047d3d"
+    },
+    "spectrum": {
+      "path": "/Users/kareem/Proposals/gaia/wd_tools/spectral_model/release/OpenWD/results/da-flux-normalization-20260910/qualified-comparisons/da20/spectra.npz",
+      "sha256": "4fc47370d10a41fb8b4e0aba44f4b594e4f8ad2112ac58db84272532d99a2d23"
+    },
+    "selection": "Every fourth evaluated wavelength, 900-300000 Angstrom",
+    "atmosphere_cold_start_verified": true,
+    "interpolation": "formal-pchip",
+    "historical_controls_preserved": true,
+    "reason": "User-approved cubic default after corrected cold-start/paper comparisons"
+  }
+]

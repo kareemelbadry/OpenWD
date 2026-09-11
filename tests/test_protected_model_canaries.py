@@ -1,8 +1,8 @@
 """Cold-start equilibrium AND spectral controls, without external atmospheres.
 
-Outer temperatures previously left unconstrained may change when enforcing
-local energy. Original synthetic spectra remain immutable controls. Fixed-state
-synthesis has separate, tighter checks in test_spectral_regressions.py.
+Reviewed corrected outputs are separate from the untouched historical controls.
+No reference is supplied to an atmosphere solver. Fixed-state synthesis has
+separate, tighter checks in test_spectral_regressions.py.
 """
 
 import logging
@@ -47,7 +47,7 @@ def _assert_solver_control(result, case, step_tolerance, caught):
     ]
     assert history and history[-1]["maximum_step"] < step_tolerance
     with np.load(
-        Path(__file__).parent / "data/spectral_regressions" / (case + ".npz")
+        Path(__file__).parent / "data/approved_regressions/cold" / (case + ".npz")
     ) as old:
         for name in ("gas_pressure", "column_mass"):
             np.testing.assert_allclose(
@@ -61,13 +61,7 @@ def _assert_solver_control(result, case, step_tolerance, caught):
             old["wavelength"],
             return_indices=True,
         )
-        expected = old[
-            (
-                "checked_surface_flux"
-                if "checked_surface_flux" in old
-                else "original_surface_flux"
-            )
-        ][j]
+        expected = old["surface_flux"][j]
         actual = result.spectrum.surface_flux_lambda[i]
         # Absolute spectral changes are measured on the stellar energy scale,
         # not relative to near-zero Wien-tail bins. The bound is the existing

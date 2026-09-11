@@ -10,6 +10,7 @@ Use [getting started](../../getting-started.md) for current commands and
 
 ## Numerical baseline and reliability
 
+- [Microphysics normalization and buffer audit](microphysics-audit-2026-09-10.md)
 - [Recovered solver baseline](recovered-solver-baseline.md)
 - [Checkpoint validation and CI portability](checkpoint-validation-2026-09-07.md)
 - [Cold-start numerical repair](cold-start-numerics-2026-09-07.md)

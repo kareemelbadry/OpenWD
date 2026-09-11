@@ -22,6 +22,10 @@ The ordinary suite includes `tests/test_da_public_spectrum.py`: frozen DA
 continuum and Balmer-profile comparisons through the **public default**, with
 atmosphere iterations forbidden. Do not add a method override to make this
 guard pass. These quick checks complement, not replace, fresh-atmosphere tests.
+The approved cubic DA controls also check the sampled stellar-flux integral.
+Intentional reviewed physics changes use separate, frozen approved outputs
+with a provenance manifest; the historical inputs remain untouched. Never
+regenerate references inside a test or relax tolerances to hide a change.
 The `fast` tier runs numerical/API/documentation and cool-component tests,
 excluding both expensive markers. `spectra` synthesizes the immutable fixed
 atmospheres; it **does not certify equilibrium**. Select a subset with repeated

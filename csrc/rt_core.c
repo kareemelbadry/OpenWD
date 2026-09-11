@@ -538,8 +538,9 @@ cleanup_lte_metal:
 static PyObject *
 accumulate_metal_line_profiles(PyObject *self, PyObject *args)
 {
-    PyObject *objects[17] = {NULL};
-    Py_buffer views[17] = {{0}};
+    enum { METAL_PROFILE_BUFFER_COUNT = 17 };
+    PyObject *objects[METAL_PROFILE_BUFFER_COUNT] = {NULL};
+    Py_buffer views[METAL_PROFILE_BUFFER_COUNT] = {{0}};
     Py_ssize_t n_wave, n_depth, n_line, line, depth, wave;
     int retain_inverted_emissivity;
     int index;
@@ -559,7 +560,7 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
             &retain_inverted_emissivity)) {
         return NULL;
     }
-    for (index = 0; index < 17; ++index) {
+    for (index = 0; index < METAL_PROFILE_BUFFER_COUNT; ++index) {
         const int flags = PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES |
                           (index >= 15 ? PyBUF_WRITABLE : 0);
         if (PyObject_GetBuffer(objects[index], &views[index], flags) < 0) {
@@ -753,13 +754,13 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
         Py_END_ALLOW_THREADS
     }
 
-    for (index = 0; index < 16; ++index) {
+    for (index = 0; index < METAL_PROFILE_BUFFER_COUNT; ++index) {
         PyBuffer_Release(&views[index]);
     }
     Py_RETURN_NONE;
 
 cleanup_metal:
-    for (index = 0; index < 16; ++index) {
+    for (index = 0; index < METAL_PROFILE_BUFFER_COUNT; ++index) {
         if (views[index].obj != NULL) {
             PyBuffer_Release(&views[index]);
         }
