@@ -86,6 +86,32 @@ temporary DQ adapter hooks from leaking into other requests.
   claim that the original end-to-end call was uninterrupted. No second cold
   calculation or atmosphere restart was needed.
 
+### GitHub CI and documentation follow-up
+
+The first [GitHub test run](https://github.com/kareemelbadry/OpenWD/actions/runs/35263175646)
+passed four jobs, including all fixed-spectrum comparisons, but the Python
+3.12 unit job failed seven DQ response tests under NumPy 2.5.3. The tests used
+`np.trapz`, an API [removed in NumPy 2.4](https://numpy.org/doc/stable/release/2.4.0-notes.html#removal-of-deprecated-functions-and-arguments).
+This was an API-compatibility exception, not a numerical-tolerance failure.
+An audit also found the same legacy call in two DQ energy/boundary callbacks.
+
+The follow-up replaces those four calls with the existing `_compat.trapezoid`
+helper, which selects `np.trapz` on old NumPy and `np.trapezoid` on new NumPy.
+On the original NumPy 1.26.4 environment the helper is the identical function
+object; no equations, quadrature, physics, parameters, grids or tolerances
+change. Two callback regressions also remove the old name explicitly so this
+compatibility gap is caught even when testing with older NumPy.
+
+A fresh NumPy 2.4.6 environment reproduced all seven original failures and
+both newly covered callback failures before the patch. After the patch,
+54 focused documentation/DQ tests passed, including the real saved-output
+reader and fixed-state absolute spectrum regression. The full NumPy 1.26.4
+suite passed 884 tests with five optional-data skips and eight cold canaries
+deselected (203.57 seconds). The user documentation
+and notebook now include DQ entry points and distinguish DQ's mandatory
+refractive spectrum qualification from other workflows. No new cold result
+is claimed for this API-name compatibility repair.
+
 Earlier research qualification does not establish uniform-suite qualification
 of this extracted release. In particular, J1803/J1311 qualification was
 unfinished, and the user waived another cold confirmation for J0916. No such

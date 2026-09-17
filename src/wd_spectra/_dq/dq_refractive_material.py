@@ -24,6 +24,7 @@ import sys
 
 import numpy as np
 
+from wd_spectra._compat import trapezoid
 from . import base as dq
 from wd_spectra.convection import _ml2_local_coefficients_from_thermodynamics
 from wd_spectra._rosseland import rosseland_mean_from_opacity_grid
@@ -241,7 +242,7 @@ class RefractiveBackend:
         self.require_grid(ctx,wave,mass)
         self.require_same('absorption',absorption,ctx['a'])
         self.require_same('Planck intensity',planck,ctx['b'])
-        return tuple(np.trapz(ctx['result'][key],wave,axis=0) for key in
+        return tuple(trapezoid(ctx['result'][key],wave,axis=0) for key in
             ('cell_heating','cell_thermal_emission'))
 
     def boundary(self,wave,mass,absorption,bottom_planck,target):
@@ -253,7 +254,7 @@ class RefractiveBackend:
         self.require_grid(ctx,wave,mass)
         self.require_same('bottom Planck intensity',bottom_planck,ctx['b'][:,-1])
         if not np.isfinite(target) or target<=0:raise ValueError('Positive finite target flux required')
-        value=np.trapz(ctx['result']['boundary_surface_flux'],wave)/target
+        value=trapezoid(ctx['result']['boundary_surface_flux'],wave)/target
         return float(value)
 
     def rosseland(self,current,original_absorption):

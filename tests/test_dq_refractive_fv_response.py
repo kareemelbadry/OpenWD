@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from wd_spectra._compat import trapezoid
 from wd_spectra._dq.dq_refractive_finite_volume import solve
 from wd_spectra._dq.dq_refractive_fv_response import integrated_response
 
@@ -25,7 +26,7 @@ def test_geometry_and_scattering_tangent_matches_full_finite_difference(shape,op
         for sign in (1.,-1.):
             v=t.copy();v[j]*=np.exp(sign*h)
             f=solve(mass,*state(v),n_angle=6)
-            outputs.append([np.trapz(f[key],wave,axis=0) for key in
+            outputs.append([trapezoid(f[key],wave,axis=0) for key in
                 ('flux','cell_heating','cell_thermal_emission')])
         for e,high,low in zip(expected,*outputs):e[:,j]=(high-low)/(2*h)
     for value,exact in zip(analytic,expected):
@@ -40,4 +41,35 @@ def test_nonrefractive_planck_tangent_is_linear_operator():
     jac=integrated_response(mass,wave,a,s,b,n,zero,zero,b,zero,n_angle=4)
     result=solve(mass,a,s,b,n,n_angle=4)
     for value,key in zip(jac,('flux','cell_heating','cell_thermal_emission')):
-        np.testing.assert_allclose(value.sum(axis=1),np.trapz(result[key],wave,axis=0),rtol=2e-10,atol=2e-8)
+        np.testing.assert_allclose(value.sum(axis=1),trapezoid(result[key],wave,axis=0),rtol=2e-10,atol=2e-8)
+
+
+@pytest.mark.parametrize('callback', ['energy', 'boundary'])
+def test_refractive_callbacks_do_not_require_removed_numpy_trapz(monkeypatch, callback):
+    """Exercise the real callbacks even on old NumPy where trapz still exists."""
+    from types import SimpleNamespace
+    from wd_spectra._dq.dq_refractive_material import RefractiveBackend
+
+    wave = np.array([1000., 2500., 5000.])
+    mass = np.array([1., 2., 4.])
+    absorption = np.ones((3, 3))
+    planck = np.arange(1., 10.).reshape(3, 3)
+    mean = planck / 2
+    heating = np.array([[-1., 2.], [3., -4.], [5., 6.]])
+    emission = np.abs(heating) + 1
+    surface = np.array([2., 4., 8.])
+    ctx = dict(mass=mass, a=absorption, b=planck, result=dict(
+        cell_heating=heating, cell_thermal_emission=emission,
+        boundary_surface_flux=surface))
+    backend = RefractiveBackend(SimpleNamespace(), wave)
+    backend.means[id(mean)] = (mean, ctx)
+    backend.contexts[0] = ctx
+    monkeypatch.delattr(np, 'trapz', raising=False)
+    if callback == 'energy':
+        actual = backend.energy(wave, mass, planck, mean, absorption)
+        expected = tuple(np.sum(np.diff(wave)[:, None] * (y[1:] + y[:-1]) / 2, axis=0)
+                         for y in (heating, emission))
+    else:
+        actual = backend.boundary(wave, mass, absorption, planck[:, -1], 20.)
+        expected = np.sum(np.diff(wave) * (surface[1:] + surface[:-1]) / 2) / 20.
+    np.testing.assert_array_equal(actual, expected)

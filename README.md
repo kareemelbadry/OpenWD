@@ -16,10 +16,11 @@ The code supports plane-parallel, LTE models of:
 - **DB:** helium atmospheres.
 - **DAB/DBA:** homogeneous hydrogen–helium mixtures.
 - **DZ/DBZ:** helium-dominated atmospheres polluted by metals.
+- **DQ (preliminary):** helium with trace carbon and C₂ Swan bands.
 
-A preliminary [DQ module](docs/models/DQ.md) adds refractive helium/carbon
-atmospheres and C₂ Swan spectra from cold starts, with bundled constitutive
-data and an independent final-spectrum flux check.
+The [DQ module](docs/models/DQ.md) includes refractive transfer, starts from
+scratch with bundled constitutive data, and requires an independent
+final-spectrum flux check. See the [DQ quick start](docs/getting-started.md#dq-heliumcarbon-atmospheres).
 
 ## Get started
 
@@ -74,8 +75,10 @@ for threading and benchmarks.
 ## Caveats and limitations
 
 OpenWD is pre-alpha research software. Convergence and physical applicability
-must be checked for each result. Exploratory spectra remain available with a
-warning; pass `require_convergence=True` to require numerical qualification.
+must be checked for each result. Established presets retain exploratory
+spectra with a warning; pass `require_convergence=True` to require numerical
+qualification. DQ always requires both atmosphere and final-spectrum
+qualification and raises on failure, even without that flag.
 The [limitations guide](docs/limitations.md) explains what that qualification
 means, known accuracy limits, and which temperatures and compositions have
 been tested.
@@ -95,8 +98,8 @@ python -m pytest
 
 ## Data and license
 
-Data for the established presets are bundled. Molecular cool-model workflows
-require additional public tables, described in the
+Data for the established presets and DQ are bundled. The molecular cool-DAB
+workflow requires additional public tables, described in the
 [data instructions](research/cool_models/README.md#additional-molecular-dab-data).
 
 OpenWD source is BSD-3-Clause licensed. Scientific tables retain their own

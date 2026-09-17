@@ -13,6 +13,12 @@ Tested cold-start points reach **3000 K for DA, 5000 K for pure-He DB, and
 individual tested points, not validity ranges. The cool DB/DAB workflows are
 experimental and require the setup described in the [user guide](getting-started.md#cool-helium-and-mixed-atmospheres).
 
+The preliminary refractive DQ release has a separately checked J1235 cold
+worker at 9347 K, log g = 8.041 and log(C/He) = -4.107. The completed
+atmosphere/spectrum were verified after a result-reader repair; this is not
+a uniformly qualified DQ temperature/abundance grid. See the
+[DQ release evidence](tested-temperature-ranges.md#dq-release-qualification).
+
 The [tested-point table](tested-temperature-ranges.md) is the detailed record
 of temperatures, compositions, settings, and convergence evidence. In particular:
 
@@ -31,9 +37,12 @@ temperature correction, scattering-source closure, and lower-boundary screening.
 Experimental dense/molecular workflows have dedicated checkers and retained
 audit records. A solver's terminal success flag alone is insufficient.
 
-Unqualified completed spectra remain available with a warning for exploration.
-Use `require_convergence=True` to require numerical qualification. A failed
-calculation never selects an alternative physics prescription automatically.
+For established presets, unqualified completed spectra remain available with
+a warning for exploration; use `require_convergence=True` to require numerical
+qualification. DQ always requires its atmosphere certificate and a finite,
+positive independent 154000-point spectrum with absolute bolometric ratio
+error at most 0.002. It raises on failure even without the strict flag.
+A failed calculation never selects an alternative physics prescription automatically.
 
 ## Spectrum accuracy and reference comparisons
 
@@ -45,12 +54,19 @@ DA 3000 K and 0.99314 for DB 10000 K. These historical numbers are not measureme
 of the new cubic DA default. Spectra are not renormalized to hide flux errors.
 See the [numerical report](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
 
-Different atmosphere and synthesis methods are intentional, not by themselves
-a convergence failure. The established Feautrier atmosphere and formal-integral
+For established presets, different atmosphere and synthesis methods are
+intentional, not by themselves a convergence failure. The established Feautrier
+atmosphere and formal-integral
 synthesis remain the defaults; the experimental matched-transfer and forced
 fine-wavelength atmosphere calculations are not enabled. Convergence checks
 and spectral-accuracy checks remain separate. Default DA regression tests cover
 absolute flux and Balmer cores/wings without selecting an alternative method.
+
+DQ instead uses conservative refractive transfer in both structure and
+synthesis, with independent wavelength grids. Its bolometric qualification
+does not establish independent depth/angle convergence or agreement with
+observations. The DQ spectrum regression protects absolute flux from a saved
+state; only the separate cold canary tests construction of a new atmosphere.
 
 DA calculations now default to `synthesis_transfer="formal-pchip"`
 for higher-order source interpolation on the same atmosphere. Explicit
@@ -82,13 +98,20 @@ preservation of historical spectra.
 
 All current modules are plane-parallel LTE models. DAB/DBA assumes a homogeneous
 mixture, not a stratified hydrogen layer; DAZ assumes a hydrogen-dominated host,
-and DZ/DBZ a helium-dominated host, with fixed input abundances. Hot NLTE,
+and DZ/DBZ a helium-dominated host, with fixed input abundances. DQ assumes
+hydrogen-free, nonmagnetic helium with trace carbon and C₂. Hot NLTE,
 magnetic, PG 1159, and D6 models are not
 part of the public modules.
 
-The dense pure-He treatment combines tabulated bulk thermodynamics with
+The dense pure-He DB treatment combines tabulated bulk thermodynamics with
 approximate chemical potentials and trace-ion chemistry. Refraction and
-collective He-minus corrections remain absent. Molecular mixtures still lack
+collective He-minus corrections remain absent from that DB workflow, not
+from DQ. DQ includes refraction and dense-helium continuum corrections, but
+its dense-mixture EOS, molecular collision profiles and grey refractive ML2
+bridge remain approximations. It is not an exact reproduction of Blouin's
+implementation or qualified for precision abundance fitting; hot carbon-rich,
+hydrogen-bearing and DQp atmospheres are excluded. See the [DQ guide](models/DQ.md).
+Molecular H/He mixtures still lack
 a consistent dense-mixture free energy, nonideal dissociation, some molecular
 ions, and pressure-distorted CIA. The [full limitations list](tested-temperature-ranges.md#limits-and-preservation-of-established-results)
 and [model guides](models/README.md) describe the scope in more detail.

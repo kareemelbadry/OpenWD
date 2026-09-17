@@ -20,5 +20,7 @@ experimental cool workflows have different applicability limits; see
 [limitations](../limitations.md) and [tested points](../tested-temperature-ranges.md).
 
 The individual guides also describe `compute_*` and command-line presets.
-Those explicit presets do not automatically switch to the cool dense/molecular
-workflows; use the [automatic interface](../getting-started.md) for that.
+The established explicit presets do not automatically switch to the cool
+dense/molecular workflows; use the [automatic interface](../getting-started.md)
+for that. `compute_dq` is different: it uses the same isolated refractive cold
+worker and mandatory atmosphere-plus-spectrum qualification as `run_model`.

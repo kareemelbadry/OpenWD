@@ -43,11 +43,18 @@ python tools/validate.py full --jobs 2 --output results/validation-candidate
 This runs fast checks, fixed-atmosphere spectra, then every protected cold
 case, stopping before an expensive stage if an earlier stage failed. It
 includes the established controls, automatic dense/molecular workflows, and
-DAZ cold starts. It does not change tolerances, reduce science resolutions,
-renormalize spectra, or supply a previous atmosphere. See the
+DAZ and refractive DQ cold starts. It does not change tolerances, reduce science
+resolutions, renormalize spectra, or supply a previous atmosphere. See the
 [cool-model guide](../../research/cool_models/README.md) for required external
 data. Missing data are failures, not successful physical tests. Additional
 affected comparisons in the paper-validation workspace remain necessary.
+
+DQ has fast chemistry/transfer/controller tests and a fixed-state spectral
+case, `python tools/validate.py spectra --case dq-j1235`. Its separate
+`cold --case dq-j1235` canary constructs an atmosphere from parameters and
+checks the independent 154000-point spectrum; allow hours for it. The saved
+spectral fixture never supplies an atmosphere to the cold test. DQ data are
+bundled; see the [DQ guide](../models/DQ.md#regression-tests).
 
 `--plan` prints the exact commands without running anything. `--jobs` bounds
 simultaneous processes (default two); numerical-library threads are fixed to
