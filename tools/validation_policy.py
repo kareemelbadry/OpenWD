@@ -22,6 +22,8 @@ def requires_full(paths):
                 "test_protected_model_canaries.py",
                 "test_spectral_regressions.py",
                 "test_daz_regressions.py",
+                "test_dq_spectral_regression.py",
+                "test_dq_release.py",
             }
         ):
             continue

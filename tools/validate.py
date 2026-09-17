@@ -36,6 +36,7 @@ SPECTRA = (
     "dz-j0738",
     "daz-g149-28",
     "daz-galex1931",
+    "dq-j1235",
 )
 CANARY = "tests/test_protected_model_canaries.py::"
 COLD_TESTS = {
@@ -53,6 +54,7 @@ COLD_TESTS = {
     + "test_ultracool_da_cold_starts_converge_with_exact_flux_verification[3000.0]",
     "da-4000": CANARY
     + "test_ultracool_da_cold_starts_converge_with_exact_flux_verification[4000.0]",
+    "dq-j1235": "tests/test_dq_release.py::test_j1235_public_true_cold_and_independent_spectrum",
 }
 COLD = tuple(COLD_TESTS) + (
     "dab-20000",
@@ -79,7 +81,11 @@ def commands(tier, cases=()):
         raise ValueError(f"unknown {tier} cases: {sorted(set(cases) - set(available))}")
     tasks = {}
     for case in cases or available:
-        if tier == "spectra" and case.startswith("daz-"):
+        if tier == "spectra" and case == "dq-j1235":
+            tasks[case] = pytest + [
+                "tests/test_dq_spectral_regression.py::test_refractive_spectrum_retains_j1235_absolute_flux"
+            ]
+        elif tier == "spectra" and case.startswith("daz-"):
             name = "g149_28" if case == "daz-g149-28" else "galex1931"
             tasks[case] = pytest + [
                 f"tests/test_daz_regressions.py::test_daz_paper_spectrum[{name}]"
@@ -150,6 +156,8 @@ def numerical_identity(root=ROOT):
         "tests/test_protected_model_canaries.py",
         "tests/test_spectral_regressions.py",
         "tests/test_daz_regressions.py",
+        "tests/test_dq_spectral_regression.py",
+        "tests/test_dq_release.py",
         "tests/conftest.py",
     ):
         if (root / name).is_file():
@@ -182,7 +190,9 @@ def numerical_identity(root=ROOT):
     payload["sha256"] = hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode()
     ).hexdigest()
-    payload["reuse_eligible"] = not bool(os.environ.get("OPENWD_DATA"))
+    payload["reuse_eligible"] = not bool(
+        os.environ.get("OPENWD_DATA") or os.environ.get("OPENWD_DQ_DATA")
+    )
     return payload
 
 

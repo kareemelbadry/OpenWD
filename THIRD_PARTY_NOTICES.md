@@ -36,6 +36,36 @@ retained beside the tables in
 
 ## Other scientific tables
 
+The DQ constitutive data in `src/wd_spectra/data/dq` include derived ExoMol
+12C2 8states cross sections and partition functions, Hornkohl/Parigger Swan
+line records, and an OpenWD-computed dense-helium correction grid. They are
+scientific input tables, not model atmospheres or observed spectra.
+Original data authors retain their rights; these data are not relicensed as
+OpenWD source code. Checksums and processing provenance are in `manifest.json`,
+`report.json`, and the NPZ metadata. Scientific use should credit:
+
+- ExoMol 8states C₂ data (Yurchenko et al.), including the updated state energies
+  identified in the opacity-table provenance.
+- Parigger et al. (2015), DOI [10.1016/j.sab.2015.02.018](https://doi.org/10.1016/j.sab.2015.02.018).
+  The supplied dimensional strength convention was not recovered: OpenWD uses
+  one rotationless-band calibration to Brooke's `A(0,0)=7.626e6 s^-1`, preserves
+  relative strengths, and does not fit stellar spectra to set this scale.
+- Brooke et al. (2013), [arXiv:1212.2102](https://arxiv.org/abs/1212.2102).
+- Iglesias et al. (2002), DOI [10.1086/340689](https://doi.org/10.1086/340689),
+  and Blouin et al. (2018), DOI [10.3847/1538-4357/aad4a9](https://doi.org/10.3847/1538-4357/aad4a9),
+  for dense-continuum/refractivity prescriptions. Numerical interpolation and
+  extrapolation choices remain OpenWD approximations documented in the data.
+
+The derived ExoMol file `c2-8states-r15000.npz` is distributed under
+[Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/),
+following the [ExoMol data licence](https://www.exomol.com/data/licence/).
+OpenWD's changes comprise cross-section binning with updated state-energy
+differences, explicit finite-state partition sums, separation of the Swan
+component, and rotational-overlap redistribution; these contributions to
+that data file use the same CC BY-SA 4.0 licence. Credit Yurchenko et al.
+(2018, MNRAS 480, 3397) and McKemmish et al. (2020, MNRAS 497, 1081).
+This data licence does not replace the separate BSD licence for OpenWD code.
+
 The runtime data directory also contains evaluated NIST ASD strong-line data,
 Verner et al. photoionization fits, CHIANTI Ca II collision strengths,
 Beauchamp He I and Schoening/SYNSPEC He II profiles, Becker et al. He-REOS.3,

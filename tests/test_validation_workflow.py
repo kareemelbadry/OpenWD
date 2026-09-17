@@ -46,6 +46,8 @@ def test_non_numerical_changes_do_not_trigger_cold_models(path):
         "pyproject.toml",
         "tests/data/spectral_regressions/da-3000.npz",
         "tests/test_protected_model_canaries.py",
+        "tests/test_dq_spectral_regression.py",
+        "tests/test_dq_release.py",
         "tools/validate.py",
         ".github/workflows/canaries.yml",
         "unknown-input.bin",
@@ -72,6 +74,20 @@ def test_default_fast_stage_excludes_both_expensive_markers():
     assert "research/cool_models" in tasks["cool-components"]
     with pytest.raises(ValueError):
         runner.commands("cold", ["unknown"])
+
+
+def test_dq_fixed_spectrum_and_true_cold_are_separate_tiers():
+    spectral = runner.commands("spectra", ["dq-j1235"])["dq-j1235"]
+    cold = runner.commands("cold", ["dq-j1235"])["dq-j1235"]
+    assert spectral[-1].startswith("tests/test_dq_spectral_regression.py::")
+    assert cold[-1] == runner.COLD_TESTS["dq-j1235"]
+    assert "true_cold" in cold[-1]
+
+
+@pytest.mark.parametrize("variable", ["OPENWD_DATA", "OPENWD_DQ_DATA"])
+def test_custom_runtime_data_disables_reuse(variable, monkeypatch, tmp_path):
+    monkeypatch.setenv(variable, str(tmp_path))
+    assert not runner.numerical_identity(tmp_path)["reuse_eligible"]
 
 
 def test_plan_never_starts_or_writes(tmp_path, monkeypatch, capsys):

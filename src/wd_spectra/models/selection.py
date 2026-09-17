@@ -12,6 +12,7 @@ import numpy as np
 
 from .stellar import DAConfig, DBConfig, DABConfig, DZConfig
 from .daz import DAZConfig
+from .dq import DQConfig
 from .common import ModelData
 
 
@@ -113,6 +114,17 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
     if not np.isfinite(t) or t <= 0 or not np.isfinite(g):
         raise ValueError(
             "effective temperature and logg must be finite, with Teff positive"
+        )
+    if isinstance(config, DQConfig):
+        return PhysicsSelection(
+            "dq",
+            "Refractive He/C/C2 cold-start protocol in an isolated worker",
+            {
+                "carbon_molecular_equilibrium": True,
+                "scope": "trace-carbon, hydrogen-free, nonmagnetic; no DQp pressure distortion",
+            },
+            False,
+            True,
         )
     if isinstance(config, DAConfig):
         return PhysicsSelection(

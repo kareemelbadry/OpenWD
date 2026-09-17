@@ -1403,6 +1403,39 @@ def test_metal_line_opacity_is_positive_and_peaks_at_resonance(atomic_root: Path
     assert np.all(absent == 0.0)
 
 
+def test_explicit_transition_declaration_is_not_filtered_by_query_endpoints(
+    monkeypatch, atomic_root: Path
+):
+    import wd_spectra.metals as metals_module
+
+    database = read_stout_atomic_database(
+        atomic_root, elements=("Mg",), maximum_charge=2
+    )
+    atmosphere = gray_helium_atmosphere(8000.0, 8.0, n_depth=8)
+    state = metal_lte_state(atmosphere, database, {"Mg": -7.0})
+    line = database.ions[("Mg", 0)].transitions[0]
+    key = (("Mg", 0, line.lower_index, line.upper_index),)
+    centers = []
+    original = metals_module._accumulate_lte_metal_line_profiles
+
+    def record(wavelength, center, *args, **kwargs):
+        centers.extend(np.asarray(center).tolist())
+        return original(wavelength, center, *args, **kwargs)
+
+    monkeypatch.setattr(
+        metals_module, "_accumulate_lte_metal_line_profiles", record
+    )
+    metals_module.metal_line_mass_absorption_coefficient(
+        atmosphere,
+        np.array([8000.0, 8100.0]),
+        database,
+        state,
+        maximum_lines=0,
+        transition_keys=key,
+    )
+    assert line.wavelength_vacuum_angstrom in centers
+
+
 def test_adaptive_profile_support_can_be_restricted_by_complete_element():
     def synthetic_ion(element, charge, center=None):
         levels = [AtomicLevel(1, 0.0, 2.0, "ground")]

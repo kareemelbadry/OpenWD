@@ -1,9 +1,10 @@
 """Automatic, auditable workflow dispatch with isolated cool-model workers.
 
 Existing compute_da/db/dab/dz remain explicit presets. run_model is the
-automatic file-oriented entry point. Experimental callbacks run in a child
-process, never in the caller's interpreter. No failed solver selects another
-EOS, no saved atmosphere is discovered automatically, and no flux is scaled.
+automatic file-oriented entry point. Legacy cool research callbacks run in a
+child process; DQ's package-local adapters also run in an isolated worker.
+No failed solver selects another EOS, no saved atmosphere is discovered
+automatically, and no flux is scaled.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .stellar import (
 )
 from .selection import select_physics, PhysicsSelectionPolicy, PhysicsSelection
 from .daz import DAZConfig, compute_daz
+from .dq import DQConfig, compute_dq
 from ..spectrum import Spectrum
 
 
@@ -184,7 +186,10 @@ def run_model(
     commands = []
     research = Path(__file__).resolve().parents[3] / "research/cool_models"
     environment = os.environ.copy()
-    if selection.experimental:
+    # compute_dq owns its isolated package-local worker; this separate branch
+    # is only for the older checkout-based cool workflows.
+    isolated_worker = selection.experimental and not isinstance(config, DQConfig)
+    if isolated_worker:
         if not (research / "run_cool_db.py").is_file():
             raise FileNotFoundError(
                 "Automatic cool workflows need a source checkout with research/cool_models; install with pip install -e ."
@@ -232,11 +237,12 @@ def run_model(
 
     record()
     try:
-        if not selection.experimental:
+        if not isolated_worker:
             atmosphere = None
             compute = {
                 DAConfig: compute_da,
                 DAZConfig: compute_daz,
+                DQConfig: compute_dq,
                 DBConfig: compute_db,
                 DABConfig: compute_dab,
                 DZConfig: compute_dz,
@@ -265,12 +271,15 @@ def run_model(
                     flush=True,
                 )
 
-            result = compute(
-                config,
-                data=data,
-                initial_atmosphere=atmosphere,
-                iteration_callback=progress,
-            )
+            if isinstance(config, DQConfig):
+                result = compute(config, data=data, output_directory=directory / 'worker')
+            else:
+                result = compute(
+                    config,
+                    data=data,
+                    initial_atmosphere=atmosphere,
+                    iteration_callback=progress,
+                )
             save_model_result(result, directory)
             spectrum_path = directory / "spectrum.txt"
             qualified = result.metadata["atmosphere_convergence_status"] == "converged"

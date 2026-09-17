@@ -1,0 +1,12 @@
+{
+  "source_run": "dq-j1235-uv-refined-cold-v1",
+  "source_spectrum_sha256": "703eb50754ade8f7d0443522e290b9bb9143db275d43353bd35352de0c703700",
+  "fixture_sha256": "edc9a09d5961f5515a2153deaf168b6dd7d8889a8869a26042b8de57342d1c46",
+  "parameters": {
+    "effective_temperature": 9347.0,
+    "logg": 8.041,
+    "log_carbon_to_helium": -4.107
+  },
+  "scope": "Fixed-state spectral regression only. Never input to a cold-start test.",
+  "points": 79
+}

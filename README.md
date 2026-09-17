@@ -17,6 +17,10 @@ The code supports plane-parallel, LTE models of:
 - **DAB/DBA:** homogeneous hydrogen–helium mixtures.
 - **DZ/DBZ:** helium-dominated atmospheres polluted by metals.
 
+A preliminary [DQ module](docs/models/DQ.md) adds refractive helium/carbon
+atmospheres and C₂ Swan spectra from cold starts, with bundled constitutive
+data and an independent final-spectrum flux check.
+
 ## Get started
 
 Clone the repository and install it with Python 3.9 or newer:

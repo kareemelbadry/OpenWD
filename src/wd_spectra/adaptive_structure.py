@@ -31,6 +31,7 @@ from ._stable_feautrier import (
 from .atmosphere import Atmosphere, _upper_interface_values_on_nodes
 from .constants import STEFAN_BOLTZMANN
 from .convection import (
+    ML2CoefficientFunction,
     _ml2_flux_coefficient_response,
     _ml2_local_coefficients_from_thermodynamics,
     ml2_convective_flux_gradient_derivative_from_thermodynamics,
@@ -229,6 +230,8 @@ def solve_adaptive_lte_structure(
     transfer_discretization: Literal[
         "optical-depth", "column-mass"
     ] = "optical-depth",
+    column_mass_radiation_backend: object | None = None,
+    ml2_coefficient_function: ML2CoefficientFunction | None = None,
     iteration_callback: IterationCallback | None = None,
     metadata: Mapping[str, object] | None = None,
 ) -> Atmosphere:
@@ -272,11 +275,25 @@ def solve_adaptive_lte_structure(
     and local energy balance together. It changes no material physics and
     never switches during an iteration. Spectrum synthesis must use the same
     discretization. The established optical-depth default is unchanged.
+    ``column_mass_radiation_backend`` and ``ml2_coefficient_function`` are
+    explicit composition-owned physics injection points.  They let a DQ
+    calculation supply refractive transfer and its corresponding grey ML2
+    closure without replacing module globals.  The backend is valid only for
+    column-mass transfer; omitting both arguments preserves the established
+    operators exactly.
     """
 
     if transfer_discretization not in ("optical-depth", "column-mass"):
         raise ValueError("unknown transfer discretization")
     mass_transfer = transfer_discretization == "column-mass"
+    if column_mass_radiation_backend is not None and not mass_transfer:
+        raise ValueError(
+            "a column-mass radiation backend requires column-mass transfer"
+        )
+    if ml2_coefficient_function is None:
+        ml2_coefficient_function = _ml2_local_coefficients_from_thermodynamics
+    if not callable(ml2_coefficient_function):
+        raise ValueError("ml2 coefficient function must be callable")
     if not isinstance(enforce_local_energy_balance, bool):
         raise ValueError("local energy enforcement flag must be boolean")
     if not isinstance(physical_temperature_coordinates, bool):
@@ -288,12 +305,20 @@ def solve_adaptive_lte_structure(
     ):
         raise ValueError("energy thermal sweeps must be a nonnegative integer")
     if mass_transfer:
-        from ._mass_feautrier import (
-            mass_field,
-            mass_response,
-            mass_energy,
-            mass_energy_response,
-        )
+        if column_mass_radiation_backend is None:
+            from ._mass_feautrier import (
+                mass_field,
+                mass_response,
+                mass_energy,
+                mass_energy_response,
+            )
+            mass_boundary = _thermal_boundary_absorption_escape_bound
+        else:
+            mass_field = column_mass_radiation_backend.field
+            mass_response = column_mass_radiation_backend.response
+            mass_energy = column_mass_radiation_backend.energy
+            mass_energy_response = column_mass_radiation_backend.energy_response
+            mass_boundary = column_mass_radiation_backend.boundary
 
     wavelength = np.asarray(wavelength, dtype=np.float64)
     if wavelength.ndim != 1 or wavelength.size < 2:
@@ -521,6 +546,7 @@ def solve_adaptive_lte_structure(
                 expansion_interface,
                 adiabatic_gradient_interface,
                 mixing_length_alpha=mixing_length_alpha,
+                coefficient_function=ml2_coefficient_function,
             )
         )
         convective_flux_interface[0] = 0.0
@@ -550,6 +576,7 @@ def solve_adaptive_lte_structure(
                 adiabatic_gradient_interface,
                 mixing_length_alpha=mixing_length_alpha,
                 radiative_flux_coefficient=formal_radiative_coefficient,
+                coefficient_function=ml2_coefficient_function,
             )
         )
         desired_convective_flux = (
@@ -561,6 +588,7 @@ def solve_adaptive_lte_structure(
                 expansion_interface,
                 adiabatic_gradient_interface,
                 mixing_length_alpha=mixing_length_alpha,
+                coefficient_function=ml2_coefficient_function,
             )
         )
         (
@@ -586,6 +614,7 @@ def solve_adaptive_lte_structure(
                 expansion_interface,
                 adiabatic_gradient_interface,
                 mixing_length_alpha=mixing_length_alpha,
+                coefficient_function=ml2_coefficient_function,
             )
         )
         convective_flux_gradient_derivative = (
@@ -597,6 +626,7 @@ def solve_adaptive_lte_structure(
                 expansion_interface,
                 adiabatic_gradient_interface,
                 mixing_length_alpha=mixing_length_alpha,
+                coefficient_function=ml2_coefficient_function,
             )
         )
         # Convection cannot carry flux through the surface boundary, so the
@@ -604,7 +634,7 @@ def solve_adaptive_lte_structure(
         actual_convective_flux_gradient_derivative[0] = 0.0
         convective_flux_gradient_derivative[0] = 0.0
         _, ml2_loss, ml2_coefficient = (
-            _ml2_local_coefficients_from_thermodynamics(
+            ml2_coefficient_function(
                 current_interface,
                 rosseland_interface,
                 heat_capacity_interface,
@@ -701,7 +731,7 @@ def solve_adaptive_lte_structure(
                 mass_density=_positive_interface_values(density),
             )
             perturbed_coefficients = (
-                _ml2_local_coefficients_from_thermodynamics(
+                ml2_coefficient_function(
                     perturbed_interface,
                     _positive_interface_values(opacity),
                     _arithmetic_interface_values(cp),
@@ -1031,6 +1061,10 @@ def solve_adaptive_lte_structure(
                     centered=local_energy_active,
                 )
             )
+            if column_mass_radiation_backend is not None:
+                column_mass_radiation_backend.record_temperature_response_probes(
+                    (primary_probe, opposite_probe, logarithmic_step)
+                )
             hotter, hotter_absorption, hotter_scattering = primary_probe
             hotter_temperature = current_temperature * np.exp(logarithmic_step)
             hotter_planck = planck_lambda_angstrom(
@@ -1242,7 +1276,7 @@ def solve_adaptive_lte_structure(
         payload: dict[str, object] = {
             "atmosphere": current,
             "lower_boundary_absorption_escape_bound": (
-                _thermal_boundary_absorption_escape_bound(
+                (mass_boundary if mass_transfer else _thermal_boundary_absorption_escape_bound)(
                     wavelength,
                     current.column_mass,
                     absorption,
@@ -1670,6 +1704,7 @@ def solve_adaptive_lte_structure(
                         dtype=np.float64,
                     ),
                     mixing_length_alpha=mixing_length_alpha,
+                    coefficient_function=ml2_coefficient_function,
                 )
             )
             adiabatic_gradient = np.asarray(

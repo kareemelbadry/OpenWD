@@ -12,8 +12,9 @@ implemented material treatment before solving a new atmosphere.
 | `DBConfig` | Pure helium | [DB physics](DB.md) |
 | `DABConfig` | Homogeneous H/He; `log_hydrogen_to_helium` sets log10 N(H)/N(He) | [DAB/DBA physics](DAB.md) |
 | `DZConfig` | Helium with metals and optional trace hydrogen | [DZ/DBZ physics](DZ.md) |
+| `DQConfig` | Helium with trace carbon and C₂ Swan bands; preliminary | [DQ physics and setup](DQ.md) |
 
-All five describe plane-parallel LTE atmospheres. They predict spectra for
+All describe plane-parallel LTE atmospheres. They predict spectra for
 specified parameters; they do not fit observations. Established presets and
 experimental cool workflows have different applicability limits; see
 [limitations](../limitations.md) and [tested points](../tested-temperature-ranges.md).

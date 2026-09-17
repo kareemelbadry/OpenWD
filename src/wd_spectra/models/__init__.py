@@ -24,12 +24,14 @@ from .stellar import (
 )
 from .selection import PhysicsSelection, PhysicsSelectionPolicy, select_physics
 from .daz import DAZConfig, compute_daz
+from .dq import DQConfig, compute_dq
 from .automatic import ModelRun, run_model
 
 __all__ = [
     "AtmosphereConvergenceWarning",
     "DAConfig",
     "DAZConfig",
+    "DQConfig",
     "DABConfig",
     "DBConfig",
     "DZConfig",
@@ -45,6 +47,7 @@ __all__ = [
     "atmosphere_convergence_status",
     "compute_da",
     "compute_daz",
+    "compute_dq",
     "compute_dab",
     "compute_db",
     "compute_dz",

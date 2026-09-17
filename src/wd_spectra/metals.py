@@ -5898,9 +5898,11 @@ def metal_line_mass_absorption_coefficient(
     ordinary Ca I 4227-A resonance line. A supplied single-condition Ca II table is
     likewise enveloped with the laboratory-width ordinary profiles.
     ``transition_keys`` optionally restricts the result to explicit
-    ``(element, charge, lower_index, upper_index)`` transitions.  This is
-    useful when reusing the identical cool-star profile physics in a
-    level-resolved statistical-equilibrium formal solution.
+    ``(element, charge, lower_index, upper_index)`` transitions.  An explicit
+    declaration is independent of the queried wavelength interval: profiles
+    centered outside that interval are still evaluated so their wings cannot
+    disappear when a spectrum is synthesized in chunks.  This is useful when
+    reusing one immutable line selection for structure and formal synthesis.
     ``profile_edge_optical_depth`` replaces the fixed ordinary-line cutoff
     with an optical-depth-aware support criterion.  It expands saturated
     profiles until the vertical line optical depth at the edge is below the
@@ -6013,14 +6015,10 @@ def metal_line_mass_absorption_coefficient(
             )
             for element, charge, lower_index, upper_index in transition_keys
         )
-        # Explicit keys are also used by the D6 structure solver to ensure
-        # that the lines evaluated by the opacity routine are exactly those
-        # whose centers and profile supports were inserted in its wavelength
-        # grid.  Do not first apply a second, potentially different ranking.
+        # Explicit keys are a complete caller-owned declaration.  Do not
+        # apply a second ranking or an endpoint-dependent center filter here:
+        # a distant strong line can contribute a wing inside a narrow query.
         selected = []
-        selection_margin = max(
-            100.0, 0.05 * float(wavelength[-1] - wavelength[0])
-        )
         for element in line_abundances:
             for ion in atomic_database.ion_stages(element):
                 for line in ion.transitions:
@@ -6035,9 +6033,6 @@ def metal_line_mass_absorption_coefficient(
                         and line.transition_type == "E1"
                         and line.absorption_oscillator_strength
                         >= minimum_oscillator_strength
-                        and wavelength[0] - selection_margin
-                        <= line.wavelength_vacuum_angstrom
-                        <= wavelength[-1] + selection_margin
                     ):
                         selected.append((ion, line))
     else:
