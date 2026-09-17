@@ -70,14 +70,17 @@ def ray_solve(depth,conductance,rhs):
         ratio=conductance[i]/p[i-1]
         g[i]=depth[i]+ratio*g[i-1]
         p[i]=g[i]+conductance[i+1]
-        reduced[i]+=ratio*reduced[i-1]
+        for j in range(ncol):
+            reduced[i,j]+=ratio*reduced[i-1,j]
     value=np.empty_like(reduced);value[-1]=reduced[-1]
     face_flux=np.empty((count+1,ncol))
     for i in range(count-1,-1,-1):
-        jump=(g[i]*value[i+1]-reduced[i])/p[i]
-        value[i]=value[i+1]-jump
-        face_flux[i+1]=conductance[i+1]*jump
-    face_flux[0]=conductance[0]*value[0]
+        for j in range(ncol):
+            jump=(g[i]*value[i+1,j]-reduced[i,j])/p[i]
+            value[i,j]=value[i+1,j]-jump
+            face_flux[i+1,j]=conductance[i+1]*jump
+    for j in range(ncol):
+        face_flux[0,j]=conductance[0]*value[0,j]
     return value[:-1],face_flux
 
 

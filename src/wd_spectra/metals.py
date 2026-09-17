@@ -5877,6 +5877,7 @@ def metal_line_mass_absorption_coefficient(
     profile_edge_optical_depth_ions: Iterable[tuple[str, int]] | None = None,
     profile_support_maximum_rosseland_optical_depth: float = 2.0,
     profile_support_maximum_half_window_angstrom: float = 100.0,
+    uv_resonance_support_angstrom: Mapping[tuple[str, int, int, int], float] | None = None,
 ) -> FloatArray:
     """Return LTE metal bound-bound opacity in cm^2 g^-1.
 
@@ -5916,9 +5917,19 @@ def metal_line_mass_absorption_coefficient(
     complete ion stages.  It is mutually exclusive with the element filter;
     this supports physically distinct neutral/ionized profile families
     without selecting individual observed lines.
+    ``uv_resonance_support_angstrom`` supplies already-decided minimum support
+    for eligible strong UV resonances. A caller evaluating depth subsets must
+    derive this mapping from the complete atmosphere, not the subset. Every
+    eligible selected resonance requires an entry. Other callers retain the
+    original optical-depth gate when this argument is None.
     """
 
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
+    if uv_resonance_support_angstrom is not None and any(
+        not np.isfinite(value) or value < 0.0
+        for value in uv_resonance_support_angstrom.values()
+    ):
+        raise ValueError('UV resonance support must be finite and nonnegative')
     if (
         wavelength.ndim != 1 or wavelength.size < 2
         or np.any(~np.isfinite(wavelength)) or np.any(wavelength <= 0.0)
@@ -6270,7 +6281,12 @@ def metal_line_mass_absorption_coefficient(
                 ion, line, lower_level
             )
         )
-        if resonance_half_window > 0.0:
+        if resonance_half_window > 0.0 and uv_resonance_support_angstrom is not None:
+            support_key = (ion.element, ion.charge, line.lower_index, line.upper_index)
+            if support_key not in uv_resonance_support_angstrom:
+                raise ValueError('Missing declared UV resonance support')
+            resonance_half_window = float(uv_resonance_support_angstrom[support_key])
+        elif resonance_half_window > 0.0:
             # Use the narrow radiative+thermal profile as a conservative
             # upper bound on the line-center optical depth.  This cheaply
             # suppresses extended formal support for absent LTE ion stages;

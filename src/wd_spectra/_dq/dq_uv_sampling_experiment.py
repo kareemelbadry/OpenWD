@@ -1,9 +1,8 @@
-"""Opt-in UV structure-grid refinement around the current-energy DQ driver.
+"""Deterministic continuum refinement around the current-energy DQ driver.
 
-Add deterministic continuum samples below 3800 A without changing existing
-line samples, physics, or convergence gates. The rule needs no past spectrum
-and works for both saved-state diagnostics and genuine cold starts. Existing
-drivers and their defaults are untouched.
+Retain the original UV-only diagnostic option; the released DQ driver also
+refines the infrared with full_continuum=True. Existing line nodes, physics,
+and convergence gates are unchanged. No past spectrum is needed.
 """
 
 import numpy as np
@@ -11,7 +10,7 @@ import numpy as np
 from .provenance import digest
 
 
-def augment_uv(wavelength, points):
+def augment_uv(wavelength, points, *, full_continuum=False):
     """Retain every input node and add a parameter-independent UV mesh."""
     if points < 2:
         raise ValueError('UV reference mesh requires at least two points')
@@ -20,12 +19,12 @@ def augment_uv(wavelength, points):
             or np.any(wave <= 0) or np.any(np.diff(wave) <= 0)):
         raise ValueError('Expected finite ordered positive wavelength grid')
     reference = np.geomspace(1000., 100000., points)
-    extra = reference[(reference >= wave[0]) & (reference < 3800.)
+    extra = reference[(reference >= wave[0]) & ((reference < 3800.) | full_continuum)
                       & (reference <= wave[-1])]
     return np.unique(np.r_[wave, extra])
 
 
-def refined_material(base, points):
+def refined_material(base, points, *, full_continuum=False):
     class UVRefined(base):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -35,6 +34,10 @@ def refined_material(base, points):
                 uv_structure_sampling_rule='union existing grid with geomspace(1000,100000,N) below 3800 A',
                 uv_structure_sampling_source_sha256=digest(__file__),
                 uv_structure_sampling_requires_saved_spectrum=False)
+            self.experiment_metadata.update(
+                full_continuum_sampling=full_continuum,
+                continuum_sampling_rule=('union existing grid with geomspace(1000,100000,N)'
+                                         if full_continuum else 'UV only'))
 
         def structure_grid(self, seed, count):
             path = self.experiment_metadata.get('fixed_wavelength_grid')
@@ -43,12 +46,10 @@ def refined_material(base, points):
                     if 'weights' in saved.files:
                         raise ValueError('UV refinement does not support externally weighted grids')
             original = super().structure_grid(seed, count)
-            wave = augment_uv(original, points)
+            wave = augment_uv(original, points, full_continuum=full_continuum)
             self.saved_structure_grid = wave
-            print(f'UV structure refinement: {len(original)} -> {len(wave)} wavelengths', flush=True)
+            print(f'Continuum structure refinement: {len(original)} -> {len(wave)} wavelengths', flush=True)
             return wave
     return UVRefined
-
-
 
 

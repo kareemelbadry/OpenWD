@@ -69,6 +69,7 @@ class ConsistentDQMaterial(dq.DQMaterial):
         self.opacity_cache=ExactLayerOpacityCache()
         self.opacity_calls=0
         self.last_opacity_progress=time.monotonic()
+        self.ca_table=None
 
     def absorption(self,current,wavelength,*,include_c2=True,structure=False):
         self.check_budget()
@@ -122,6 +123,8 @@ class ConsistentDQMaterial(dq.DQMaterial):
                 -self.c2_swan_profiles.cross_section(wavelength,a.temperature,neutral),0.)
             for j,temp in enumerate(a.temperature):
                 non_swan[:,j]+=self.swan_column(a,j,wavelength)
+            if self.ca_table is not None:
+                non_swan+=self.ca_table.cross_section_for_wavelength_temperature(wavelength,a.temperature)
             opacity+=non_swan*(c2/a.mass_density)[None,:]
         return opacity
 
@@ -158,7 +161,6 @@ class ConsistentDQMaterial(dq.DQMaterial):
         return Spectrum(wave,flux,dict(transfer_discretization='coupled-Feautrier-native',
             hornkohl_sha256=self.line_sha,atomic_line_count=len(self.atomic_keys),
             opacity_scale=1.,independent_radiation_scaled_source_error=error))
-
 
 
 

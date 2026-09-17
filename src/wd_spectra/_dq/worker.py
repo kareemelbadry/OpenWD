@@ -16,9 +16,10 @@ def main(arguments=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--seconds', type=float, default=28800.)
     parser.add_argument('--read-output-grid', action='store_true')
+    parser.add_argument('--no-c2-ca', action='store_true', help='Diagnostic: omit historical C2 C–A opacity')
     args = parser.parse_args(arguments)
     config = DQConfig(args.teff, args.logg, args.log_carbon_to_helium,
-                      maximum_seconds=args.seconds)
+                      maximum_seconds=args.seconds, include_c2_ca=not args.no_c2_ca)
     validate_config(config)
     wavelength = None
     if args.read_output_grid:

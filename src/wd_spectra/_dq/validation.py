@@ -4,8 +4,13 @@ from wd_spectra.constants import STEFAN_BOLTZMANN
 
 
 def independent_grid():
+    # Keep the optical midpoint grid independent of structure sampling, and
+    # resolve the infrared molecular spectrum too. Round to eight intervals
+    # so R≈3000/6000/12000/24000 nested diagnostic meshes share endpoints.
+    infrared_intervals = 8*int(np.ceil(3000*np.log(100000./6800.)))
     return np.unique(np.r_[np.geomspace(1000., 100000., 4000),
-                           3800.+(np.arange(150000)+.5)*.02])
+                           3800.+(np.arange(150000)+.5)*.02,
+                           np.geomspace(6800., 100000., infrared_intervals+1)])
 
 
 def qualify_spectrum(atmosphere, spectrum, config):
@@ -33,7 +38,7 @@ def qualify_spectrum(atmosphere, spectrum, config):
     if not atmosphere.metadata.get('dq_refractive_transfer'):
         raise ValueError('DQ atmosphere did not use refractive transfer')
     if not np.array_equal(spectrum.wavelength_angstrom, independent_grid()):
-        raise ValueError('DQ qualification requires the exact independent 154000-point grid')
+        raise ValueError('DQ qualification requires the exact independent optical/infrared grid')
     flux = spectrum.surface_flux_lambda
     if np.any(~np.isfinite(flux)) or np.any(flux <= 0):
         raise ValueError('DQ final flux must be finite and positive')

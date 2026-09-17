@@ -31,6 +31,7 @@ class DQConfig:
     log_carbon_to_helium: float = -5.
     quality: str = 'standard'
     maximum_seconds: float = 28800.
+    include_c2_ca: bool = True
 
 
 def validate_config(config):
@@ -46,6 +47,8 @@ def validate_config(config):
         raise ValueError('Trace-carbon DQ requires -12 <= log(C/He) <= -3')
     if config.quality != 'standard':
         raise ValueError('Refractive DQ currently supports only quality="standard"')
+    if type(config.include_c2_ca) is not bool:
+        raise ValueError('include_c2_ca must be boolean (False is a diagnostic opacity omission)')
 
 
 def warn_dq_approximation():
@@ -68,6 +71,8 @@ def _load_result(directory, config, data):
                   ('effective_temperature', 'logg', 'log_carbon_to_helium')}
     if report.get('requested_parameters') != parameters:
         raise RuntimeError('DQ output parameters differ from the request')
+    if report.get('config', {}).get('include_c2_ca') is not config.include_c2_ca:
+        raise RuntimeError('DQ output C–A opacity selection differs from the request')
     if any(report['physical_config'].get(k) != v for k, v in parameters.items()):
         raise RuntimeError('DQ physical parameters differ from the request')
     if (report['status'] != 'completed' or not report.get('spectral_qualification')
@@ -116,7 +121,7 @@ def compute_dq(config=DQConfig(), wavelength=None, *, data=None,
     This can take hours. The worker prints progress and retains checkpoints
     in a new output_directory (or an announced temporary directory). A user
     wavelength grid changes only final output synthesis, never the structure
-    grid or the required independent 154000-point bolometric qualification.
+    grid or the required independent 218520-point bolometric qualification.
     Failed qualification raises; exploratory spectra are not returned.
     """
     validate_config(config)
@@ -139,6 +144,8 @@ def compute_dq(config=DQConfig(), wavelength=None, *, data=None,
                '--log-carbon-to-helium', str(config.log_carbon_to_helium),
                '--seconds', str(config.maximum_seconds), '--output', str(directory),
                '--read-output-grid']
+    if not config.include_c2_ca:
+        command.append('--no-c2-ca')
     environment = os.environ.copy()
     environment['OPENWD_DATA'] = str(data.root)
     # Installed package root, never a research/results directory.

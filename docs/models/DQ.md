@@ -69,9 +69,12 @@ transient contraction target is not a final atmosphere tolerance.
 
 A successful public request must pass all five atmosphere checks: all-depth
 flux, local energy balance, temperature stationarity, source closure, and
-lower-boundary screening. It must then pass an independent **154000-point**
-synthesis: 4000 logarithmic points from 1000 to 100000 Å plus 150000 optical
-midpoints at 0.02 Å spacing between 3800 and 6800 Å. All fluxes must be finite
+lower-boundary screening. It must then pass an independent **218520-point**
+synthesis: 4000 logarithmic points from 1000 to 100000 Å, 150000 optical
+midpoints at 0.02 Å spacing between 3800 and 6800 Å, and 64521 logarithmic
+infrared nodes from 6800 to 100000 Å (R≈24000; one duplicate endpoint).
+The added infrared grid resolves molecular structure that the older
+154000-point qualification grid undersampled. All fluxes must be finite
 and positive, and `abs(F_bol/(sigma Teff^4) - 1) <= 0.002`. No flux
 normalization or parameter adjustment is applied. Source integrity and data
 checksums are recorded.
@@ -90,10 +93,47 @@ boundary. Structure and synthesis use the same carbon-line declaration and
 molecular opacity. UV sampling is determined without reference to a past
 spectrum.
 
+Carbon UV resonance-wing support is decided from the complete atmospheric
+column before opacity work is divided into depth subsets. The same decision
+is used for cached columns and temperature probes, with cache invalidation
+if it changes. Carbon-line evaluation batches the union of retained lines
+while preserving the conservative opacity-screening bound. Non-DQ callers
+retain the shared line evaluator's original default behavior.
+
 Resolved thermal Swan lines use the Hornkohl/Parigger list, with one absolute
 Brooke band-rate calibration and a density shift. The shift is integrated
 over each depth cell; this is spatial quadrature, not extra collision
 broadening. Other C₂ systems and the partition function use ExoMol 8states.
+That list does **not** include the C¹Πg–A¹Πu Deslandres–d'Azambuja
+system. DQs now additionally include a bundled historical estimate of that
+system in both structure and synthesis. It uses Cooper's (1979) measured
+electronic moment, Nicholls's (1965) Franck–Condon factors, and ExoMol
+lower-A-state populations with the unchanged 8states partition function.
+No strength multiplier is fitted to stellar observations. This is a finite-bin
+rigid-rotor envelope, **not a modern resolved C–A line list**. High-v
+perturbations, detailed rotational factors, and variation of the transition
+moment remain uncertain. No unvalidated C–A pressure shift is applied.
+
+`DQConfig(include_c2_ca=False)` explicitly omits this contribution for
+diagnostic A/B comparisons; it does not relax any qualification check or
+change the Swan contribution. The isolated worker records the selection.
+The C–A file is only constitutive opacity data, not an observed or fitted
+spectrum. From a source checkout, rebuild it from the checksum-verified
+public ExoMol states:
+
+```sh
+PYTHONPATH=src python tools/build_dq_ca_historical.py \
+  --states /path/to/12C2__8states.states.bz2 --output results/ca-rebuild
+PYTHONPATH=src python tools/package_dq_ca.py \
+  results/ca-rebuild/c2-with-historical-dazambuja.npz results/ca-rebuilt.npz
+```
+
+Structure quadrature retains its atomic and molecular nodes and adds the
+4000-point logarithmic continuum mesh over 1000–100000 Å, including the
+infrared. The independently sampled final spectrum is still mandatory.
+Transfer and analytic temperature-response inner loops use allocation-free
+scalar arithmetic, tested bitwise against the previous kernels. A roughly
+3× response-kernel benchmark is not a claim of 3× end-to-end acceleration.
 The continuum table and all molecular data are checksum-pinned; their
 provenance is in the bundled data and [third-party notices](../../THIRD_PARTY_NOTICES.md).
 
@@ -104,9 +144,18 @@ guarantee observational agreement, abundance accuracy, or independent depth
 convergence. These limitations are recorded in every result rather than
 silently marked as validated.
 
-See the [release validation record](../development/history/dq-release-2026-09-17.md)
-for tests and the distinction between earlier research cold starts and the
-packaged release qualification.
+In particular, the bolometric constraint fixes the integral of the emergent
+spectrum, not its wavelength distribution. Refining a saved atmosphere
+without restoring equilibrium measures a discretization residual, not the
+error in the final converged luminosity. Spectral depth convergence requires
+reconverging both meshes at the same stellar parameters and comparing their
+spectra; neither a flux renormalization nor an unreconverged flux difference
+is a substitute for that test.
+
+See the [C–A default validation record](../development/history/dq-ca-default-2026-09-17.md)
+and the [original release record](../development/history/dq-release-2026-09-17.md)
+for tests and the distinction between research warm starts and packaged
+cold-start qualification.
 
 ## Regression tests
 

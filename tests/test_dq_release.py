@@ -42,12 +42,12 @@ def certified_fixture():
 
 def test_independent_grid_and_absolute_gate():
     config, atmosphere, spectrum = certified_fixture()
-    assert len(spectrum.wavelength_angstrom) == 154000
+    assert len(spectrum.wavelength_angstrom) == 218520
     assert qualify_spectrum(atmosphere, spectrum, config)['spectral_qualification']
     with pytest.raises(ValueError, match='bolometric'):
         qualify_spectrum(atmosphere, Spectrum(spectrum.wavelength_angstrom,
             1.003*spectrum.surface_flux_lambda, {}), config)
-    with pytest.raises(ValueError, match='154000'):
+    with pytest.raises(ValueError, match='independent'):
         qualify_spectrum(atmosphere, Spectrum(spectrum.wavelength_angstrom[::2],
             spectrum.surface_flux_lambda[::2], {}), config)
     atmosphere.metadata['equilibrium_certificate']['checks'].pop('local_energy')
@@ -99,7 +99,7 @@ def test_package_policy_restores_shared_hooks_on_failure(tmp_path):
 
 def test_constitutive_data_are_packaged_and_checksum_pinned():
     from wd_spectra._dq.data import validate_data
-    assert len(validate_data()['sha256']) == 4
+    assert len(validate_data()['sha256']) == 5
 
 
 def test_saved_worker_output_restores_helium_populations(tmp_path):
@@ -137,7 +137,7 @@ def test_saved_worker_output_restores_helium_populations(tmp_path):
     np.savez_compressed(tmp_path/'independent-spectrum.npz', wavelength=wave, flux=flux)
     report = dict(requested_parameters={key: getattr(config, key) for key in
         ('effective_temperature', 'logg', 'log_carbon_to_helium')},
-        physical_config=asdict(material.config), status='completed', cold_start=True,
+        physical_config=asdict(material.config), config=asdict(config), status='completed', cold_start=True,
         spectral_qualification=True, source_consistency_verified=True,
         independent_spectrum_sha256=digest(tmp_path/'independent-spectrum.npz'))
     (tmp_path/'run.json').write_text(json.dumps(report))
@@ -225,5 +225,5 @@ def test_j1235_public_true_cold_and_independent_spectrum(tmp_path):
     assert result.atmosphere.metadata['equilibrium_certificate']['verified']
     assert result.metadata['cold_start']
     assert result.metadata['spectral_qualification']
-    assert len(result.spectrum.wavelength_angstrom) == 154000
+    assert len(result.spectrum.wavelength_angstrom) == 218520
     assert abs(result.spectrum.bolometric_flux/(STEFAN_BOLTZMANN*9347.**4)-1) <= .002

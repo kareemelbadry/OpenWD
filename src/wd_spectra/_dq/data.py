@@ -31,7 +31,7 @@ def _checked(root, identities):
 def validate_data():
     root = data_root()
     paths = [root/name for name in ('manifest.json', 'c2-8states-r15000.npz',
-             'hornkohl_calibrated.npz', 'report.json', 'correction.npz')]
+             'hornkohl_calibrated.npz', 'report.json', 'correction.npz', 'c2-ca-historical.npz')]
     for path in paths:
         if not path.is_file():
             raise FileNotFoundError(f'Missing DQ constitutive data: {path}; reinstall '

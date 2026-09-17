@@ -16,7 +16,9 @@ def test_refractive_spectrum_retains_j1235_absolute_flux(tmp_path):
     root=Path(__file__).parent/'data/dq_regressions'
     manifest=json.loads((root/'manifest.json').read_text())
     assert digest(root/'j1235-fixed.npz') == manifest['fixture_sha256']
-    config=DQConfig(**manifest['parameters'])
+    # This archived fixture predates the physical addition. Preserve its
+    # strict tolerance as an independent regression of the transfer speedup.
+    config=DQConfig(**manifest['parameters'], include_c2_ca=False)
     with np.load(root/'j1235-fixed.npz',allow_pickle=False) as z:
         seed=gray_helium_atmosphere(config.effective_temperature,config.logg,n_depth=len(z['temperature']))
         state=replace(seed,**{k:z[k].copy() for k in

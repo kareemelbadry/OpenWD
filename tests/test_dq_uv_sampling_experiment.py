@@ -18,6 +18,16 @@ def test_no_extension_outside_input_domain():
     assert refined[0] == 2000. and refined[-1] == 3000.
 
 
+def test_full_continuum_preserves_nodes_and_refines_infrared():
+    original=np.array([1000.,1250.,3800.,5100.,6800.,100000.])
+    refined=augment_uv(original,4000,full_continuum=True)
+    assert np.all(np.isin(original,refined))
+    assert np.all(np.isin(np.geomspace(1000.,100000.,4000),refined))
+    np.testing.assert_array_equal(augment_uv(refined,4000,full_continuum=True),refined)
+    limited=augment_uv([2000.,9000.],4000,full_continuum=True)
+    assert limited[0]==2000. and limited[-1]==9000.
+
+
 @pytest.mark.parametrize('wave', [[1000., 999.], [1000., np.nan], [0., 1.]])
 def test_invalid_grid_rejected(wave):
     with pytest.raises(ValueError):

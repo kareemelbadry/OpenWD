@@ -59,3 +59,29 @@ def test_experimental_patches_restore_after_error():
             raise RuntimeError('interrupted diagnostic')
     assert experiment.controller.nm.local_model is original_model
     assert experiment.controller.least_squares is original_solver
+
+
+def test_completed_domain_releases_observer_anchor(monkeypatch):
+    import gc
+    import weakref
+    from wd_spectra._dq import automatic_conditioning as controller
+
+    class Node:
+        pass
+
+    def build(system, state, ev):
+        model=Node();model.system=system;model.anchor=ev
+        system.cycle=system
+        return model
+
+    monkeypatch.setattr(controller.nm,'local_model',build)
+    with experiment.corner_aware_thermal_proposals(lambda row:None) as release:
+        for _ in range(2):
+            system=Node();anchor=Node()
+            refs=(weakref.ref(system),weakref.ref(anchor))
+            model=controller.nm.local_model(system,np.zeros(2),anchor)
+            del model,system,anchor
+            gc.collect()
+            assert all(ref() is not None for ref in refs)
+            release();gc.collect()
+            assert all(ref() is None for ref in refs)

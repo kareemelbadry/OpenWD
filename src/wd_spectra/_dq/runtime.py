@@ -1,4 +1,4 @@
-"""The single current-energy, corner-aware, UV-refined cold DQ protocol.
+"""The current-energy, corner-aware, continuum-refined cold DQ protocol.
 
 Adapters are process-local and are used only inside an isolated worker.
 There is no restart, reference atmosphere, fixed structure grid, fitted
@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from functools import partial
+import gc
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from wd_spectra.constants import STEFAN_BOLTZMANN
 from wd_spectra.models.common import ModelData, ModelResult, save_model_result
 from . import base, automatic_conditioning as controller, dq_explicit_gradient
 from .data import data_root, validate_data
+from .c2_ca import load_ca_table
 from .dq_current_energy_experiment import current_energy_phase_rows
 from .dq_thermal_corner_experiment import corner_aware_thermal_proposals
 from .dq_uv_sampling_experiment import refined_material
@@ -48,13 +50,13 @@ def numerical_policy(output):
     # Keep the original wrapper ordering. In particular, the Planck local
     # model wraps the corner observer, and transient tolerance capture wraps
     # the bounded conditioning helper, not the other way round.
-    with current_energy_phase_rows(), corner_aware_thermal_proposals(emit), \
+    with current_energy_phase_rows(), corner_aware_thermal_proposals(emit) as release_proposals, \
             controller.thermal_relative_norm_limit(.8), \
             patch.object(controller, 'thermal_condition', bounded_condition), \
             error_controlled_thermal_steps(predict_exhaustion=True), \
             patch.object(dq_explicit_gradient, 'ExplicitGradientSystem', SuperadiabaticSystem), \
             nonlinear_planck_trials():
-        yield
+        yield release_proposals
 
 
 def material_class(output):
@@ -63,7 +65,7 @@ def material_class(output):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.experiment_metadata.update(
-                protocol='refractive-current-energy-corner-aware-uv-v1',
+                protocol='refractive-current-energy-corner-aware-ca-v2',
                 refined_convection_proposal=False,
                 nonlinear_material_proposal=True,
                 nonlinear_material_variable_scaling='unit native coordinates',
@@ -77,13 +79,15 @@ def material_class(output):
                 fixed_wavelength_grid=None,
                 domain_extension='one canonical cell; at most eight same-run extensions',
                 full_physics_validated=False,
+                carbon_uv_support='complete-atmosphere resonance gate; depth-batch independent',
+                carbon_line_evaluation='union screening with conservative opacity bound',
             )
 
         def solve(self, *args, **kwargs):
             with controller.automatic_material_trials(output):
                 return super().solve(*args, **kwargs)
 
-    return refined_material(ColdDQ, 4000)
+    return refined_material(ColdDQ, 4000, full_continuum=True)
 
 
 def make_material(config, data, output):
@@ -96,7 +100,15 @@ def make_material(config, data, output):
         helium_eos='reos3', swan_pressure_shift='blouin2019',
         helium_dense_continuum_path=str(root/'correction.npz'))
     table = base.read_c2_cross_section_table(physical.c2_table_path)
-    return material_class(output)(physical, data, table, sampling_r=10000., sampling_phase=.5)
+    material = material_class(output)(physical, data, table, sampling_r=10000., sampling_phase=.5)
+    if config.include_c2_ca:
+        material.ca_table = load_ca_table(table)
+    material.experiment_metadata.update(
+        c2_ca_included=config.include_c2_ca,
+        c2_ca_profile='historical finite-bin rigid-rotor envelope; unshifted',
+        c2_ca_strength='Cooper 1979 measured moment; no fitted multiplier',
+        transfer_kernel='allocation-free scalar ray and analytic-response loops')
+    return material
 
 
 def run_cold(config, output, *, data=None, wavelength=None):
@@ -107,7 +119,7 @@ def run_cold(config, output, *, data=None, wavelength=None):
     frozen = source_hashes()
     params = {key: getattr(config, key) for key in
               ('effective_temperature', 'logg', 'log_carbon_to_helium')}
-    report = dict(schema=1, protocol='refractive-current-energy-corner-aware-uv-v1',
+    report = dict(schema=1, protocol='refractive-current-energy-corner-aware-ca-v2',
         status='running', requested_parameters=params, config=asdict(config),
         cold_start=True, external_atmosphere=None, external_structure_grid=None,
         prior_spectrum=None, opacity_scale=1., source_sha256=frozen,
@@ -124,7 +136,7 @@ def run_cold(config, output, *, data=None, wavelength=None):
 
     record()
     try:
-        with numerical_policy(output):
+        with numerical_policy(output) as release_proposals:
             material = make_material(config, ModelData.default() if data is None else data, output)
             material.deadline = started+config.maximum_seconds
             report['constitutive_data'] = validate_data()
@@ -149,7 +161,14 @@ def run_cold(config, output, *, data=None, wavelength=None):
                 material.check_budget()
 
             def solve_segment(*args, **kwargs):
-                atmosphere = material.solve(*args, **kwargs)
+                try:
+                    atmosphere = material.solve(*args, **kwargs)
+                finally:
+                    release_proposals()
+                    # Solver closures can form cycles around full radiation
+                    # arrays. NumPy allocations do not reliably trigger cyclic
+                    # collection before the next domain allocates its arrays.
+                    gc.collect()
                 report.setdefault('completed_domain_diagnostics', []).append(dict(
                     depths=atmosphere.n_depth,
                     certificate=atmosphere.metadata.get('equilibrium_certificate', {}),

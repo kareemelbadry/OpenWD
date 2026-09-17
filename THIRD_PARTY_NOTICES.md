@@ -51,6 +51,14 @@ OpenWD source code. Checksums and processing provenance are in `manifest.json`,
   one rotationless-band calibration to Brooke's `A(0,0)=7.626e6 s^-1`, preserves
   relative strengths, and does not fit stellar spectra to set this scale.
 - Brooke et al. (2013), [arXiv:1212.2102](https://arxiv.org/abs/1212.2102).
+- Cooper (1979), [NASA TM-78574](https://ntrs.nasa.gov/citations/19790013711),
+  and Nicholls (1965), [Franck–Condon factors, Table 6](https://pmc.ncbi.nlm.nih.gov/articles/PMC6716003/),
+  for the historical C₂ C–A estimate in `c2-ca-historical.npz`. OpenWD uses
+  the measured squared electronic moment 0.93 atomic units (reported
+  uncertainty 0.18), assumes it constant across the included bands, and
+  combines the published band constants with ExoMol lower-state populations.
+  Its finite-bin rigid-rotor envelope is an approximation, not a reproduction
+  of a modern rotational line list or a validated dense-helium pressure profile.
 - Iglesias et al. (2002), DOI [10.1086/340689](https://doi.org/10.1086/340689),
   and Blouin et al. (2018), DOI [10.3847/1538-4357/aad4a9](https://doi.org/10.3847/1538-4357/aad4a9),
   for dense-continuum/refractivity prescriptions. Numerical interpolation and
@@ -65,6 +73,15 @@ component, and rotational-overlap redistribution; these contributions to
 that data file use the same CC BY-SA 4.0 licence. Credit Yurchenko et al.
 (2018, MNRAS 480, 3397) and McKemmish et al. (2020, MNRAS 497, 1081).
 This data licence does not replace the separate BSD licence for OpenWD code.
+
+The additional `c2-ca-historical.npz` table also uses CC BY-SA 4.0: it derives
+its populations and partition function from those ExoMol data. Credit both
+ExoMol papers above and Cooper/Nicholls. OpenWD's additional processing is
+the historical-band envelope integration; `tools/build_dq_ca_historical.py`
+and `tools/package_dq_ca.py` reproduce the physical arrays without stellar
+observations. The NPZ provenance retains the original research description
+and input hashes; numerical release qualification does not remove its stated
+spectroscopic approximations.
 
 The runtime data directory also contains evaluated NIST ASD strong-line data,
 Verner et al. photoionization fits, CHIANTI Ca II collision strengths,

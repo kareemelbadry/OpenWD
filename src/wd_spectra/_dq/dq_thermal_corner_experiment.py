@@ -88,8 +88,14 @@ def corner_aware_thermal_proposals(emit):
 
     with patch.object(controller.nm, 'local_model', model), \
             patch.object(controller, 'least_squares', solve):
-        yield
-
+        try:
+            # The observer owns the last system/model, including its physical
+            # radiation anchor. Release it between completed domain solves;
+            # carrying that anchor into a deeper domain wastes hundreds of
+            # MiB and cannot help any new-domain proposal.
+            yield current.clear
+        finally:
+            current.clear()
 
 
 
