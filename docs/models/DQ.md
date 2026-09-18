@@ -100,37 +100,69 @@ if it changes. Carbon-line evaluation batches the union of retained lines
 while preserving the conservative opacity-screening bound. Non-DQ callers
 retain the shared line evaluator's original default behavior.
 
-Resolved thermal Swan lines use the Hornkohl/Parigger list, with one absolute
-Brooke band-rate calibration and a density shift. The shift is integrated
+Resolved thermal Swan lines retain the 29,004 Hornkohl/Parigger lines, with one absolute
+Brooke band-rate calibration, and add 1,232,442 ExoMol transitions outside their
+per-band vibrational/angular-momentum coverage. No observed spectrum sets the
+combination weights, and holes inside the supplied coverage envelope are not filled.
+The density shift is integrated
 over each depth cell; this is spatial quadrature, not extra collision
 broadening. Other C₂ systems and the partition function use ExoMol 8states.
 That list does **not** include the C¹Πg–A¹Πu Deslandres–d'Azambuja
-system. DQs now additionally include a bundled historical estimate of that
-system in both structure and synthesis. It uses Cooper's (1979) measured
-electronic moment, Nicholls's (1965) Franck–Condon factors, and ExoMol
-lower-A-state populations with the unchanged 8states partition function.
+system. DQs additionally include that system in both structure and synthesis,
+using Lino da Silva's (2024) published Einstein coefficients for the same 63
+bands as the previous historical estimate. Historical band origins and ExoMol
+lower-A-state populations with the unchanged 8states partition are retained.
 No strength multiplier is fitted to stellar observations. This is a finite-bin
 rigid-rotor envelope, **not a modern resolved C–A line list**. High-v
-perturbations, detailed rotational factors, and variation of the transition
-moment remain uncertain. No unvalidated C–A pressure shift is applied.
+perturbations and detailed rotational factors remain uncertain. The source is
+a workshop presentation, not a fully validated modern line list. No unvalidated
+C–A pressure shift is applied. The older Cooper/Nicholls table is bundled for
+reproducibility, but is no longer selected by the default.
+
+An exact-temperature LRU caches Swan strengths and cumulative sums, without
+rounding temperatures, pruning lines, or changing arithmetic order. The cache
+has an explicit 1 GiB cap for synthesis, reduced to 32 MiB during structure
+iteration to leave room for response matrices; the overall
+4 GiB process guard remains unchanged. This recovers much of the larger-list
+synthesis cost, but does not promise faster cold convergence.
+DQ helium-continuum work is evaluated in 1,024-wavelength batches using the
+unchanged shared formula. This bounds temporary allocations and is tested
+bit-for-bit against a full-grid call; it does not change the wavelength grid.
 
 `DQConfig(include_c2_ca=False)` explicitly omits this contribution for
 diagnostic A/B comparisons; it does not relax any qualification check or
 change the Swan contribution. The isolated worker records the selection.
 The C–A file is only constitutive opacity data, not an observed or fitted
-spectrum. From a source checkout, rebuild it from the checksum-verified
-public ExoMol states:
+spectrum. From a source checkout, rebuild the data using the audited sources:
 
 ```sh
-PYTHONPATH=src python tools/build_dq_ca_historical.py \
-  --states /path/to/12C2__8states.states.bz2 --output results/ca-rebuild
-PYTHONPATH=src python tools/package_dq_ca.py \
-  results/ca-rebuild/c2-with-historical-dazambuja.npz results/ca-rebuilt.npz
+PYTHONPATH=src python tools/build_dq_ca_2024.py \
+  --states /path/to/12C2__8states.states.bz2 \
+  --pdf /path/to/C2-deslandres-dazambuja.pdf --output results/ca-2024-rebuild
+PYTHONPATH=src python tools/build_dq_swan_completed.py \
+  --exomol /path/to/audited-exomol-branches.npz --output results/swan-rebuild
 ```
 
-Structure quadrature retains its atomic and molecular nodes and adds the
+Structure quadrature first combines the atomic/molecular nodes with the
 4000-point logarithmic continuum mesh over 1000–100000 Å, including the
-infrared. The independently sampled final spectrum is still mandatory.
+infrared, then retains every fourth node plus both endpoints. This default
+reduces structure cost; it does not remove opacity sources or thin the final
+218,520-point independent spectrum. The same rule is applied afresh after
+each automatic lower-domain extension. All five equilibrium gates and the
+independent 0.2% luminosity gate remain mandatory, without flux rescaling.
+
+This is an accepted speed/accuracy tradeoff, **not a guaranteed 1% spectral
+error bound**. In fixed-parameter comparisons with the former dense structure
+grid, J1225 (6294 K) completed from scratch in 17.6 minutes, with maximum
+optical differences of 1.49% native and 0.29% after 3 Å FWHM smoothing.
+J1311 (5529 K) stalled from scratch and was stopped at 27.5 minutes; a
+separate converged warm diagnostic showed 8.13% native and 1.29% at 3 Å.
+That warm diagnostic is not a cold timing result. Both converged spectra
+passed the luminosity gate, which does not constrain individual line errors.
+No paired cold speedup factor is established for these two objects. See the
+[sampling release record](../development/history/dq-stride4-default-2026-09-18.md)
+for validation and limitations.
+
 Transfer and analytic temperature-response inner loops use allocation-free
 scalar arithmetic, tested bitwise against the previous kernels. A roughly
 3× response-kernel benchmark is not a claim of 3× end-to-end acceleration.
@@ -152,7 +184,8 @@ reconverging both meshes at the same stellar parameters and comparing their
 spectra; neither a flux renormalization nor an unreconverged flux difference
 is a substitute for that test.
 
-See the [C–A default validation record](../development/history/dq-ca-default-2026-09-17.md)
+See the [2024 C–A and completed-Swan default record](../development/history/dq-completed-default-2026-09-17.md),
+the [historical C–A validation record](../development/history/dq-ca-default-2026-09-17.md)
 and the [original release record](../development/history/dq-release-2026-09-17.md)
 for tests and the distinction between research warm starts and packaged
 cold-start qualification.

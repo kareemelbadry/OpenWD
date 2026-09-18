@@ -18,6 +18,8 @@ Use [getting started](../../getting-started.md) for current commands and
 
 ## Cool helium physics
 
+- [DQ stride-four structure sampling default](dq-stride4-default-2026-09-18.md)
+- [DQ 2024 C–A and completed-Swan default](dq-completed-default-2026-09-17.md)
 - [Refractive DQ release extraction and validation](dq-release-2026-09-17.md)
 - [Initial cool-helium investigation](cool-helium-2026-09-04.md)
 - [Dense-helium EOS and ionization](dense-helium-investigation-2026-09-05.md)

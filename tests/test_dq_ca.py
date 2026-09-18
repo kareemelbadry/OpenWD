@@ -28,7 +28,7 @@ def pair(tmp_path_factory):
 
 
 def test_packaged_data_identity_and_population_convention():
-    assert 'c2-ca-historical.npz' in validate_data()['sha256']
+    assert 'c2-ca-2024.npz' in validate_data()['sha256']
     parent=read_c2_cross_section_table(data_root()/'c2-8states-r15000.npz')
     ca=load_ca_table(parent)
     assert ca.swan_cross_section is None
@@ -36,11 +36,12 @@ def test_packaged_data_identity_and_population_convention():
     assert np.any(ca.cross_section>0)
     assert np.isfinite(ca.cross_section).all() and np.all(ca.cross_section>=0)
     np.testing.assert_array_equal(ca.partition_function,parent.partition_function)
-    with np.load(data_root()/'c2-ca-historical.npz',allow_pickle=False) as z:
+    with np.load(data_root()/'c2-ca-2024.npz',allow_pickle=False) as z:
         provenance=json.loads(str(z['provenance_json'].item()))
-    assert provenance['moment_squared_au']==.93
-    assert provenance['moment_uncertainty_au']==.18
-    assert provenance['parent_sha256']==validate_data()['sha256']['c2-8states-r15000.npz']
+    assert len(provenance['bands'])==63
+    assert provenance['bands'][0]['A']==1.711e7
+    assert 1.88 < provenance['f00_new_over_old'] < 1.89
+    assert provenance['parent_sha256']==validate_data()['sha256']['c2-ca-historical.npz']
     with pytest.raises(ValueError,match='partition'):
         load_ca_table(replace(parent,partition_function=parent.partition_function*2))
 

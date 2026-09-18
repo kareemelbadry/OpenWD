@@ -99,7 +99,7 @@ def test_package_policy_restores_shared_hooks_on_failure(tmp_path):
 
 def test_constitutive_data_are_packaged_and_checksum_pinned():
     from wd_spectra._dq.data import validate_data
-    assert len(validate_data()['sha256']) == 5
+    assert len(validate_data()['sha256']) == 7
 
 
 def test_saved_worker_output_restores_helium_populations(tmp_path):

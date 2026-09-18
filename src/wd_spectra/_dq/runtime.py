@@ -23,6 +23,8 @@ from wd_spectra.models.common import ModelData, ModelResult, save_model_result
 from . import base, automatic_conditioning as controller, dq_explicit_gradient
 from .data import data_root, validate_data
 from .c2_ca import load_ca_table
+from .swan_strength_cache import CachedSwan
+from .continuum_batches import CONTINUUM_BATCH_SIZE
 from .dq_current_energy_experiment import current_energy_phase_rows
 from .dq_thermal_corner_experiment import corner_aware_thermal_proposals
 from .dq_uv_sampling_experiment import refined_material
@@ -31,6 +33,8 @@ from .planck_remainder import nonlinear_planck_trials
 from .provenance import digest, source_hashes
 from .superadiabatic import SuperadiabaticSystem
 from .validation import independent_grid, qualify_spectrum
+
+PROTOCOL = 'refractive-current-energy-ca2024-swan-complete-stride4-v4'
 
 
 @contextmanager
@@ -59,13 +63,13 @@ def numerical_policy(output):
         yield release_proposals
 
 
-def material_class(output):
+def material_class(output, *, structure_stride=4):
     """Construct after entering numerical_policy so coordinate selection is explicit."""
     class ColdDQ(dq_explicit_gradient.gradient_material(None)):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.experiment_metadata.update(
-                protocol='refractive-current-energy-corner-aware-ca-v2',
+                protocol=PROTOCOL,
                 refined_convection_proposal=False,
                 nonlinear_material_proposal=True,
                 nonlinear_material_variable_scaling='unit native coordinates',
@@ -84,13 +88,25 @@ def material_class(output):
             )
 
         def solve(self, *args, **kwargs):
-            with controller.automatic_material_trials(output):
-                return super().solve(*args, **kwargs)
+            # Structure iterations retain large response matrices. Keep one
+            # exact-temperature entry there; restore the full synthesis cache
+            # only after solve-owned arrays are released by the caller.
+            cache = self.integrated_swan
+            budget = cache.strength_cache_bytes if isinstance(cache, CachedSwan) else None
+            if budget is not None:
+                cache.set_strength_cache_bytes(min(budget, 32*1024**2))
+            try:
+                with controller.automatic_material_trials(output):
+                    return super().solve(*args, **kwargs)
+            finally:
+                if budget is not None:
+                    cache.set_strength_cache_bytes(budget)
 
-    return refined_material(ColdDQ, 4000, full_continuum=True)
+    return refined_material(ColdDQ, 4000, full_continuum=True,
+                            structure_stride=structure_stride)
 
 
-def make_material(config, data, output):
+def make_material(config, data, output, *, structure_stride=4):
     validate_data()
     root = data_root()
     physical = base.DQConfig(
@@ -100,13 +116,22 @@ def make_material(config, data, output):
         helium_eos='reos3', swan_pressure_shift='blouin2019',
         helium_dense_continuum_path=str(root/'correction.npz'))
     table = base.read_c2_cross_section_table(physical.c2_table_path)
-    material = material_class(output)(physical, data, table, sampling_r=10000., sampling_phase=.5)
+    material = material_class(output, structure_stride=structure_stride)(
+        physical, data, table, sampling_r=10000., sampling_phase=.5)
+    material.integrated_swan = CachedSwan(table, branches=root/'swan-completed.npz',
+                                         cache_grids=192, strength_cache_bytes=1024**3)
     if config.include_c2_ca:
         material.ca_table = load_ca_table(table)
     material.experiment_metadata.update(
         c2_ca_included=config.include_c2_ca,
         c2_ca_profile='historical finite-bin rigid-rotor envelope; unshifted',
-        c2_ca_strength='Cooper 1979 measured moment; no fitted multiplier',
+        c2_ca_strength='Lino da Silva 2024 Einstein coefficients; no fitted multiplier',
+        swan_coverage='Hornkohl retained; ExoMol outside per-band v/J envelope',
+        swan_line_count=len(material.integrated_swan.nu),
+        swan_strength_cache='exact floating-point temperature; byte-bounded LRU',
+        swan_strength_cache_bytes=material.integrated_swan.strength_cache_bytes,
+        swan_structure_strength_cache_bytes=32*1024**2,
+        helium_continuum_batch_size=CONTINUUM_BATCH_SIZE,
         transfer_kernel='allocation-free scalar ray and analytic-response loops')
     return material
 
@@ -119,7 +144,7 @@ def run_cold(config, output, *, data=None, wavelength=None):
     frozen = source_hashes()
     params = {key: getattr(config, key) for key in
               ('effective_temperature', 'logg', 'log_carbon_to_helium')}
-    report = dict(schema=1, protocol='refractive-current-energy-corner-aware-ca-v2',
+    report = dict(schema=1, protocol=PROTOCOL,
         status='running', requested_parameters=params, config=asdict(config),
         cold_start=True, external_atmosphere=None, external_structure_grid=None,
         prior_spectrum=None, opacity_scale=1., source_sha256=frozen,

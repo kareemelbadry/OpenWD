@@ -83,6 +83,26 @@ observations. The NPZ provenance retains the original research description
 and input hashes; numerical release qualification does not remove its stated
 spectroscopic approximations.
 
+The new default `c2-ca-2024.npz` likewise retains CC BY-SA 4.0 for its
+ExoMol-derived populations and OpenWD envelope processing. Its band strengths
+are numerical Einstein coefficients from [Lino da Silva (2024), slide 20,
+lower table](https://indico.esa.int/event/466/contributions/9848/), using the
+transition moments of [Babb, Smyth & McLaughlin (2019)](https://arxiv.org/abs/1904.07831).
+Credit these sources as well as the ExoMol papers and historical band-constant
+sources above. OpenWD uses 63 matched bands, converts A to oscillator strength,
+and retains the previous approximate rotational envelopes. The source PDF hash,
+coefficient table, conversion, and input identities are embedded in the NPZ;
+`tools/build_dq_ca_2024.py` reproduces its physical arrays without observations.
+
+`swan-completed.npz` retains all original Hornkohl/Parigger calibrated lines
+and appends ExoMol transitions outside their per-band v/J coverage. The ExoMol
+additions and OpenWD's processing of those data retain CC BY-SA 4.0; this does
+not relicense the independently supplied Hornkohl records. Credit both sets of
+authors and Brooke's absolute band-rate anchor. Input/output checksums and
+selection details are in `manifest.json`; `tools/build_dq_swan_completed.py`
+reproduces the selection from the audited ExoMol branch cache. No stellar
+parameters or opacity multipliers are fitted to form either default table.
+
 The runtime data directory also contains evaluated NIST ASD strong-line data,
 Verner et al. photoionization fits, CHIANTI Ca II collision strengths,
 Beauchamp He I and Schoening/SYNSPEC He II profiles, Becker et al. He-REOS.3,

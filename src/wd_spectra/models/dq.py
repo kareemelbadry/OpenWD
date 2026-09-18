@@ -23,8 +23,9 @@ class DQApproximationWarning(RuntimeWarning):
 class DQConfig:
     """Hydrogen-free, nonmagnetic classical DQ; log10 N(C nuclei)/N(He nuclei).
 
-    Only the full-grid standard protocol is released. The wall-time budget
-    includes atmosphere convergence and independent final synthesis.
+    Standard uses fourfold-thinned structure sampling and unchanged full-grid
+    final synthesis. This speed/accuracy tradeoff is not a pointwise 1% bound.
+    The wall-time budget includes convergence and independent final synthesis.
     """
     effective_temperature: float = 8000.
     logg: float = 8.

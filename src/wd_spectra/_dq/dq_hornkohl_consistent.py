@@ -17,6 +17,7 @@ from .provenance import digest
 from .dqsolution_sampling import SparseResolvedSwan
 from .dqsolution_sampling_cold import sampling_grid
 from .dq_exact_opacity_cache import ExactLayerOpacityCache
+from .continuum_batches import helium_continuum_absorption
 from wd_spectra.spectrum import Spectrum, solve_spectrum_source, planck_lambda_angstrom
 from wd_spectra.opacity import optical_depth_from_mass_opacity
 
@@ -110,8 +111,7 @@ class ConsistentDQMaterial(dq.DQMaterial):
     def _absorption_from_chemistry(self,a,carbon,c2,wavelength,*,include_c2=True):
         dense=self.dense_continuum.correction(wavelength,a.temperature,a.helium_lte_state.neutral_he_density)\
             if self.dense_continuum is not None else None
-        opacity=dq.helium_continuum_mass_absorption_coefficient(a,wavelength,
-            include_electron_scattering=False,include_rayleigh_scattering=False,helium_minus_correction=dense)
+        opacity=helium_continuum_absorption(a,wavelength,dense)
         opacity+=self.helium_line_opacity(a,wavelength,opacity)
         opacity+=dq.helium_i_resonance_line_mass_absorption_coefficient(a,wavelength)
         opacity+=dq.helium_ii_line_mass_absorption_coefficient(a,wavelength,stark_table=self.he_ii)
@@ -161,6 +161,5 @@ class ConsistentDQMaterial(dq.DQMaterial):
         return Spectrum(wave,flux,dict(transfer_discretization='coupled-Feautrier-native',
             hornkohl_sha256=self.line_sha,atomic_line_count=len(self.atomic_keys),
             opacity_scale=1.,independent_radiation_scaled_source_error=error))
-
 
 

@@ -30,7 +30,7 @@ experiments remain in the research record but are excluded from this table.
 | Atomic DAB, `compute_dab` or automatically selected at 20000 K | 20000 K | Strict cold-start convergence and reviewed corrected-spectrum checks. The undoubled critical field intentionally changes high-series features relative to the old paper control. |
 | DZ, PG 1225 composition, `compute_dz` | 10800 K | Strict production cold-start convergence. This is not exact reproduction of the 40-node paper spectrum. |
 | DAZ, `compute_daz` or `run_model`, standard 40-layer resolution | G149-28: 8600 K, log g = 8.10; G29-38: 11820 K, log g = 8.40; GALEX J1931+0117: 20890 K, log g = 7.90 | Fresh public cold starts with each object's metal composition pass all five structure-grid certificate gates. These are individual points, not a temperature/abundance grid. |
-| Refractive DQ, `compute_dq` or `run_model`, standard | J1235: 9347 K, log g = 8.041, log(C/He) = -4.107 | True-cold worker passed all five atmosphere gates and independent 154000-point spectrum qualification; completed output verified after reader repair. See [qualification details](#dq-release-qualification). |
+| Refractive DQ, `compute_dq` or `run_model`, standard | J1225: 6294 K, log g = 7.924, log(C/He) = -5.33 | Stride-four structure default: true-cold public call passed all five atmosphere gates, independent 218520-point spectrum qualification and output reading. Prior dense-grid J1235 evidence is historical. See [qualification details](#dq-release-qualification). |
 
 The revised solver repairs local energy errors that previously survived a
 small interface-flux residual. It does not inherit historical success flags,
@@ -73,7 +73,41 @@ molecular transport workflow. Use `run_model` for that automatic selection.
 
 ### DQ release qualification
 
-The September 17 packaged J1235 worker started without an input atmosphere,
+The September 18 **stride-four structure default** passed a fresh public
+`compute_dq` qualification at J1225 (6294 K, log g 7.924, log C/He −5.33),
+including automatic 40→41→42-node extensions. All five atmosphere gates,
+the independent 218,520-point spectrum, and public output reading passed.
+Fbol/(σTeff⁴) = **0.999176494939219**, without normalization. The final
+atmosphere and full spectrum match the accepted pre-promotion experiment
+bit-for-bit. Worker time was 22.91 minutes with tests/builds running alongside
+part of the solve; this is not an isolated speed benchmark.
+
+The accepted accuracy tradeoff is not a uniform 1% bound: J1225 differed
+from the dense-grid reference by 1.49% native optical and 0.29% at 3 Å FWHM.
+J1311's cold test was stopped unconverged; a separate warm diagnostic differed
+by 8.13% native and 1.29% at 3 Å. The full final spectrum and all convergence
+tolerances remain unchanged. See the
+[stride-four release record](development/history/dq-stride4-default-2026-09-18.md).
+
+The September 17 **dense-grid 2024 C–A/completed-Swan default** was independently
+requalified at J1235 through the public `compute_dq` API, starting from gray
+initialization without an input atmosphere, grid or spectrum. Its automatic
+40-to-41-node lower-domain extension was followed by a successful re-solve.
+All five measured gates passed: all-depth flux `3.90371258e-4`, local energy
+`1.88632427e-3`, temperature stationarity `0`, source closure `2.37774197e-15`
+and bottom-boundary response `9.81462143e-4`. The independent **218520-point**
+spectrum is finite and positive, with
+`F_bol/(sigma Teff^4) = 0.9999375372794359`, without normalization.
+The worker took **58.96 minutes** within a 4200-second resource budget; the
+public caller then read the result successfully and exited normally. No
+physical tolerance or 4-GiB memory guard was relaxed, and production sources
+and data stayed unchanged. See the
+[preceding default record](development/history/dq-completed-default-2026-09-17.md)
+for reproduction, memory fixes, tests and separate observational evidence.
+
+The following earlier release measurements are retained as historical evidence,
+not attributed to the new default. The earlier September 17 packaged J1235
+worker started without an input atmosphere,
 structure grid or spectrum, at the fixed parameters above. Its 41-depth
 atmosphere passed all five measured gates: all-depth flux error `1.80490e-4`,
 local energy error `1.58077e-3`, temperature stationarity `0`, source closure
@@ -96,7 +130,7 @@ Use the [DQ quick start](getting-started.md#dq-heliumcarbon-atmospheres) with
 points require a true cold start and mandatory atmosphere/spectrum qualification.
 The saved-state spectral pytest is a separate regression, not cold evidence.
 Earlier research results are not a qualification of every object in this
-packaged release: J1803/J1311 remained unfinished and another J0916 cold check
+packaged release: historical J1803/J1311 cold starts remained unfinished and another J0916 cold check
 was waived. No independent DQ depth-convergence or observational-accuracy
 claim follows from this one release point.
 
