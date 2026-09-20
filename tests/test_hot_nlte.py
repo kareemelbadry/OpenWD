@@ -85,8 +85,11 @@ def test_nlte_transfer_conserves_cell_energy_and_closes_scattering():
         np.testing.assert_allclose(getattr(fast, name), getattr(field, name), rtol=2e-14)
         np.testing.assert_array_equal(getattr(fast, name), getattr(checked, name))
     energy, _ = mass_energy(wave, a.column_mass, emissivity/absorption, field.mean_intensity, absorption)
-    flux = trapezoid(field.interface_flux, wave, axis=0)
-    np.testing.assert_allclose(np.diff(flux), energy, rtol=1e-10, atol=1e-4)
+    # Difference each wavelength before summing: subtracting two integrated
+    # fluxes discards the small outer-cell heating in platform-dependent
+    # accumulation roundoff. The conservation tolerance is unchanged.
+    divergence = trapezoid(np.diff(field.interface_flux, axis=1), wave, axis=0)
+    np.testing.assert_allclose(divergence, energy, rtol=1e-10, atol=1e-4)
 
 
 def test_public_configs_and_selection():

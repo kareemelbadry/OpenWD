@@ -53,7 +53,7 @@ def transfer_field(atmosphere, coefficients, *, n_angle=3, check_source=True, wa
     # Independent fixed-source formal solution on the SAME mass volumes.
     _, check = mass_field(tau, source, a+s, np.zeros_like(s),
                          column_mass=atmosphere.column_mass, n_angle=n_angle,
-                         wavelength_chunk_size=wavelength_chunk_size)
+                         wavelength_chunk_size=wavelength_chunk_size, reconstruct_intensity=True)
     closure = (eta+s*check.mean_intensity)/(a+s)
     error = float(np.max(abs(source-closure)/np.maximum(abs(source), 1e-100)))
     return source, field, error

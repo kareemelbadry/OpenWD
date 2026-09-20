@@ -177,13 +177,19 @@ not controlled timing comparisons. A standard full Jacobian used about
 7.3 GB peak process memory in the response-cache benchmark; larger atoms and
 grids need more. Start with one calculation and one BLAS/OpenMP thread.
 
-The seven-point matrix was accumulated across solver revisions, with source
-hashes retained per invocation. The final DO50 cold run used the installed
-release wheel and the final fresh-tangent recovery. H20 used the preceding
+The original seven-point matrix above was accumulated across solver revisions,
+with source hashes retained per invocation. Its DO50 run used the installed
+release wheel and fresh-tangent recovery. H20 used the preceding
 integration; it never activated recovery, so the later recovery-only refinement
 was dormant. Other points retain their recorded earlier revisions. This is
 not a claim that every point was rerun on one final binary, or a guarantee
 throughout a temperature/composition range.
+
+After the transfer-cancellation correction, two further cold runs of the final
+scoped source passed: DO50 standard (87.07 min) and GD153 production
+H8 (130.88 min), with unchanged parameters and resolution. These timings
+also include concurrent workloads. Their [certificates and comparisons](../development/history/do-dao-transfer-cancellation-evidence.json)
+are separate from the historical seven-point matrix above.
 
 For details see the [release evidence](../development/history/do-dao-release-2026-09-20.md)
 and its [machine-readable measurements](../development/history/do-dao-cold-evidence.json).

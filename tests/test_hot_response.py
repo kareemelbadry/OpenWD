@@ -23,7 +23,7 @@ def test_basis_matches_distinct_full_material_responses(angles, scattering):
     source, _ = mass_emissivity_field(tau, emission, absorption, ext*fraction,
         column_mass=mass, bottom_source=emission[:, -1]/absorption[:, -1], n_angle=angles)
     options = dict(extinction=ext, n_angle=angles, wavelength_chunk_size=2,
-                   allow_stimulated_gain=scattering > 1)
+                   allow_stimulated_gain=scattering > 1, reconstruct_intensity=True)
     expected_operator = MassResponseOperator(tau, wave, source, fraction, mass, **options)
     candidate = HotResponseOperator(tau, wave, source, fraction, mass, **options)
     rng = np.random.default_rng(327)

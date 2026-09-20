@@ -92,6 +92,63 @@ def test_excessive_stimulated_gain_is_not_clipped_into_a_valid_field():
         mass_emissivity_field(tau,eta,a,s,column_mass=mass,bottom_source=np.array([10.]),n_angle=1)
 
 
+@pytest.mark.parametrize('angles', [1, 2, 3])
+def test_small_positive_intensity_below_bright_boundary_matches_high_precision(angles):
+    """Do not reconstruct a faint cell as the difference of two ~1e16 values."""
+    import mpmath as mp
+    from wd_spectra.radiative_transfer import angular_quadrature
+    mass = np.array([1e-7, 1., 1e4])
+    ext = np.array([[1., 1e4, 1e4]])
+    absorption = .8 * ext
+    scattering = .2 * ext
+    emissivity = np.full_like(ext, 1e-30)
+    tau = optical_depth_from_mass_opacity(mass, ext)
+    _, field = mass_emissivity_field(
+        tau, emissivity, absorption, scattering, column_mass=mass,
+        bottom_source=np.array([1e16]), n_angle=angles,
+    )
+    mu, weights = angular_quadrature(angles)
+    # Assemble the original equations independently at 80-digit precision.
+    # This checks the intensity AND the retained depth increments/fluxes.
+    with mp.workdps(80):
+        m = list(map(mp.mpf, mass))
+        t = list(map(mp.mpf, tau[0]))
+        h = [t[0]] + [t[i] - t[i-1] for i in range(1, len(t))]
+        mh = [m[0]] + [m[i] - m[i-1] for i in range(1, len(m))]
+        matrix = mp.matrix(4 * angles)
+        rhs = mp.matrix(4 * angles, 1)
+        for r in range(angles):
+            cosine = mp.mpf(float(mu[r]))
+            matrix[r, r] = 1 + cosine/h[0]
+            matrix[r, angles+r] = -cosine/h[0]
+            for i in range(2):
+                row = (i+1)*angles+r
+                volume = mp.mpf(float(ext[0, i])) * (mh[i]+mh[i+1])/2
+                left = cosine**2/(h[i]*volume)
+                right = cosine**2/(h[i+1]*volume)
+                matrix[row, i*angles+r] = -left
+                matrix[row, row] = 1+left+right
+                matrix[row, (i+2)*angles+r] = -right
+                for q in range(angles):
+                    matrix[row, (i+1)*angles+q] -= (
+                        mp.mpf(float(scattering[0, i]/ext[0, i]))
+                        * mp.mpf(float(weights[q]))
+                    )
+                rhs[row] = mp.mpf(float(emissivity[0, i]/ext[0, i]))
+            matrix[3*angles+r, 3*angles+r] = 1
+            rhs[3*angles+r] = mp.mpf('1e16')
+        u = mp.lu_solve(matrix, rhs)
+        mean = [float(sum(mp.mpf(float(weights[r])) * u[(i+1)*angles+r]
+                          for r in range(angles))) for i in range(3)]
+        flux = [float(4*mp.pi*sum(
+            mp.mpf(float(weights[r]))*mp.mpf(float(mu[r]))**2
+            * (u[(i+1)*angles+r]-u[i*angles+r])/h[i]
+            for r in range(angles))) for i in range(3)]
+    assert np.all(field.mean_intensity > 0)
+    np.testing.assert_allclose(field.mean_intensity[0], mean, rtol=3e-13, atol=0)
+    np.testing.assert_allclose(field.interface_flux[0], flux, rtol=3e-12, atol=0)
+
+
 @pytest.mark.parametrize('chunk',[0,-1,True,1.5])
 def test_invalid_chunks_are_rejected(chunk):
     with pytest.raises(ValueError,match='chunk_size'):

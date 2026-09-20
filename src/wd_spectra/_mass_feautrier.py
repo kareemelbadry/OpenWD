@@ -46,7 +46,8 @@ class MassFactors(_DifferenceFactors):
             self.p[:,i]=self.g[:,i]+self.c[:,i,:,None]*eye
 
 
-def mass_field(tau,planck,absorption,scattering,*,column_mass,n_angle=4,wavelength_chunk_size=64):
+def mass_field(tau,planck,absorption,scattering,*,column_mass,n_angle=4,wavelength_chunk_size=64,
+               reconstruct_intensity=False):
     validate_chunk(wavelength_chunk_size)
     b=np.asarray(planck,float);tau=np.broadcast_to(tau,b.shape)
     a=np.broadcast_to(absorption,b.shape);s=np.broadcast_to(scattering,b.shape);ext=a+s
@@ -56,7 +57,8 @@ def mass_field(tau,planck,absorption,scattering,*,column_mass,n_angle=4,waveleng
     if len(column_mass)!=b.shape[1]:
         raise ValueError('mass grid mismatch')
     return _mass_emission_field(tau,a/ext*b,s/ext,ext,b[:,-1],
-        column_mass=column_mass,n_angle=n_angle,wavelength_chunk_size=wavelength_chunk_size)
+        column_mass=column_mass,n_angle=n_angle,wavelength_chunk_size=wavelength_chunk_size,
+        reconstruct_intensity=reconstruct_intensity)
 
 
 class InvalidRadiationFieldError(ValueError):
@@ -86,7 +88,7 @@ def mass_emissivity_field(tau,emissivity,absorption,scattering,*,column_mass,
     try:
         source,field=_mass_emission_field(tau,eta/ext,s/ext,ext,bottom,
             column_mass=column_mass,n_angle=n_angle,wavelength_chunk_size=wavelength_chunk_size,
-            require_nonnegative=True)
+            require_nonnegative=True,reconstruct_intensity=True)
     except np.linalg.LinAlgError as exc:
         raise InvalidRadiationFieldError('singular radiation field with stimulated emission') from exc
     if (any(np.any(~np.isfinite(x)) for x in
@@ -97,7 +99,8 @@ def mass_emissivity_field(tau,emissivity,absorption,scattering,*,column_mass,
 
 
 def _mass_emission_field(tau,emission_source,fraction,ext,bottom_source,*,
-                         column_mass,n_angle,wavelength_chunk_size,require_nonnegative=False):
+                         column_mass,n_angle,wavelength_chunk_size,require_nonnegative=False,
+                         reconstruct_intensity=False):
     nw,nd=emission_source.shape
     mean=np.empty_like(emission_source);flux=np.empty_like(mean);interface=np.empty_like(mean)
     for start in range(0,nw,wavelength_chunk_size):
@@ -106,7 +109,7 @@ def _mass_emission_field(tau,emission_source,fraction,ext,bottom_source,*,
         rhs=np.zeros((stop-start,nd+1,n_angle))
         rhs[:,1:-1]=emission_source[local,:-1,None]
         rhs[:,-1]=bottom_source[local,None]
-        u,jump=factor.solve(rhs)
+        u,jump=factor.solve(rhs,reconstruct_intensity=reconstruct_intensity)
         if require_nonnegative and (np.any(~np.isfinite(u)) or np.any(u<0)):
             raise InvalidRadiationFieldError('stimulated-emission transfer has nonphysical angular intensities')
         mean[local]=u[:,1:]@factor.weight
@@ -125,7 +128,7 @@ class MassResponseOperator:
     anchor of cached factors. Only source/opacity derivatives vary in apply.
     """
     def __init__(self,tau,wave,source,fraction,mass,*,extinction,n_angle=4,
-                 wavelength_chunk_size=16,allow_stimulated_gain=False):
+                 wavelength_chunk_size=16,allow_stimulated_gain=False,reconstruct_intensity=False):
         for name,value in (('tau',tau),('wave',wave),('source',source),
                            ('fraction',fraction),('mass',mass),('extinction',extinction)):
             array=np.array(value,dtype=float,copy=True)
@@ -134,19 +137,21 @@ class MassResponseOperator:
         self.n_angle=n_angle
         self.chunk_size=wavelength_chunk_size
         self.allow_stimulated_gain=allow_stimulated_gain
+        self.reconstruct_intensity=reconstruct_intensity
         self.factors={}
 
     def apply(self,direct,db,dk,*,return_auxiliary_response=True,mean_response_consumer=None):
         return mass_response(self.tau,self.wave,self.source,direct,db,self.fraction,
             self.mass,dk,extinction=self.extinction,n_angle=self.n_angle,
             wavelength_chunk_size=self.chunk_size,allow_stimulated_gain=self.allow_stimulated_gain,
+            reconstruct_intensity=self.reconstruct_intensity,
             return_auxiliary_response=return_auxiliary_response,
             mean_response_consumer=mean_response_consumer,_operator=self)
 
 
 def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angle=4,
                   wavelength_chunk_size=16,return_auxiliary_response=True,mean_response_consumer=None,
-                  allow_stimulated_gain=False,_operator=None):
+                  allow_stimulated_gain=False,reconstruct_intensity=False,_operator=None):
     """Exact linear response of the mass-volume field at fixed mass nodes."""
     validate_chunk(wavelength_chunk_size)
     wave=np.asarray(wave);source=np.asarray(source);mass=np.asarray(mass)
@@ -162,7 +167,8 @@ def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angl
     if _operator is not None and (any(left is not right for left,right in (
             (tau,_operator.tau),(wave,_operator.wave),(source,_operator.source),
             (fraction,_operator.fraction),(mass,_operator.mass),(extinction,_operator.extinction)))
-            or n_angle!=_operator.n_angle or wavelength_chunk_size!=_operator.chunk_size):
+            or n_angle!=_operator.n_angle or wavelength_chunk_size!=_operator.chunk_size
+            or reconstruct_intensity!=_operator.reconstruct_intensity):
         raise ValueError('response operator belongs to a different anchor')
     weights=np.diff(wave,prepend=wave[0],append=wave[-1]);weights=.5*(weights[:-1]+weights[1:])
     integrated=np.zeros((nd,nd))
@@ -174,7 +180,7 @@ def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angl
         if cached is None:
             scalar=MassFactors(tau[local],np.zeros((nc,nd)),n_angle,mass,extinction[local])
             rhs=np.zeros((nc,nd+1,n_angle));rhs[:,1:]=source[local,:,None]
-            _,jumps=scalar.solve(rhs)
+            _,jumps=scalar.solve(rhs,reconstruct_intensity=reconstruct_intensity)
             coupled=MassFactors(tau[local],fraction[local],n_angle,mass,extinction[local])
             if _operator is not None:_operator.factors[start]=(coupled,jumps)
         else:
@@ -193,7 +199,7 @@ def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angl
         da=-coupled.a[:,1:-1,:,None]*(dh[:,:-1,None,:]/h[:,:-1,None,None]+dv[:,:,None,:])
         dc=-coupled.c[:,1:-1,:,None]*(dh[:,1:,None,:]/h[:,1:,None,None]+dv[:,:,None,:])
         tangent_rhs[:,1:-1]+=-da*jumps[:,:-1,:,None]+dc*jumps[:,1:,:,None]
-        response,jump_response=coupled.solve(tangent_rhs)
+        response,jump_response=coupled.solve(tangent_rhs,reconstruct_intensity=reconstruct_intensity)
         mean=np.einsum('wdrk,r->wdk',response[:,1:],coupled.weight)
         if return_auxiliary_response:
             mean_response[local]=mean

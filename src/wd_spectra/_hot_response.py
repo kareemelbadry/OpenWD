@@ -12,6 +12,7 @@ from ._mass_feautrier import MassResponseOperator, MassFactors, mass_width, vali
 
 class HotResponseOperator(MassResponseOperator):
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault("reconstruct_intensity", True)
         super().__init__(*args, **kwargs)
         validate_chunk(self.chunk_size)
         if self.source.ndim != 2 or np.any(~np.isfinite(self.source)):
@@ -38,7 +39,7 @@ class HotResponseOperator(MassResponseOperator):
                              self.mass, self.extinction[local])
         rhs = np.zeros((nc, nd+1, self.n_angle))
         rhs[:, 1:] = self.source[local, :, None]
-        _, jumps = scalar.solve(rhs)
+        _, jumps = scalar.solve(rhs, reconstruct_intensity=self.reconstruct_intensity)
         coupled = MassFactors(self.tau[local], self.fraction[local], self.n_angle,
                               self.mass, self.extinction[local])
         h = coupled.h
@@ -62,8 +63,8 @@ class HotResponseOperator(MassResponseOperator):
         source_rhs = np.zeros_like(opacity_rhs)
         for i in range(nd):
             source_rhs[:, i+1, :, i] = 1.
-        source_response, source_jump = coupled.solve(source_rhs)
-        opacity_response, opacity_jump = coupled.solve(opacity_rhs)
+        source_response, source_jump = coupled.solve(source_rhs, reconstruct_intensity=self.reconstruct_intensity)
+        opacity_response, opacity_jump = coupled.solve(opacity_rhs, reconstruct_intensity=self.reconstruct_intensity)
         fw = 4*np.pi*coupled.weight*coupled.mu**2
         basis = (
             np.einsum('wdrk,r->wdk', source_response[:, 1:], coupled.weight),
