@@ -69,10 +69,10 @@ def numerical_resolution(quality: Quality) -> NumericalResolution:
 
 @dataclass(frozen=True)
 class ModelData:
-    """Locations of the external atomic/profile data used by model presets.
+    """Locations of the atomic/profile data used by model presets.
 
     ``root`` is the repository or installed data workspace.  Set the
-    ``WD_SPECTRA_DATA`` environment variable when calling the package away
+    ``OPENWD_DATA`` environment variable when calling the package away
     from the source checkout.
     """
 
@@ -108,6 +108,18 @@ class ModelData:
     @property
     def helium_ii_stark(self) -> Path:
         return self.cache / "helium-stark/he2prf.dat"
+
+    @property
+    def ccc_hydrogen_collisions(self) -> Path:
+        return self.cache / "ccc/e-H_XSEC_LS.zip"
+
+    @property
+    def tlusty_source(self) -> Path:
+        return self.cache / "tlusty-source/tlusty200.f"
+
+    @property
+    def tlusty_helium_atom(self) -> Path:
+        return self.cache / "tlusty-atoms/he1_14lev.dat"
 
     @property
     def stout(self) -> Path:
@@ -674,6 +686,26 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
             )
         ),
     )
+    if result.population_state is not None:
+        # Keep nested atom states without pickle; this is diagnostic output,
+        # not an implicit restart input to the public cold-start API.
+        arrays = {}
+        def collect_population(value, prefix=""):
+            if is_dataclass(value):
+                return {item.name: collect_population(getattr(value, item.name), prefix + item.name + ".")
+                        for item in fields(value)}
+            if isinstance(value, np.ndarray):
+                arrays[prefix[:-1]] = value
+                return {"array": prefix[:-1], "shape": list(value.shape)}
+            if isinstance(value, (float, np.floating)) and not np.isfinite(value):
+                # An unmeasured population defect is absent, not zero. Keep
+                # fixed-state diagnostic outputs valid strict JSON as well.
+                return None
+            return _jsonable(value)
+        population_metadata = collect_population(result.population_state)
+        arrays["metadata_json"] = np.asarray(json.dumps(
+            population_metadata, sort_keys=True, allow_nan=False))
+        np.savez_compressed(directory / "populations.npz", **arrays)
     record = {
         "schema": 1,
         "spectral_type": result.spectral_type,

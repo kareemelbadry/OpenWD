@@ -94,9 +94,12 @@ from .stark import (
     default_paschen_stark_table,
 )
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
+
+from .models.hot import DOConfig, DAOConfig, compute_do, compute_dao
 
 __all__ = [
+    "DOConfig", "DAOConfig", "compute_do", "compute_dao",
     "Atmosphere",
     "AtmosphereConvergenceWarning",
     "BarklemSelfBroadeningTable",

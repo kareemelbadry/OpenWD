@@ -27,7 +27,10 @@ from .daz import DAZConfig, compute_daz
 from .dq import DQConfig, compute_dq
 from .automatic import ModelRun, run_model
 
+from .hot import DOConfig, DAOConfig, compute_do, compute_dao
+
 __all__ = [
+    "DOConfig", "DAOConfig", "compute_do", "compute_dao",
     "AtmosphereConvergenceWarning",
     "DAConfig",
     "DAZConfig",

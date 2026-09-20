@@ -13,6 +13,7 @@ import numpy as np
 from .stellar import DAConfig, DBConfig, DABConfig, DZConfig
 from .daz import DAZConfig
 from .dq import DQConfig
+from .hot import DOConfig, DAOConfig, validate_config
 from .common import ModelData
 
 
@@ -109,12 +110,21 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
     equations. Provisional structures are not reused as converged solutions.
     Actual dense runs retain their stricter local table/trace-ion guards.
     """
+    if not isinstance(config, (DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig,
+                               DQConfig, DOConfig, DAOConfig)):
+        raise TypeError('expected a DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig, DQConfig, DOConfig or DAOConfig')
     data = ModelData.default() if data is None else data
     t, g = config.effective_temperature, config.logg
     if not np.isfinite(t) or t <= 0 or not np.isfinite(g):
         raise ValueError(
             "effective temperature and logg must be finite, with Teff positive"
         )
+    if isinstance(config, (DOConfig, DAOConfig)):
+        validate_config(config)
+        return PhysicsSelection(
+            "dao" if isinstance(config, DAOConfig) else "do",
+            "Restricted H/He NLTE with shared thermal Newton solver",
+            {"nlte_charge_feedback": False, "metals": False}, False, True)
     if isinstance(config, DQConfig):
         return PhysicsSelection(
             "dq",
@@ -216,4 +226,4 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
             and t in ((7500, 8000, 9000, 10000) if molecular else (20000,)),
             bool(molecular),
         )
-    raise TypeError("expected a DAConfig, DBConfig, DABConfig or DZConfig")
+    raise AssertionError('unhandled supported model configuration')

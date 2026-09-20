@@ -22,6 +22,12 @@ The [DQ module](docs/models/DQ.md) includes refractive transfer, starts from
 scratch with bundled constitutive data, and requires an independent
 final-spectrum flux check. See the [DQ quick start](docs/getting-started.md#dq-heliumcarbon-atmospheres).
 
+Experimental **DO/DAO** presets add restricted H/He NLTE through the shared
+thermal Newton solver. See the [DO/DAO guide](docs/models/DO-DAO.md) for the
+API, external data, retained LTE charge closure, and qualification limits.
+Seven prescribed DO/DAO configurations have converged from cold starts;
+observational discrepancies remain. See the [release evidence](docs/development/history/do-dao-release-2026-09-20.md).
+
 ## Get started
 
 Clone the repository and install it with Python 3.9 or newer:

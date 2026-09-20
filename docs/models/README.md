@@ -13,8 +13,15 @@ implemented material treatment before solving a new atmosphere.
 | `DABConfig` | Homogeneous H/He; `log_hydrogen_to_helium` sets log10 N(H)/N(He) | [DAB/DBA physics](DAB.md) |
 | `DZConfig` | Helium with metals and optional trace hydrogen | [DZ/DBZ physics](DZ.md) |
 | `DQConfig` | Helium with trace carbon and C₂ Swan bands; preliminary | [DQ physics and setup](DQ.md) |
+| `DOConfig` | Pure helium; experimental restricted NLTE | [DO/DAO physics and data](DO-DAO.md) |
+| `DAOConfig` | Homogeneous H/He; experimental restricted NLTE | [DO/DAO physics and data](DO-DAO.md) |
 
-All describe plane-parallel LTE atmospheres. They predict spectra for
+`DOConfig` and `DAOConfig` add experimental hot helium and mixed H/He
+[restricted NLTE models](DO-DAO.md). Their LTE charge closure and incomplete
+observational qualification are documented explicitly.
+
+All configurations describe plane-parallel atmospheres; DO/DAO add restricted
+NLTE populations while retaining an LTE charge/pressure closure. They predict spectra for
 specified parameters; they do not fit observations. Established presets and
 experimental cool workflows have different applicability limits; see
 [limitations](../limitations.md) and [tested points](../tested-temperature-ranges.md).

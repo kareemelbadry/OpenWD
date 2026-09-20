@@ -220,3 +220,33 @@ python examples/one_shot_da.py --teff 12000 --logg 8 --quality standard
 Run a script with `--help` for its options. No saved atmosphere is needed.
 For a deeper explanation of selection and certification, see the
 [technical reference](development/history/reliability-2026-09-07.md).
+
+## DO/DAO hot H/He atmospheres
+
+Use the explicit `DOConfig` (pure helium) or `DAOConfig` (mixed H/He).
+A high temperature in `DAConfig` or `DBConfig` does not select NLTE.
+These experimental models require external CCC/TLUSTY files; see the
+[DO/DAO setup](models/DO-DAO.md#external-data) before running.
+
+```python
+from wd_spectra import DOConfig, ModelData, run_model
+
+run = run_model(
+    DOConfig(effective_temperature=50_000, logg=8, quality="standard"),
+    "results/do-50000",  # new directory; always starts from scratch
+    data=ModelData.default("/path/to/data"),
+    require_convergence=True,
+)
+```
+
+The CLI equivalent is:
+
+```bash
+python examples/one_shot_do.py --teff 50000 --data-root /path/to/data --output results/do-50000
+```
+
+Add `--log-hydrogen-to-helium 2` for DAO. Expect roughly one to several hours
+for the tested standard/production configurations, depending on hardware.
+`quick` is an intentionally short smoke test and does not establish equilibrium.
+The [tested points](models/DO-DAO.md#cold-start-qualification-and-runtime)
+and remaining observed-profile discrepancies delimit current qualification.

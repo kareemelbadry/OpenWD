@@ -8,6 +8,10 @@ time of writing and may discuss settings that are not public defaults.
 Use [getting started](../../getting-started.md) for current commands and
 [tested points](../../tested-temperature-ranges.md) for current qualification.
 
+## Hot H/He models
+
+- [DO/DAO release integration and cold-start evidence](do-dao-release-2026-09-20.md)
+
 ## Numerical baseline and reliability
 
 - [Microphysics normalization and buffer audit](microphysics-audit-2026-09-10.md)

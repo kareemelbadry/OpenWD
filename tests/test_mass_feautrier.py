@@ -5,6 +5,91 @@ from wd_spectra._compat import trapezoid
 from wd_spectra.opacity import optical_depth_from_mass_opacity
 from wd_spectra._stable_feautrier import cancellation_safe_field
 from wd_spectra._mass_feautrier import mass_field, mass_energy, mass_energy_response
+from wd_spectra._mass_feautrier import (mass_emissivity_field, mass_emissivity_energy,
+    mass_response, MassResponseOperator, InvalidRadiationFieldError)
+
+
+@pytest.mark.parametrize('angles',[1,3])
+@pytest.mark.parametrize('gain',[False,True])
+def test_frozen_response_operator_reuses_anchor_for_distinct_material_directions(angles,gain):
+    mass,wave,a,s,eta,tau,source,field=_gain_slab(np.zeros(5))
+    if not gain:
+        a=np.abs(a)+.1
+        tau=optical_depth_from_mass_opacity(mass,a+s)
+    ext=a+s;fraction=s/ext
+    frozen=MassResponseOperator(tau,wave,source,fraction,mass,extinction=ext,
+        n_angle=angles,wavelength_chunk_size=2,allow_stimulated_gain=gain)
+    rng=np.random.default_rng(159)
+    for _ in range(2):
+        direct,db,dk=rng.normal(size=(3,)+source.shape)
+        expected=mass_response(tau,wave,source,direct,db,fraction,mass,dk,
+            extinction=ext,n_angle=angles,wavelength_chunk_size=2,allow_stimulated_gain=gain)
+        actual=frozen.apply(direct,db,dk)
+        for before,after in zip(expected,actual):
+            np.testing.assert_array_equal(before,after)
+    # A caller preparing its next atmosphere must not mutate the saved anchor.
+    source[:]=0.;tau[:]*=2;ext[:]*=3;fraction[:]=0.
+    again=frozen.apply(direct,db,dk)
+    for before,after in zip(actual,again):
+        np.testing.assert_array_equal(before,after)
+
+
+def _gain_slab(x):
+    mass=np.array([.02,.1,.4,1.,3.]);wave=np.array([1000.,4000.,9000.])
+    a=np.broadcast_to(np.array([-.1,-.02,0.,.2,.3]),(3,5))+.03*x
+    s=np.full((3,5),.5)*np.exp(-.1*x)
+    eta=np.broadcast_to(np.array([.01,.03,.1,.4,1.]),(3,5))*np.exp(2*x)
+    tau=optical_depth_from_mass_opacity(mass,a+s)
+    source,field=mass_emissivity_field(tau,eta,a,s,column_mass=mass,
+        bottom_source=eta[:,-1]/a[:,-1],n_angle=1)
+    return mass,wave,a,s,eta,tau,source,field
+
+
+def test_signed_absorption_matches_independent_matrix_and_energy_conservation():
+    mass,wave,a,s,eta,tau,source,field=_gain_slab(np.zeros(5))
+    # Assemble the original second-order difference equations independently.
+    # This includes an exactly zero absorption cell and two gain cells.
+    mu=.5;h=np.diff(tau[0],prepend=0.);mh=np.diff(mass,prepend=0.)
+    matrix=np.zeros((6,6));rhs=np.zeros(6)
+    matrix[0,0]=1+mu/h[0];matrix[0,1]=-mu/h[0]
+    for i in range(4):
+        volume=(a+s)[0,i]*.5*(mh[i]+mh[i+1])
+        left=mu**2/(h[i]*volume);right=mu**2/(h[i+1]*volume)
+        matrix[i+1,i]=-left;matrix[i+1,i+1]=left+right+a[0,i]/(a+s)[0,i]
+        matrix[i+1,i+2]=-right;rhs[i+1]=eta[0,i]/(a+s)[0,i]
+    matrix[-1,-1]=1;rhs[-1]=eta[0,-1]/a[0,-1]
+    u=np.linalg.solve(matrix,rhs)
+    np.testing.assert_allclose(field.mean_intensity[0],u[1:],rtol=2e-13)
+    np.testing.assert_allclose(field.interface_flux[0],4*np.pi*mu**2*np.diff(u)/h,rtol=2e-12)
+    energy,_=mass_emissivity_energy(wave,mass,eta,field.mean_intensity,a)
+    np.testing.assert_allclose(energy,np.diff(trapezoid(field.interface_flux,wave,axis=0)),rtol=2e-12,atol=1e-9)
+    _,boundary=mass_emissivity_field(tau,np.zeros_like(eta),a,s,column_mass=mass,
+        bottom_source=eta[:,-1]/a[:,-1],n_angle=1)
+    _,volume=mass_emissivity_field(tau,eta,a,s,column_mass=mass,bottom_source=np.zeros(3),n_angle=1)
+    np.testing.assert_allclose(field.interface_flux,boundary.interface_flux+volume.interface_flux,rtol=2e-12,atol=1e-13)
+
+
+def test_signed_absorption_material_response_crosses_zero_without_singularity():
+    mass,wave,a,s,eta,tau,source,field=_gain_slab(np.zeros(5))
+    da=np.full_like(a,.03);ds=-.1*s;deta=2*eta;ext=a+s
+    direct=(deta+ds*field.mean_intensity-(da+ds)*source)/ext
+    db=np.zeros_like(eta);db[:,-1]=(deta[:,-1]*a[:,-1]-eta[:,-1]*da[:,-1])/a[:,-1]**2
+    fj,mj,_=mass_response(tau,wave,source,direct,db,s/ext,mass,da+ds,
+        extinction=ext,n_angle=1,allow_stimulated_gain=True)
+    for i in range(5):
+        dx=np.eye(5)[i]*1e-5
+        plus=_gain_slab(dx)[-1];minus=_gain_slab(-dx)[-1]
+        np.testing.assert_allclose(mj[:,:,i],(plus.mean_intensity-minus.mean_intensity)/2e-5,rtol=3e-7,atol=2e-7)
+        fd=trapezoid((plus.interface_flux-minus.interface_flux)/2e-5,wave,axis=0)
+        np.testing.assert_allclose(fj[:,i],fd,rtol=3e-7,atol=2e-5)
+
+
+def test_excessive_stimulated_gain_is_not_clipped_into_a_valid_field():
+    mass=np.geomspace(.01,100.,12);a=np.full((1,12),-.1);a[:,-1]=.1
+    s=np.full_like(a,.2);eta=np.ones_like(a)
+    tau=optical_depth_from_mass_opacity(mass,a+s)
+    with pytest.raises(InvalidRadiationFieldError):
+        mass_emissivity_field(tau,eta,a,s,column_mass=mass,bottom_source=np.array([10.]),n_angle=1)
 
 
 @pytest.mark.parametrize('chunk',[0,-1,True,1.5])

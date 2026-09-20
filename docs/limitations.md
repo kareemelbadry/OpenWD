@@ -119,3 +119,13 @@ and [model guides](models/README.md) describe the scope in more detail.
 Automatic selection identifies the relevance of implemented physics; it does
 not establish convergence or supply missing physics. Unsupported overrides,
 missing data, or invalid material domains are reported explicitly.
+
+## Restricted DO/DAO NLTE
+
+[DO/DAO models](models/DO-DAO.md) have seven cold-start-qualified configurations,
+not a validated hot-star grid. Their electron density and gas pressure retain
+LTE closure; NLTE ionization does not feed back into charge balance. Metals,
+winds, radiative acceleration and convection are omitted. One DO target still
+fails the strict legacy profile comparison, and GD153's H-alpha profile remains
+worse than the TMAP reference. A numerical certificate does not resolve these
+physical and observational limitations. External CCC/TLUSTY data are required.
