@@ -1201,7 +1201,7 @@ def _prepare_neutral_helium_continuum_transfer_problem(
                 thermal_background / np.maximum(lte_absorption, 1.0e-40)
             )
         )
-        raise RuntimeError(
+        raise NonphysicalPopulationError(
             "He I bound-free decomposition is inconsistent with LTE "
             f"continuum opacity ({mismatch:.3e})"
         )
@@ -3221,7 +3221,7 @@ def _prepare_helium_continuum_transfer_problem(
                 thermal_background / np.maximum(lte_absorption, 1.0e-40)
             )
         )
-        raise RuntimeError(
+        raise NonphysicalPopulationError(
             "He II bound-free decomposition is inconsistent with LTE "
             f"continuum opacity ({mismatch:.3e})"
         )

@@ -109,9 +109,30 @@ def _mass_emission_field(tau,emission_source,fraction,ext,bottom_source,*,
         rhs=np.zeros((stop-start,nd+1,n_angle))
         rhs[:,1:-1]=emission_source[local,:-1,None]
         rhs[:,-1]=bottom_source[local,None]
+        # Deep-Wien sources can be nonzero but subnormal during elimination.
+        # Normalize only those very faint rows, leaving ordinary field
+        # arithmetic unchanged. Linearity restores the physical units after
+        # solving; no negative intensity or emissivity is clipped.
+        peak=np.max(abs(rhs),axis=(1,2))
+        faint=(peak>0)&(peak<np.sqrt(np.finfo(float).tiny))
+        if np.any(faint):rhs[faint]/=peak[faint,None,None]
         u,jump=factor.solve(rhs,reconstruct_intensity=reconstruct_intensity)
+        if np.any(faint):
+            u[faint]*=peak[faint,None,None]
+            jump[faint]*=peak[faint,None,None]
         if require_nonnegative and (np.any(~np.isfinite(u)) or np.any(u<0)):
-            raise InvalidRadiationFieldError('stimulated-emission transfer has nonphysical angular intensities')
+            index=np.unravel_index(np.argmin(u),u.shape)
+            error=InvalidRadiationFieldError(
+                'stimulated-emission transfer has nonphysical angular intensities '
+                f'(wavelength index {start+index[0]}, depth {index[1]}, '
+                f'minimum {u[index]:.6g}, row maximum {np.max(abs(u[index[0]])):.6g}, '
+                f'maximum scattering fraction {np.max(fraction[start+index[0]]):.6g})')
+            # Small reproducer for numerical diagnostics; no full-grid copy.
+            row=start+index[0]
+            error.transfer_row=dict(tau=tau[row].copy(),emission_source=emission_source[row].copy(),
+                fraction=fraction[row].copy(),extinction=ext[row].copy(),bottom_source=bottom_source[row],
+                column_mass=np.asarray(column_mass).copy(),n_angle=n_angle)
+            raise error
         mean[local]=u[:,1:]@factor.weight
         derivative=jump/factor.h[:,:,None];fw=4*np.pi*factor.weight*factor.mu**2
         interface[local]=derivative@fw
@@ -140,17 +161,18 @@ class MassResponseOperator:
         self.reconstruct_intensity=reconstruct_intensity
         self.factors={}
 
-    def apply(self,direct,db,dk,*,return_auxiliary_response=True,mean_response_consumer=None):
+    def apply(self,direct,db,dk,*,return_auxiliary_response=True,mean_response_consumer=None,nodal_flux_response_consumer=None):
         return mass_response(self.tau,self.wave,self.source,direct,db,self.fraction,
             self.mass,dk,extinction=self.extinction,n_angle=self.n_angle,
             wavelength_chunk_size=self.chunk_size,allow_stimulated_gain=self.allow_stimulated_gain,
             reconstruct_intensity=self.reconstruct_intensity,
             return_auxiliary_response=return_auxiliary_response,
-            mean_response_consumer=mean_response_consumer,_operator=self)
+            mean_response_consumer=mean_response_consumer,nodal_flux_response_consumer=nodal_flux_response_consumer,_operator=self)
 
 
 def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angle=4,
                   wavelength_chunk_size=16,return_auxiliary_response=True,mean_response_consumer=None,
+                  nodal_flux_response_consumer=None,
                   allow_stimulated_gain=False,reconstruct_intensity=False,_operator=None):
     """Exact linear response of the mass-volume field at fixed mass nodes."""
     validate_chunk(wavelength_chunk_size)
@@ -210,6 +232,18 @@ def mass_response(tau,wave,source,direct,db,fraction,mass,dk,*,extinction,n_angl
             mean.flags.writeable=False;mean_response_consumer(start,stop,mean)
         local_flux=np.einsum('wdrk,r->wdk',jump_response/h[:,:,None,None]
             -jumps[:,:,:,None]*dh[:,:,None,:]/h[:,:,None,None]**2,4*np.pi*coupled.weight*coupled.mu**2)
+        if nodal_flux_response_consumer is not None:
+            # Differentiate the same optical-resistance interpolation used
+            # for the nodal flux in _mass_emission_field.
+            face_flux=np.einsum('wdr,r->wd',jumps/h[:,:,None],4*np.pi*coupled.weight*coupled.mu**2)
+            nodal=local_flux.copy()
+            denom=h[:,:-1]+h[:,1:]
+            value=(h[:,1:]*face_flux[:,:-1]+h[:,:-1]*face_flux[:,1:])/denom
+            nodal[:,:-1]=(h[:,1:,None]*local_flux[:,:-1]+h[:,:-1,None]*local_flux[:,1:]
+                +dh[:,1:]*(face_flux[:,:-1]-value)[:,:,None]
+                +dh[:,:-1]*(face_flux[:,1:]-value)[:,:,None])/denom[:,:,None]
+            nodal.flags.writeable=False
+            nodal_flux_response_consumer(start,stop,nodal)
         integrated+=np.einsum('wdk,w->dk',local_flux,weights[local])
     return integrated,mean_response,source_response
 

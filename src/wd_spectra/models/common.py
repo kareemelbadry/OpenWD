@@ -694,6 +694,12 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
             if is_dataclass(value):
                 return {item.name: collect_population(getattr(value, item.name), prefix + item.name + ".")
                         for item in fields(value)}
+            if isinstance(value, Mapping):
+                return {str(key): collect_population(item, prefix + str(key) + ".")
+                        for key, item in value.items()}
+            if isinstance(value, (tuple, list)):
+                return [collect_population(item, prefix + str(index) + ".")
+                        for index, item in enumerate(value)]
             if isinstance(value, np.ndarray):
                 arrays[prefix[:-1]] = value
                 return {"array": prefix[:-1], "shape": list(value.shape)}

@@ -93,6 +93,7 @@ class NonlinearIteration:
 
 NonlinearTerminalReason = Literal[
     "initial-state-converged",
+    "accepted-state-phase-handoff",
     "rejected-step-phase-handoff",
     "residual-and-step-converged",
     "stationary-warm-start-complete",
@@ -275,6 +276,10 @@ def solve_trust_region_newton(
         [FloatArray, NonlinearEvaluation[Payload]], bool
     ]
     | None = None,
+    accepted_state_handoff: Callable[
+        [FloatArray, NonlinearEvaluation[Payload]], bool
+    ]
+    | None = None,
     step_measure: Callable[[FloatArray, FloatArray], float] | None = None,
     trust_step_measure: Callable[[FloatArray, FloatArray], float] | None = None,
     stationary_completion_iterations: int | None = None,
@@ -309,6 +314,10 @@ def solve_trust_region_newton(
     before evaluation. Its actual displacement must satisfy the trust radius;
     the repaired state, not the original proposal, is evaluated and retained.
     This hook cannot bypass merit reduction or the convergence tests.
+    ``accepted_state_handoff`` may end a provisional continuation phase at
+    the initial or a genuinely accepted state. It returns ``converged=False``
+    and cannot certify equilibrium or change trial acceptance. Final root
+    solves must leave this optional hook disabled.
     ``rejected_step_handoff`` may request a different residual representation
     after a whole direction is rejected. It returns the unchanged accepted
     state with ``converged=False``; it cannot certify or accept a rejected trial.
@@ -529,6 +538,8 @@ def solve_trust_region_newton(
     # mathematically appropriate stationarity test for an unchanged restart.
     evaluation = evaluated(state, False)
     initial_residual_maximum = float(np.max(np.abs(evaluation.residual)))
+    if accepted_state_handoff is not None and accepted_state_handoff(state.copy(), evaluation):
+        return finished("accepted-state-phase-handoff", False, 0)
     if (
         allow_initial_convergence
         and initial_residual_maximum < residual_tolerance
@@ -1092,6 +1103,8 @@ def solve_trust_region_newton(
         history.append(record)
         if callback is not None:
             callback(record, state.copy(), evaluation)
+        if accepted_state_handoff is not None and accepted_state_handoff(state.copy(), evaluation):
+            return finished("accepted-state-phase-handoff", False, iteration)
 
     final_converged = bool(
         np.max(np.abs(evaluation.residual)) < residual_tolerance

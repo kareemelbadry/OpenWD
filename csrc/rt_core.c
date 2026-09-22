@@ -334,34 +334,81 @@ upper_bound_double(const double *values, Py_ssize_t size, double target)
     return left;
 }
 
+/* The universal quadrature is independent of line, depth, and population.
+ * Tabulate U(beta)/beta^2 and its analytic derivative once per accumulation.
+ * Cubic Hermite interpolation on 8192 intervals agrees with direct quadrature
+ * to 3e-13 relative on the central branch. Small-field and far-wing formulas
+ * are unchanged. The table is call-local, so concurrent callers cannot race.
+ */
+#define HOLTSMARK_INTERVALS 8192
+struct HoltsmarkTable {
+    double value[HOLTSMARK_INTERVALS + 1];
+    double slope[HOLTSMARK_INTERVALS + 1];
+};
+
+static void
+prepare_holtsmark_table(struct HoltsmarkTable *table, const double *argument,
+                       const double *weight, Py_ssize_t size)
+{
+    const double factor = 4.0 / (3.0 * 3.1415926535897932384626433832795);
+    int point;
+    for (point = 0; point <= HOLTSMARK_INTERVALS; ++point) {
+        const double beta = 8.0 * point / HOLTSMARK_INTERVALS;
+        double value = 0.0, slope = 0.0;
+        Py_ssize_t index;
+        for (index = 0; index < size; ++index) {
+            const double q = argument[index];
+            const double z = beta * q;
+            if (z == 0.0) {
+                value += weight[index] * q;
+            } else {
+                const double sine = sin(z);
+                value += weight[index] * q * sine / z;
+                slope += weight[index] * q * q * (z*cos(z)-sine)/(z*z);
+            }
+        }
+        table->value[point] = factor * value;
+        table->slope[point] = factor * slope;
+    }
+}
+
 static double
-holtsmark_distribution(
-    double beta,
-    const double *quadrature_argument,
-    const double *quadrature_weight,
-    Py_ssize_t quadrature_size)
+holtsmark_distribution(double beta, const struct HoltsmarkTable *table)
 {
     const double pi = 3.1415926535897932384626433832795;
     double result;
     if (beta < 1.0e-3) {
         result = 4.0 / (3.0 * pi) * beta * beta;
     } else if (beta <= 8.0) {
-        Py_ssize_t index;
-        double integral = 0.0;
-        for (index = 0; index < quadrature_size; ++index) {
-            integral += quadrature_weight[index] *
-                        sin(beta * quadrature_argument[index]);
-        }
-        result = 4.0 * beta / (3.0 * pi) * integral;
+        const double h = 8.0 / HOLTSMARK_INTERVALS;
+        const double position = beta / h;
+        int left = (int)position;
+        double t, t2, t3;
+        if (left >= HOLTSMARK_INTERVALS) left = HOLTSMARK_INTERVALS - 1;
+        t = position-left; t2=t*t; t3=t2*t;
+        result = beta*beta*((2*t3-3*t2+1)*table->value[left]
+            +(t3-2*t2+t)*h*table->slope[left]
+            +(-2*t3+3*t2)*table->value[left+1]
+            +(t3-t2)*h*table->slope[left+1]);
     } else {
         const double inverse = 1.0 / beta;
+        /* Reuse exact integer/half-integer powers in the same wing
+         * expansion; avoid six general pow calls for every profile sample. */
+        const double inverse2 = inverse * inverse;
+        const double inverse3 = inverse2 * inverse;
+        const double inverse4 = inverse2 * inverse2;
+        const double inverse2p5 = inverse2 * sqrt(inverse);
+        const double inverse5p5 = inverse2p5 * inverse3;
+        const double inverse8p5 = inverse5p5 * inverse3;
+        const double inverse10 = inverse4 * inverse3 * inverse3;
+        const double inverse11p5 = inverse8p5 * inverse3;
         result =
-            1.496033551505373 * pow(inverse, 2.5) +
-            7.639437268410976 * pow(inverse, 4.0) +
-            21.598984399858832 * pow(inverse, 5.5) -
-            447.50395803457565 * pow(inverse, 8.5) -
-            3208.56365273261 * pow(inverse, 10.0) -
-            12222.451853819328 * pow(inverse, 11.5);
+            1.496033551505373 * inverse2p5 +
+            7.639437268410976 * inverse4 +
+            21.598984399858832 * inverse5p5 -
+            447.50395803457565 * inverse8p5 -
+            3208.56365273261 * inverse10 -
+            12222.451853819328 * inverse11p5;
     }
     return result > 0.0 ? result : 0.0;
 }
@@ -633,6 +680,30 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
         double *absorption = (double *)views[15].buf;
         double *emissivity = (double *)views[16].buf;
         const Py_ssize_t quadrature_size = views[13].shape[0];
+        struct HoltsmarkTable holtsmark;
+        /* Access the shared cache only while holding the GIL, then copy to
+         * call-local storage before releasing it. Different quadratures and
+         * concurrent profile calculations therefore cannot change this call.
+         */
+        static struct HoltsmarkTable cached_holtsmark;
+        static double cached_argument[128], cached_weight[128];
+        static Py_ssize_t cached_size = -1;
+        if (quadrature_size <= 128) {
+            const size_t bytes = (size_t)quadrature_size * sizeof(double);
+            if (cached_size != quadrature_size ||
+                memcmp(cached_argument, quadrature_argument, bytes) != 0 ||
+                memcmp(cached_weight, quadrature_weight, bytes) != 0) {
+                prepare_holtsmark_table(&cached_holtsmark, quadrature_argument,
+                                       quadrature_weight, quadrature_size);
+                memcpy(cached_argument, quadrature_argument, bytes);
+                memcpy(cached_weight, quadrature_weight, bytes);
+                cached_size = quadrature_size;
+            }
+            memcpy(&holtsmark, &cached_holtsmark, sizeof(holtsmark));
+        } else {
+            prepare_holtsmark_table(&holtsmark, quadrature_argument,
+                                   quadrature_weight, quadrature_size);
+        }
 
         Py_BEGIN_ALLOW_THREADS
         for (line = 0; line < n_line; ++line) {
@@ -732,10 +803,7 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                             const double static_cross_section =
                                 0.5 * static_amplitude[line_depth] *
                                 holtsmark_distribution(
-                                    beta,
-                                    quadrature_argument,
-                                    quadrature_weight,
-                                    quadrature_size);
+                                    beta, &holtsmark);
                             if (static_cross_section > cross_section) {
                                 cross_section = static_cross_section;
                             }
@@ -1014,26 +1082,36 @@ photoionization_rates(PyObject *self, PyObject *args)
         const double *intensity = (const double *)views[1].buf;
         const double *cross_section = (const double *)views[2].buf;
         double *rate = (double *)views[3].buf;
+        double *previous = PyMem_Malloc((size_t)n_depth * sizeof(double));
+        if (previous == NULL) {
+            PyErr_NoMemory();
+            goto cleanup_photoionization;
+        }
         Py_BEGIN_ALLOW_THREADS
+        /* Depth is contiguous in the radiation array. Keep each depth's
+         * wavelength accumulation in the original order, but traverse whole
+         * rows so the inner loop can vectorize without strided rereads. */
         for (level = 0; level < n_level; ++level) {
+            double *local_rate = rate + level * n_depth;
             for (depth = 0; depth < n_depth; ++depth) {
-                double integral = 0.0;
-                double previous =
-                    intensity[depth] * cross_section[level * n_wave] *
-                    wavelength[0] * rate_prefactor;
-                for (wave = 1; wave < n_wave; ++wave) {
-                    const double current =
-                        intensity[wave * n_depth + depth] *
-                        cross_section[level * n_wave + wave] *
-                        wavelength[wave] * rate_prefactor;
-                    integral += 0.5 * (previous + current) *
-                                (wavelength[wave] - wavelength[wave - 1]);
-                    previous = current;
+                local_rate[depth] = 0.0;
+                previous[depth] = intensity[depth] * cross_section[level * n_wave] *
+                                  wavelength[0] * rate_prefactor;
+            }
+            for (wave = 1; wave < n_wave; ++wave) {
+                const double sigma = cross_section[level * n_wave + wave];
+                const double lambda = wavelength[wave];
+                const double interval = lambda - wavelength[wave - 1];
+                const double *local_intensity = intensity + wave * n_depth;
+                for (depth = 0; depth < n_depth; ++depth) {
+                    const double current = local_intensity[depth] * sigma * lambda * rate_prefactor;
+                    local_rate[depth] += 0.5 * (previous[depth] + current) * interval;
+                    previous[depth] = current;
                 }
-                rate[level * n_depth + depth] = integral;
             }
         }
         Py_END_ALLOW_THREADS
+        PyMem_Free(previous);
     }
 
     for (index = 0; index < 4; ++index) {
@@ -1714,7 +1792,293 @@ cleanup_hydrogen_stark_lorentz:
     return result;
 }
 
+/* Fuse one level's bound-free contribution without wavelength/depth temporaries. */
+static PyObject *
+accumulate_bound_free_nlte(PyObject *self, PyObject *args)
+{
+    PyObject *objects[9] = {NULL};
+    Py_buffer views[9] = {{0}};
+    PyObject *result = NULL;
+    int index;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "OOOOOOOOO:accumulate_bound_free_nlte",
+            &objects[0], &objects[1], &objects[2], &objects[3], &objects[4],
+            &objects[5], &objects[6], &objects[7], &objects[8])) return NULL;
+    for (index = 0; index < 9; ++index) {
+        int flags = PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES |
+                    (index >= 7 ? PyBUF_WRITABLE : 0);
+        if (PyObject_GetBuffer(objects[index], &views[index], flags) < 0) goto cleanup;
+        if (!is_double_buffer(&views[index])) {
+            PyErr_SetString(PyExc_TypeError, "bound-free arrays must have native float64 dtype");
+            goto cleanup;
+        }
+        if (!PyBuffer_IsContiguous(&views[index], 'C')) {
+            PyErr_SetString(PyExc_ValueError, "bound-free arrays must be C-contiguous");
+            goto cleanup;
+        }
+        if (views[index].ndim != (index < 5 ? 1 : 2)) {
+            PyErr_SetString(PyExc_ValueError, "bound-free arrays have invalid dimensions");
+            goto cleanup;
+        }
+    }
+    {
+        const Py_ssize_t nw = views[0].shape[0], nd = views[1].shape[0];
+        for (index = 2; index < 5; ++index) {
+            if (views[index].shape[0] != nd) {
+                PyErr_SetString(PyExc_ValueError, "bound-free depth arrays must match");
+                goto cleanup;
+            }
+        }
+        for (index = 5; index < 9; ++index) {
+            if (views[index].shape[0] != nw || views[index].shape[1] != nd) {
+                PyErr_SetString(PyExc_ValueError, "bound-free wavelength/depth arrays must match");
+                goto cleanup;
+            }
+        }
+        const double *sigma = views[0].buf, *population = views[1].buf;
+        const double *density = views[2].buf, *lower = views[3].buf, *upper = views[4].buf;
+        const double *exponential = views[5].buf, *planck = views[6].buf;
+        double *absorption = views[7].buf, *emissivity = views[8].buf;
+        Py_BEGIN_ALLOW_THREADS
+        for (Py_ssize_t w = 0; w < nw; ++w) {
+            for (Py_ssize_t d = 0; d < nd; ++d) {
+                const Py_ssize_t k = w * nd + d;
+                const double base = sigma[w] * population[d] / density[d];
+                const double local = base * (lower[d] - upper[d] * exponential[k]);
+                /* Preserve the existing per-level nonnegative-opacity policy. */
+                absorption[k] += local < 0.0 ? 0.0 : local;
+                emissivity[k] += base * (1.0 - exponential[k]) * planck[k] * upper[d];
+            }
+        }
+        Py_END_ALLOW_THREADS
+    }
+    Py_INCREF(Py_None);
+    result = Py_None;
+cleanup:
+    for (index = 0; index < 9; ++index) {
+        if (views[index].obj != NULL) PyBuffer_Release(&views[index]);
+    }
+    return result;
+}
+
+/* Subtraction-free GTH stationary populations; matrix[i,j] is rate j -> i. */
+static PyObject *
+positive_rate_equilibrium(PyObject *self, PyObject *args)
+{
+    PyObject *objects[3] = {NULL};
+    Py_buffer views[3] = {{0}};
+    PyObject *result = NULL;
+    double total, *rates = NULL, *exits = NULL, *probabilities = NULL;
+    int index, failure = 0;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "OOdO:positive_rate_equilibrium",
+                         &objects[0], &objects[1], &total, &objects[2])) return NULL;
+    for (index = 0; index < 3; ++index) {
+        const int flags = PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES |
+                          (index == 2 ? PyBUF_WRITABLE : 0);
+        if (PyObject_GetBuffer(objects[index], &views[index], flags) < 0) goto cleanup;
+        if (!is_double_buffer(&views[index])) {
+            PyErr_SetString(PyExc_TypeError, "rate-system arrays must have native float64 dtype");
+            goto cleanup;
+        }
+        if (!PyBuffer_IsContiguous(&views[index], 'C')) {
+            PyErr_SetString(PyExc_ValueError, "rate-system arrays must be C-contiguous");
+            goto cleanup;
+        }
+        if (views[index].ndim != (index == 0 ? 2 : 1)) {
+            PyErr_SetString(PyExc_ValueError, "rate-system arrays have invalid ranks");
+            goto cleanup;
+        }
+    }
+    {
+        const Py_ssize_t count = views[0].shape[0];
+        if (count < 1 || views[0].shape[1] != count ||
+            views[1].shape[0] != count || views[2].shape[0] != count) {
+            PyErr_SetString(PyExc_ValueError, "rate-system array shapes are inconsistent");
+            goto cleanup;
+        }
+        rates = PyMem_Malloc((size_t)views[0].len);
+        exits = PyMem_Malloc((size_t)count * sizeof(double));
+        probabilities = PyMem_Malloc((size_t)count * sizeof(double));
+        if (rates == NULL || exits == NULL || probabilities == NULL) {
+            PyErr_NoMemory();
+            goto cleanup;
+        }
+        const double *input = views[0].buf, *weights = views[1].buf;
+        double *population = views[2].buf;
+        Py_BEGIN_ALLOW_THREADS
+        for (Py_ssize_t i = 0; i < count; ++i) {
+            for (Py_ssize_t j = 0; j < count; ++j) {
+                const double value = i == j ? 0.0 : input[i * count + j];
+                rates[i * count + j] = value;
+                if (!isfinite(value) || value < 0.0) failure = 1;
+            }
+        }
+        for (Py_ssize_t k = count - 1; k > 0 && !failure; --k) {
+            double exit_rate = 0.0;
+            for (Py_ssize_t i = 0; i < k; ++i) exit_rate += rates[i * count + k];
+            exits[k] = exit_rate;
+            if (!isfinite(exit_rate) || exit_rate <= 0.0) { failure = 2; break; }
+            for (Py_ssize_t i = 0; i < k; ++i) probabilities[i] = rates[i * count + k] / exit_rate;
+            for (Py_ssize_t i = 0; i < k; ++i) {
+                double *row = rates + i * count;
+                const double probability = probabilities[i];
+                const double *indirect = rates + k * count;
+                for (Py_ssize_t j = 0; j < k; ++j) row[j] += probability * indirect[j];
+                row[i] = 0.0;
+            }
+        }
+        if (!failure) {
+            population[0] = 1.0;
+            for (Py_ssize_t k = 1; k < count; ++k) {
+                double incoming = 0.0, largest = 0.0;
+                for (Py_ssize_t j = 0; j < k; ++j) incoming += rates[k * count + j] * population[j];
+                population[k] = incoming / exits[k];
+                for (Py_ssize_t j = 0; j <= k; ++j) largest = fmax(largest, population[j]);
+                if (largest > 1e100) {
+                    for (Py_ssize_t j = 0; j <= k; ++j) population[j] /= largest;
+                }
+            }
+            double normalization = 0.0;
+            for (Py_ssize_t j = 0; j < count; ++j) normalization += weights[j] * population[j];
+            const double scale = total / normalization;
+            for (Py_ssize_t j = 0; j < count; ++j) {
+                population[j] *= scale;
+                if (!isfinite(population[j]) || population[j] < 0.0) failure = 3;
+            }
+        }
+        Py_END_ALLOW_THREADS
+    }
+    if (failure) {
+        const char *message = failure == 1 ? "statistical-equilibrium transition rates must be finite and nonnegative" :
+            failure == 2 ? "disconnected statistical-equilibrium rate system" : "nonphysical statistical-equilibrium populations";
+        PyErr_SetString(PyExc_RuntimeError, message);
+        goto cleanup;
+    }
+    Py_INCREF(Py_None);
+    result = Py_None;
+cleanup:
+    PyMem_Free(rates);
+    PyMem_Free(exits);
+    PyMem_Free(probabilities);
+    for (index = 0; index < 3; ++index) {
+        if (views[index].obj != NULL) PyBuffer_Release(&views[index]);
+    }
+    return result;
+}
+
+/* Tensor-product four-point Lagrange interpolation without array temporaries. */
+static Py_ssize_t
+cubic_table_weights(double coordinate, double minimum, double step,
+                    Py_ssize_t size, double weights[4])
+{
+    const double maximum = minimum + (size - 1) * step;
+    const double clipped = fmin(fmax(coordinate, minimum), maximum);
+    Py_ssize_t base = (Py_ssize_t)floor((clipped - minimum) / step) - 1;
+    if (base < 0) base = 0;
+    if (base > size - 4) base = size - 4;
+    for (int i = 0; i < 4; ++i) {
+        const double node = minimum + (base + i) * step;
+        weights[i] = 1.0;
+        for (int j = 0; j < 4; ++j) {
+            if (i != j) {
+                const double other = minimum + (base + j) * step;
+                weights[i] *= (clipped - other) / (node - other);
+            }
+        }
+    }
+    return base;
+}
+
+static PyObject *
+cubic_table_interpolate(PyObject *self, PyObject *args)
+{
+    PyObject *objects[4] = {NULL};
+    Py_buffer views[4] = {{0}};
+    PyObject *result = NULL;
+    double x_minimum, y_minimum, step;
+    int index;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "OOOdddO:cubic_table_interpolate",
+            &objects[0], &objects[1], &objects[2],
+            &x_minimum, &y_minimum, &step, &objects[3])) return NULL;
+    if (!isfinite(x_minimum) || !isfinite(y_minimum) || !isfinite(step) || step <= 0.0) {
+        PyErr_SetString(PyExc_ValueError, "table coordinates require finite minima and a positive step");
+        return NULL;
+    }
+    for (index = 0; index < 4; ++index) {
+        const int flags = PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES |
+                          (index == 3 ? PyBUF_WRITABLE : 0);
+        if (PyObject_GetBuffer(objects[index], &views[index], flags) < 0) goto cleanup;
+        if (!is_double_buffer(&views[index])) {
+            PyErr_SetString(PyExc_TypeError, "interpolation arrays must have native float64 dtype");
+            goto cleanup;
+        }
+        if (!PyBuffer_IsContiguous(&views[index], 'C')) {
+            PyErr_SetString(PyExc_ValueError, "interpolation arrays must be C-contiguous");
+            goto cleanup;
+        }
+        if (views[index].ndim != (index == 0 ? 2 : 1)) {
+            PyErr_SetString(PyExc_ValueError, "interpolation needs a two-dimensional table and flat coordinates/output");
+            goto cleanup;
+        }
+    }
+    {
+        const Py_ssize_t ny = views[0].shape[0], nx = views[0].shape[1];
+        const Py_ssize_t count = views[1].shape[0];
+        if (ny < 4 || nx < 4 || views[2].shape[0] != count || views[3].shape[0] != count) {
+            PyErr_SetString(PyExc_ValueError, "interpolation table needs four nodes per axis and matching coordinate/output lengths");
+            goto cleanup;
+        }
+        const double maxima[2] = {x_minimum + (nx - 1) * step,
+                                  y_minimum + (ny - 1) * step};
+        const double minima[2] = {x_minimum, y_minimum};
+        for (int axis = 0; axis < 2; ++axis) {
+            if (!isfinite(maxima[axis]) || !isfinite(maxima[axis] - minima[axis]) ||
+                minima[axis] + step <= minima[axis] ||
+                maxima[axis] - step >= maxima[axis]) {
+                PyErr_SetString(PyExc_ValueError, "interpolation grid must have finite, distinct nodes");
+                goto cleanup;
+            }
+        }
+        const double *table = views[0].buf, *x = views[1].buf, *y = views[2].buf;
+        double *output = views[3].buf;
+        int invalid = 0;
+        Py_BEGIN_ALLOW_THREADS
+        for (Py_ssize_t k = 0; k < count; ++k) {
+            double x_weight[4], y_weight[4], value = 0.0;
+            if (isnan(x[k]) || isnan(y[k])) { invalid = 1; break; }
+            const Py_ssize_t ix = cubic_table_weights(x[k], x_minimum, step, nx, x_weight);
+            const Py_ssize_t iy = cubic_table_weights(y[k], y_minimum, step, ny, y_weight);
+            for (int j = 0; j < 4; ++j) {
+                for (int i = 0; i < 4; ++i) {
+                    value += y_weight[j] * x_weight[i] * table[(iy + j) * nx + ix + i];
+                }
+            }
+            output[k] = value;
+        }
+        Py_END_ALLOW_THREADS
+        if (invalid) {
+            PyErr_SetString(PyExc_ValueError, "interpolation coordinates must not contain NaN");
+            goto cleanup;
+        }
+    }
+    Py_INCREF(Py_None);
+    result = Py_None;
+cleanup:
+    for (index = 0; index < 4; ++index) {
+        if (views[index].obj != NULL) PyBuffer_Release(&views[index]);
+    }
+    return result;
+}
+
 static PyMethodDef module_methods[] = {
+    {"positive_rate_equilibrium", positive_rate_equilibrium, METH_VARARGS,
+     PyDoc_STR("positive_rate_equilibrium(matrix, conservation_weights, total_population, output) -> None")},
+    {"cubic_table_interpolate", cubic_table_interpolate, METH_VARARGS,
+     PyDoc_STR("cubic_table_interpolate(table, x, y, x_min, y_min, step, output) -> None")},
+    {"accumulate_bound_free_nlte", accumulate_bound_free_nlte, METH_VARARGS,
+     PyDoc_STR("accumulate_bound_free_nlte(sigma, population, density, lower, upper, exp, planck, absorption, emissivity) -> None")},
     {"emergent_flux", emergent_flux, METH_VARARGS,
      PyDoc_STR("emergent_flux(tau, source, mu, weight) -> list")},
     {"piecewise_linear_lorentz_convolution",

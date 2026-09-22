@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import numpy as np
 
 from .common import ModelData, ModelResult, load_atmosphere_checkpoint, save_model_result
+from .pg1159 import PG1159Config, compute_pg1159
 from .stellar import (
     DAConfig,
     DABConfig,
@@ -60,7 +62,7 @@ def one_shot_main(spectral_type: str) -> None:
     """Run a DA, DB, DAB, or DZ atmosphere and formal spectrum."""
 
     kind = spectral_type.upper()
-    if kind not in {"DA", "DB", "DAB", "DZ"}:
+    if kind not in {"DA", "DB", "DAB", "DZ", "PG1159"}:
         raise ValueError(f"unsupported spectral type {spectral_type!r}")
     parser = argparse.ArgumentParser(
         description=f"Produce one self-consistent {kind} atmosphere and spectrum."
@@ -96,6 +98,11 @@ def one_shot_main(spectral_type: str) -> None:
         parser.add_argument("--strong-line-atomic-data",
                             choices=("stout", "nist-asd"),
                             default=DZConfig().strong_line_atomic_data)
+    if kind == "PG1159":
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+        parser.add_argument("--mass-fraction", action="append", type=_assignment)
+        parser.add_argument("--target-name", default="PG 1424+535")
+        parser.add_argument("--oxygen-atom", choices=("compact14", "extended54-complete"), default="extended54-complete")
     args = parser.parse_args()
 
     supplied_grid = (args.wavelength_min, args.wavelength_max, args.wavelength_step)
@@ -112,6 +119,33 @@ def one_shot_main(spectral_type: str) -> None:
         wavelength = None
 
     data = ModelData.default(args.data_root)
+    if kind == "PG1159":
+        if args.restart_atmosphere is not None:
+            parser.error("PG1159 requires a cold start")
+        defaults = PG1159Config()
+        config = PG1159Config(
+            defaults.effective_temperature if args.teff is None else args.teff,
+            defaults.logg if args.logg is None else args.logg,
+            dict(args.mass_fraction) if args.mass_fraction else defaults.mass_fractions,
+            args.target_name, args.quality, args.oxygen_atom)
+        def progress(iteration, atmosphere, diagnostics):
+            print(
+                "PG1159 "
+                f"{diagnostics.get('continuation_stage', 'stage')} "
+                f"iteration {iteration}: "
+                f"surface_flux={abs(diagnostics.get('surface_flux_ratio', float('nan')) - 1.0):.4g}, "
+                f"local={diagnostics.get('maximum_relative_cell_energy_balance_residual', float('nan')):.4g}, "
+                f"population={diagnostics.get('nlte_maximum_relative_population_change', float('nan')):.4g}",
+                flush=True,
+            )
+
+        result = compute_pg1159(
+            config, wavelength, data=data, iteration_callback=progress
+        )
+        directory = save_model_result(result, args.output)
+        _quicklook(result, directory / "spectrum.png")
+        print(f"Wrote {directory}")
+        return
     if kind == "DA":
         defaults = DAConfig()
         config = DAConfig(

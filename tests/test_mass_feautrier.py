@@ -252,3 +252,26 @@ def test_variable_mass_volume_against_high_precision_matrix():
         flux=np.array([float(4*mp.pi*mu**2*(u[i+1]-u[i])/h[i]) for i in range(n)])
     np.testing.assert_allclose(field.mean_intensity[0],mean,rtol=3e-13)
     np.testing.assert_allclose(field.interface_flux[0],flux,rtol=3e-12,atol=1e-12)
+
+
+def test_deep_wien_transfer_preserves_nonnegative_intensity_without_clipping():
+    """40-depth PG1159 row that formerly failed at a -5e-323 intensity."""
+    from pathlib import Path
+    from wd_spectra._mass_feautrier import _mass_emission_field
+    with np.load(Path(__file__).parent/'data/pg1159_deep_wien_transfer.npz') as saved:
+        data={key:saved[key] for key in saved.files}
+    source=data['emission_source'][None,:]
+    bottom=np.array([float(data['bottom_source'])])
+    options=dict(column_mass=data['column_mass'],n_angle=int(data['n_angle']),
+        wavelength_chunk_size=1,require_nonnegative=True,reconstruct_intensity=True)
+    _,physical=_mass_emission_field(data['tau'][None,:],source,
+        data['fraction'][None,:],data['extinction'][None,:],bottom,**options)
+    assert np.all(physical.mean_intensity>=0)
+    # Independently use ordinary-magnitude input in the same linear system.
+    scale=max(float(source.max()),float(bottom[0]))
+    _,normalized=_mass_emission_field(data['tau'][None,:],source/scale,
+        data['fraction'][None,:],data['extinction'][None,:],bottom/scale,**options)
+    np.testing.assert_allclose(physical.mean_intensity,normalized.mean_intensity*scale,
+        rtol=2e-13,atol=20*np.nextafter(0.,1.))
+    np.testing.assert_allclose(physical.interface_flux,normalized.interface_flux*scale,
+        rtol=2e-13,atol=20*np.nextafter(0.,1.))

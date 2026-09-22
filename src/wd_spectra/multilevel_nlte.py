@@ -1280,7 +1280,7 @@ def _departure_line_factors(
         | (source_denominator <= 0.0)
     )
     if np.any(inverted) and not suppress_population_inversion:
-        raise RuntimeError(
+        raise NonphysicalPopulationError(
             "multilevel solution produced a bound-bound population inversion "
             f"in {line.lower_level}->{line.upper_level}"
         )
@@ -1295,7 +1295,7 @@ def _departure_line_factors(
         opacity_factor = np.where(inverted, 0.0, opacity_factor)
         source_factor = np.where(inverted, 1.0, source_factor)
     if np.any(~np.isfinite(source_factor)) or np.any(source_factor <= 0.0):
-        raise RuntimeError("multilevel line source is non-physical")
+        raise NonphysicalPopulationError("multilevel line source is non-physical")
     return opacity_factor, source_factor
 
 
@@ -1368,7 +1368,7 @@ def _prepare_continuum_transfer_problem(
     tolerance = 2.0e-12 * np.maximum(lte_absorption, 1.0e-40)
     if np.any(thermal_background < -tolerance):
         mismatch = float(np.min(thermal_background / np.maximum(lte_absorption, 1e-40)))
-        raise RuntimeError(
+        raise NonphysicalPopulationError(
             "bound-free decomposition is inconsistent with LTE continuum "
             f"opacity (minimum fractional residual {mismatch:.3e})"
         )
@@ -1436,11 +1436,11 @@ def _nlte_continuum_terms(
             scale = np.maximum(background + np.sum(coefficient, axis=2), 1.0e-40)
             invalid_extinction |= bool(np.any(extinction[local] <= 1.0e-14 * scale))
     if invalid_extinction:
-        raise RuntimeError(
+        raise NonphysicalPopulationError(
             "multilevel solution produced a non-positive total continuum extinction"
         )
     if np.any(~np.isfinite(emissivity)) or np.any(emissivity < 0.0):
-        raise RuntimeError("multilevel continuum emissivity is non-physical")
+        raise NonphysicalPopulationError("multilevel continuum emissivity is non-physical")
     return np.ascontiguousarray(extinction), np.ascontiguousarray(emissivity)
 
 
@@ -1699,8 +1699,14 @@ def _anderson_log_population_update(
     depth: int,
     mixing: float,
     maximum_step: float,
+    residual_weights: FloatArray | None = None,
 ) -> tuple[FloatArray | None, str]:
-    """Return a safeguarded type-II Anderson population update."""
+    """Return a safeguarded type-II Anderson population update.
+
+    Optional weights scale the residual fit, not the physical populations or
+    fixed point. PG1159 uses its population convergence floors here so nearly
+    empty levels cannot dominate the acceleration's least-squares objective.
+    """
 
     residual = np.ascontiguousarray(log_fixed_point - log_population)
     history.append((log_population.copy(), residual.copy()))
@@ -1712,10 +1718,17 @@ def _anderson_log_population_update(
     residuals = np.column_stack([item[1].ravel() for item in history])
     state_difference = np.diff(states, axis=1)
     residual_difference = np.diff(residuals, axis=1)
-    gram = residual_difference.T @ residual_difference / residual_difference.shape[0]
-    right_hand_side = (
-        residual_difference.T @ residual.ravel() / residual_difference.shape[0]
-    )
+    fit_difference = residual_difference
+    fit_residual = residual.ravel()
+    if residual_weights is not None:
+        weights = np.asarray(residual_weights, dtype=float).ravel()
+        if (weights.shape != fit_residual.shape or np.any(~np.isfinite(weights))
+                or np.any(weights < 0)):
+            raise ValueError("Anderson residual weights must be finite, nonnegative and match the state")
+        fit_difference = weights[:, None] * residual_difference
+        fit_residual = weights * fit_residual
+    gram = fit_difference.T @ fit_difference / residual_difference.shape[0]
+    right_hand_side = fit_difference.T @ fit_residual / residual_difference.shape[0]
     regularization = 1.0e-4 * max(
         float(np.trace(gram) / gram.shape[0]), 1.0e-20
     )
@@ -1726,8 +1739,8 @@ def _anderson_log_population_update(
         return None, "linear_solve"
     if np.any(~np.isfinite(coefficient)):
         return None, "coefficient"
-    predicted_residual = residual.ravel() - residual_difference @ coefficient
-    if np.linalg.norm(predicted_residual) >= np.linalg.norm(residual.ravel()):
+    predicted_residual = fit_residual - fit_difference @ coefficient
+    if np.linalg.norm(predicted_residual) >= np.linalg.norm(fit_residual):
         return None, "prediction"
     step = (
         mixing * residual.ravel()

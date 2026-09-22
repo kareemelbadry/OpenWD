@@ -103,6 +103,9 @@ def _molecular_probe(config):
     )
 
 
+from .pg1159 import PG1159Config, validate_config as validate_pg1159_config
+
+
 def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
     """Select a workflow from composition and local material diagnostics.
 
@@ -111,14 +114,18 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
     Actual dense runs retain their stricter local table/trace-ion guards.
     """
     if not isinstance(config, (DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig,
-                               DQConfig, DOConfig, DAOConfig)):
-        raise TypeError('expected a DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig, DQConfig, DOConfig or DAOConfig')
+                               DQConfig, DOConfig, DAOConfig, PG1159Config)):
+        raise TypeError('expected a DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig, DQConfig, DOConfig, DAOConfig or PG1159Config')
     data = ModelData.default() if data is None else data
     t, g = config.effective_temperature, config.logg
     if not np.isfinite(t) or t <= 0 or not np.isfinite(g):
         raise ValueError(
             "effective temperature and logg must be finite, with Teff positive"
         )
+    if isinstance(config, PG1159Config):
+        validate_pg1159_config(config)
+        return PhysicsSelection("pg1159", "Bulk He/C/O NLTE with shared trust-region solver",
+            {"nlte_charge_feedback": True, "trace_opacity_in_structure": False}, False, True)
     if isinstance(config, (DOConfig, DAOConfig)):
         validate_config(config)
         return PhysicsSelection(

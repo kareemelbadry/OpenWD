@@ -14,6 +14,7 @@ implemented material treatment before solving a new atmosphere.
 | `DZConfig` | Helium with metals and optional trace hydrogen | [DZ/DBZ physics](DZ.md) |
 | `DQConfig` | Helium with trace carbon and C₂ Swan bands; preliminary | [DQ physics and setup](DQ.md) |
 | `DOConfig` | Pure helium; experimental restricted NLTE | [DO/DAO physics and data](DO-DAO.md) |
+| `PG1159Config` | Bulk He/C/O NLTE with trace-element line formation; experimental | [PG 1159 physics and data](PG1159.md) |
 | `DAOConfig` | Homogeneous H/He; experimental restricted NLTE | [DO/DAO physics and data](DO-DAO.md) |
 
 `DOConfig` and `DAOConfig` add experimental hot helium and mixed H/He

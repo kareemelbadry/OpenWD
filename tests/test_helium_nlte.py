@@ -322,3 +322,24 @@ def test_helium_collision_extrapolation_preserves_positive_strength_and_balance(
         expected=downward*_FINE_STATISTICAL_WEIGHT[upper]/_FINE_STATISTICAL_WEIGHT[lower]*np.exp(
             (_FINE_ENERGY_EV[lower]-_FINE_ENERGY_EV[upper])/(8.62e-5*t))
         np.testing.assert_allclose(rate[:,lower,upper],expected,rtol=1e-14)
+
+
+def test_pg1159_helium_continuum_cache_reweights_new_populations(tmp_path):
+    from wd_spectra._pg1159_helium import CoupledHeliumNLTEModel,PG1159HeliumTransferCache
+    path=tmp_path/'ccc.zip';_write_small_ccc_archive(path)
+    data=read_ccc_hydrogen_collision_data(path,maximum_level=3)
+    a=gray_helium_atmosphere(90000.,7.,n_depth=8)
+    model=CoupledHeliumNLTEModel(data,maximum_helium_ii_level=3,
+        helium_i_stark_table=object(),include_helium_i_lines=False,
+        include_helium_i_resonance_lines=False,include_helium_ii_lines=False)
+    first=solve_coupled_helium_statistical_equilibrium(a,data,maximum_helium_ii_level=3)
+    second=solve_coupled_helium_statistical_equilibrium(a,data,maximum_helium_ii_level=3,
+        helium_ii_line_mean_intensity_nu={(1,2):np.full(a.n_depth,1e-3)})
+    wave=np.geomspace(50.,10000.,160)
+    cache=PG1159HeliumTransferCache(a,wave)
+    model.transfer_coefficients(a,wave,first,_cache=cache)
+    cached=model.transfer_coefficients(a,wave,second,_cache=cache)
+    fresh=model.transfer_coefficients(a,wave,second)
+    for name in ('true_absorption','thermal_emissivity','scattering'):
+        np.testing.assert_array_equal(getattr(cached,name),getattr(fresh,name))
+    assert len(cache.values)==2
