@@ -80,6 +80,21 @@ class NLTEAtmosphereModel(Protocol):
 
 
 
+class OpacitySpan:
+    """Rows ``start:start+len(block)`` of an otherwise zero (wavelength, depth) array."""
+
+    __slots__ = ("start", "block", "n_wavelength")
+
+    def __init__(self, start, block, n_wavelength):
+        self.start = int(start)
+        self.block = block
+        self.n_wavelength = int(n_wavelength)
+
+    @property
+    def rows(self):
+        return slice(self.start, self.start + self.block.shape[0])
+
+
 class _FixedTransferCache:
     """Private single-atmosphere, single-grid cache for population iteration."""
     def __init__(self, atmosphere, wavelength):

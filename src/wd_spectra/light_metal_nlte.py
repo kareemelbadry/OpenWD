@@ -56,6 +56,8 @@ try:  # The package remains usable without a compiler.
     from . import _rt
 except ImportError:  # pragma: no cover - exercised by source-only installs
     _rt = None
+# Extensions built before the depth-major metal-profile interface lack this flag.
+_METAL_PROFILE_DEPTH_MAJOR = bool(getattr(_rt, "METAL_PROFILE_DEPTH_MAJOR", 0))
 
 
 FloatArray = NDArray[np.float64]
@@ -377,15 +379,42 @@ def _accumulate_metal_line_profiles(
     absorption: FloatArray,
     emissivity: FloatArray,
     retain_inverted_emissivity: bool,
+    *,
+    depth_major: bool = False,
+    planck_depth_major: FloatArray | None = None,
 ) -> None:
-    """Dispatch profile accumulation to C while retaining a NumPy fallback."""
+    """Dispatch profile accumulation to C while retaining a NumPy fallback.
+
+    With ``depth_major=True`` the ``absorption`` and ``emissivity`` outputs are
+    C-contiguous ``(depth, wavelength)`` arrays and ``planck_depth_major`` is
+    the matching transpose of ``planck``.  The compiled kernel then accumulates
+    with unit stride; results are bit-identical to the ``(wavelength, depth)``
+    layout, which ``planck`` keeps for the NumPy fallback.
+    """
 
     compiled = (
         None
         if _rt is None or np.any(static_ion_motion_hwhm_beta > 0.0)
         else getattr(_rt, "accumulate_metal_line_profiles", None)
     )
+    if compiled is not None and depth_major and not _METAL_PROFILE_DEPTH_MAJOR:
+        # A compiled extension built before the depth-major interface: use it
+        # through contiguous (wavelength, depth) copies of the outputs.
+        wave_absorption = np.ascontiguousarray(absorption.T)
+        wave_emissivity = np.ascontiguousarray(emissivity.T)
+        _accumulate_metal_line_profiles(
+            wavelength, planck, center, integrated_strength, gaussian_sigma,
+            lorentz_hwhm, minimum_half_window, static_frequency_scale,
+            static_amplitude, static_ion_motion_hwhm_beta, population_scale,
+            lower_departure, upper_departure, exponential,
+            wave_absorption, wave_emissivity, retain_inverted_emissivity,
+        )
+        absorption[...] = wave_absorption.T
+        emissivity[...] = wave_emissivity.T
+        return
     if compiled is None:
+        if depth_major:
+            absorption, emissivity = absorption.T, emissivity.T
         _accumulate_metal_line_profiles_python(
             wavelength,
             planck,
@@ -411,7 +440,7 @@ def _accumulate_metal_line_profiles(
             np.ascontiguousarray(value, dtype=np.float64)
             for value in (
                 wavelength,
-                planck,
+                planck_depth_major if depth_major else planck,
                 center,
                 integrated_strength,
                 gaussian_sigma,
@@ -430,6 +459,8 @@ def _accumulate_metal_line_profiles(
         absorption,
         emissivity,
         bool(retain_inverted_emissivity),
+        # Only depth-major-capable extensions accept the trailing flag.
+        *((True,) if depth_major else ()),
     )
 
 
@@ -5124,7 +5155,9 @@ def hot_metal_line_nlte_coefficients(
             if (ion.element, ion.charge, line.lower_index, line.upper_index)
             in allowed
         ]
-    absorption = np.zeros((wavelength.size, atmosphere.n_depth))
+    # Accumulate in (depth, wavelength) order: the compiled profile kernel
+    # then writes with unit stride.  Transposed once on return.
+    absorption = np.zeros((atmosphere.n_depth, wavelength.size))
     emissivity = np.zeros_like(absorption)
     atomic_mass_unit = 1.660_539_068_92e-24
     integrated_cross_section = (
@@ -5143,6 +5176,7 @@ def hot_metal_line_nlte_coefficients(
     planck = planck_lambda_angstrom(
         wavelength[:, np.newaxis], atmosphere.temperature[np.newaxis, :]
     )
+    planck_depth_major = np.ascontiguousarray(planck.T)
     lte_population_cache = {}
 
     # TMAP's z_Mikro = [sum_i Z_i^(3/2) n_i]^(2/3).  Explicit C/O ion
@@ -5217,6 +5251,8 @@ def hot_metal_line_nlte_coefficients(
             absorption,
             emissivity,
             retain_inverted_emissivity,
+            depth_major=True,
+            planck_depth_major=planck_depth_major,
         )
         for values in profile_batch.values():
             values.clear()
@@ -5425,7 +5461,7 @@ def hot_metal_line_nlte_coefficients(
         if len(profile_batch["center"]) >= 256:
             flush_profile_batch()
     flush_profile_batch()
-    return np.ascontiguousarray(absorption), np.ascontiguousarray(emissivity)
+    return np.ascontiguousarray(absorption.T), np.ascontiguousarray(emissivity.T)
 
 
 def default_light_metal_ionization_wavelength(

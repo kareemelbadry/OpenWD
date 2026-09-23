@@ -4,6 +4,7 @@ from zipfile import ZipFile
 from pathlib import Path
 
 import numpy as np
+from wd_spectra.models import ModelData
 
 from wd_spectra import gray_helium_atmosphere, synthesize_helium_spectrum
 from wd_spectra.multilevel_nlte import read_ccc_hydrogen_collision_data
@@ -99,8 +100,8 @@ def test_tlusty_helium_superlevel_photoionization_keeps_multiplicity():
 
 
 def test_optional_tlusty_storey_hummer_helium_collision_reader(tmp_path):
-    source = Path(".cache/tlusty-source/tlusty200.f")
-    atom = Path(".cache/tlusty-atoms/he1_14lev.dat")
+    source = ModelData.default().tlusty_source
+    atom = ModelData.default().tlusty_helium_atom
     if not source.exists() or not atom.exists():
         import pytest
 

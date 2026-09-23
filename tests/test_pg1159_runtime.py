@@ -10,7 +10,7 @@ from wd_spectra.atmosphere import helium_continuum_atmosphere
 
 
 def test_damped_real_atom_update_cannot_claim_rate_convergence():
-    data = ModelData.default('.')
+    data = ModelData.default()
     if any(not path.is_file() for path in required_atomic_files(data, 'extended54-complete')):
         pytest.skip('external PG 1159 atomic data is not installed')
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},
@@ -40,7 +40,7 @@ def test_damped_real_atom_update_cannot_claim_rate_convergence():
 def test_measured_state_is_returned_before_extrapolation(monkeypatch, handoff):
     """Do not let an accelerator move away from an already closed rate state."""
     import wd_spectra.pg1159 as pg
-    data = ModelData.default('.')
+    data = ModelData.default()
     if any(not path.is_file() for path in required_atomic_files(data, 'extended54-complete')):
         pytest.skip('external PG 1159 atomic data is not installed')
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},
@@ -80,7 +80,7 @@ def test_measured_state_is_returned_before_extrapolation(monkeypatch, handoff):
 def test_iteration_limit_returns_last_measured_input(monkeypatch):
     """An unfinished Anderson proposal must not become the restart state."""
     import wd_spectra.pg1159 as pg
-    data = ModelData.default('.')
+    data = ModelData.default()
     if any(not path.is_file() for path in required_atomic_files(data, 'extended54-complete')):
         pytest.skip('external PG 1159 atomic data is not installed')
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},

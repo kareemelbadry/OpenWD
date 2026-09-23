@@ -1074,6 +1074,19 @@ def _pg1159_nlte_charge_feedback(
     return replace(adjusted_atmosphere, metadata=metadata), adjusted_state
 
 
+# Shared immutable defaults for PG1159NLTEModel.  Python >= 3.11 rejects
+# unhashable dataclass defaults such as MappingProxyType, so the fields use
+# default factories that return these same objects: every instance still
+# shares one read-only mapping, exactly as with the former plain defaults.
+_EMPTY_MAPPING: Mapping = MappingProxyType({})
+_DEFAULT_CARBON_LEVELS_PER_CHARGE: Mapping[int, int] = MappingProxyType(
+    {2: 6, 3: 54, 4: 1}
+)
+_DEFAULT_OXYGEN_LEVELS_PER_CHARGE: Mapping[int, int] = MappingProxyType(
+    {3: 8, 4: 6, 5: 27, 6: 1}
+)
+
+
 @dataclass(frozen=True)
 class PG1159NLTEModel:
     """Reduced He/C/O NLTE provider for the common atmosphere loop.
@@ -1088,7 +1101,9 @@ class PG1159NLTEModel:
 
     helium_model: CoupledHeliumNLTEModel
     atomic_database: AtomicDatabase
-    mass_fractions: Mapping[str, float] = PG1159_035_MASS_FRACTIONS
+    mass_fractions: Mapping[str, float] = field(
+        default_factory=lambda: PG1159_035_MASS_FRACTIONS
+    )
     photoionization_database: VernerPhotoionizationDatabase | None = None
     minimum_metal_oscillator_strength: float = 1.0e-6
     maximum_metal_lines: int | None = 20_000
@@ -1102,15 +1117,15 @@ class PG1159NLTEModel:
     include_ion_dynamic_stark_core: bool = False
     static_linear_stark_frequency_scales: Mapping[
         tuple[str, int, int, int], float
-    ] = MappingProxyType({})
+    ] = field(default_factory=lambda: _EMPTY_MAPPING)
     tabulated_electron_stark_width_scale: float = 1.0
     extend_strong_uv_resonance_wings: bool = True
     strong_uv_resonance_core_optical_depth: float = 1.0e3
     solve_carbon_oxygen_ionization_nlte: bool = True
     solve_carbon_levels_nlte: bool = True
     solve_oxygen_levels_nlte: bool = True
-    carbon_levels_per_charge: Mapping[int, int] = MappingProxyType(
-        {2: 6, 3: 54, 4: 1}
+    carbon_levels_per_charge: Mapping[int, int] = field(
+        default_factory=lambda: _DEFAULT_CARBON_LEVELS_PER_CHARGE
     )
     carbon_population_atomic_database: AtomicDatabase | None = None
     carbon_formal_level_mapping: Mapping[
@@ -1142,8 +1157,8 @@ class PG1159NLTEModel:
     carbon_photoionization_threshold_data: Mapping[
         int, TlustyPhotoionizationThresholdData
     ] | None = None
-    oxygen_levels_per_charge: Mapping[int, int] = MappingProxyType(
-        {3: 8, 4: 6, 5: 27, 6: 1}
+    oxygen_levels_per_charge: Mapping[int, int] = field(
+        default_factory=lambda: _DEFAULT_OXYGEN_LEVELS_PER_CHARGE
     )
     oxygen_population_atomic_database: AtomicDatabase | None = None
     oxygen_formal_level_mapping: Mapping[
@@ -1177,10 +1192,10 @@ class PG1159NLTEModel:
     ] | None = None
     trace_photoionization_threshold_data: Mapping[
         tuple[str, int], TlustyPhotoionizationThresholdData
-    ] = MappingProxyType({})
+    ] = field(default_factory=lambda: _EMPTY_MAPPING)
     ion_stage_range_overrides: Mapping[
         str, tuple[int, int]
-    ] = MappingProxyType({})
+    ] = field(default_factory=lambda: _EMPTY_MAPPING)
     ionization_wavelength_points: int = 360
     metal_rate_line_velocity_samples_kms: tuple[float, ...] | None = None
     ionization_scattering_iterations: int = 4

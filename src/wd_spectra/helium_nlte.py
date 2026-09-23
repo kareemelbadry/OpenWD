@@ -77,7 +77,7 @@ from .multilevel_nlte import (
     _validate_state_atmosphere,
     atmosphere_structure_fingerprint,
 )
-from .nlte_core import NLTETransferCoefficients, _cached_transfer, NonphysicalPopulationError
+from .nlte_core import NLTETransferCoefficients, OpacitySpan, _cached_transfer, NonphysicalPopulationError
 from .opacity import (
     HydrogenLine,
     electron_scattering_mass_coefficient,
@@ -1154,7 +1154,10 @@ def default_neutral_helium_continuum_wavelength() -> FloatArray:
 
 
 def _prepare_neutral_helium_continuum_transfer_problem(
-    atmosphere: Atmosphere, wavelength_angstrom: ArrayLike
+    atmosphere: Atmosphere,
+    wavelength_angstrom: ArrayLike,
+    *,
+    lte_absorption: FloatArray | None = None,
 ) -> _ContinuumTransferProblem:
     wavelength = np.ascontiguousarray(wavelength_angstrom, dtype=np.float64)
     if (
@@ -1165,12 +1168,16 @@ def _prepare_neutral_helium_continuum_transfer_problem(
         or np.any(np.diff(wavelength) <= 0.0)
     ):
         raise ValueError("continuum wavelength must be positive and increasing")
-    lte_absorption = helium_continuum_mass_absorption_coefficient(
-        atmosphere,
-        wavelength,
-        include_electron_scattering=False,
-        include_rayleigh_scattering=False,
-    )
+    # ``lte_absorption`` may be supplied by a caller that builds both the
+    # He I and He II problems on the same atmosphere and grid; it is exactly
+    # this LTE continuum, so the value is unchanged.
+    if lte_absorption is None:
+        lte_absorption = helium_continuum_mass_absorption_coefficient(
+            atmosphere,
+            wavelength,
+            include_electron_scattering=False,
+            include_rayleigh_scattering=False,
+        )
     lte_population, _, _ = _neutral_helium_reference_populations(atmosphere)
     frequency = _LIGHT_SPEED_ANGSTROM_PER_SECOND / wavelength
     exponent = (
@@ -1686,6 +1693,21 @@ def coupled_helium_ii_lines(maximum_level):
     return tuple(lines)
 
 
+def _add_line_opacity(absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor):
+    """Add one NLTE-scaled line; compact spans update only their nonzero rows."""
+    if isinstance(lte_opacity, OpacitySpan):
+        rows = lte_opacity.rows
+        line_opacity = lte_opacity.block * opacity_factor[np.newaxis, :]
+        absorption[rows] += line_opacity
+        emissivity[rows] += (
+            line_opacity * planck[rows] * source_factor[np.newaxis, :]
+        )
+        return
+    line_opacity = lte_opacity * opacity_factor[np.newaxis, :]
+    absorption += line_opacity
+    emissivity += line_opacity * planck * source_factor[np.newaxis, :]
+
+
 def combined_helium_nlte_transfer_coefficients(
     atmosphere: Atmosphere,
     wavelength_angstrom: ArrayLike,
@@ -1714,8 +1736,22 @@ def combined_helium_nlte_transfer_coefficients(
         _cache.validate(atmosphere, wavelength)
     _validate_state_atmosphere(atmosphere, neutral_state)
     _validate_state_atmosphere(atmosphere, hydrogenic_state)
+    # Both continuum problems need the same LTE He continuum on this grid;
+    # evaluate it at most once, and only if a problem is not already cached.
+    shared_lte_continuum = []
+
+    def lte_continuum():
+        if not shared_lte_continuum:
+            shared_lte_continuum.append(helium_continuum_mass_absorption_coefficient(
+                atmosphere,
+                wavelength,
+                include_electron_scattering=False,
+                include_rayleigh_scattering=False,
+            ))
+        return shared_lte_continuum[0]
+
     he_i_problem = _cached_transfer(_cache, ('he-i-continuum',), lambda: _prepare_neutral_helium_continuum_transfer_problem(
-        atmosphere, wavelength
+        atmosphere, wavelength, lte_absorption=lte_continuum()
     ))
     absorption, emissivity = _nlte_continuum_terms(
         he_i_problem,
@@ -1728,7 +1764,8 @@ def combined_helium_nlte_transfer_coefficients(
         hydrogenic_state.departure_coefficient.shape[1],
     )
     he_ii_problem = _cached_transfer(_cache, ('he-ii-continuum', maximum_helium_ii_level), lambda: _prepare_helium_continuum_transfer_problem(
-        atmosphere, wavelength, maximum_helium_ii_level
+        atmosphere, wavelength, maximum_helium_ii_level,
+        lte_absorption=lte_continuum(),
     ))
     ones_bound = np.ones(
         (atmosphere.n_depth, maximum_helium_ii_level), dtype=np.float64
@@ -1775,9 +1812,9 @@ def combined_helium_nlte_transfer_coefficients(
             helium_i_stark_table,
             lines=(component,),
         ))
-        line_opacity = lte_opacity * opacity_factor[np.newaxis, :]
-        absorption += line_opacity
-        emissivity += line_opacity * planck * source_factor[np.newaxis, :]
+        _add_line_opacity(
+            absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor
+        )
     for component in (
         HELIUM_I_RESONANCE_LINES if include_helium_i_resonance_lines else ()
     ):
@@ -1806,9 +1843,9 @@ def combined_helium_nlte_transfer_coefficients(
         lte_opacity = _cached_transfer(_cache, ('he-i-resonance', component.name), lambda: helium_i_resonance_line_mass_absorption_coefficient(
             atmosphere, wavelength, lines=(component,)
         ))
-        line_opacity = lte_opacity * opacity_factor[np.newaxis, :]
-        absorption += line_opacity
-        emissivity += line_opacity * planck * source_factor[np.newaxis, :]
+        _add_line_opacity(
+            absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor
+        )
     for helium_line in coupled_helium_ii_lines(maximum_helium_ii_level) if include_helium_ii_lines else ():
         lower = helium_line.lower_principal_quantum_number
         upper = helium_line.upper_principal_quantum_number
@@ -1828,9 +1865,9 @@ def combined_helium_nlte_transfer_coefficients(
             lines=(helium_line,),
             stark_table=helium_ii_stark_table,
         ))
-        line_opacity = lte_opacity * opacity_factor[np.newaxis, :]
-        absorption += line_opacity
-        emissivity += line_opacity * planck * source_factor[np.newaxis, :]
+        _add_line_opacity(
+            absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor
+        )
     shared_he_ii_mismatch = np.max(
         np.abs(
             neutral_state.singly_ionized_he_density
@@ -2031,8 +2068,14 @@ def _coupled_continuum_mean_intensity(
     """Formal continuum solution including both He I and He II departures."""
 
     neutral_view, hydrogenic_view = _coupled_state_views(atmosphere, state)
+    lte_continuum = helium_continuum_mass_absorption_coefficient(
+        atmosphere,
+        wavelength,
+        include_electron_scattering=False,
+        include_rayleigh_scattering=False,
+    )
     he_i_problem = _prepare_neutral_helium_continuum_transfer_problem(
-        atmosphere, wavelength
+        atmosphere, wavelength, lte_absorption=lte_continuum
     )
     absorption, emissivity = _nlte_continuum_terms(
         he_i_problem,
@@ -2041,7 +2084,7 @@ def _coupled_continuum_mean_intensity(
     )
     n_ion = hydrogenic_view.departure_coefficient.shape[1]
     he_ii_problem = _prepare_helium_continuum_transfer_problem(
-        atmosphere, wavelength, n_ion
+        atmosphere, wavelength, n_ion, lte_absorption=lte_continuum
     )
     lte_absorption, lte_emissivity = _nlte_continuum_terms(
         he_ii_problem,
@@ -3172,6 +3215,8 @@ def _prepare_helium_continuum_transfer_problem(
     atmosphere: Atmosphere,
     wavelength_angstrom: ArrayLike,
     maximum_level: int,
+    *,
+    lte_absorption: FloatArray | None = None,
 ) -> _ContinuumTransferProblem:
     """Separate explicit He II bound-free terms from the LTE He background."""
 
@@ -3184,12 +3229,16 @@ def _prepare_helium_continuum_transfer_problem(
         or np.any(np.diff(wavelength) <= 0.0)
     ):
         raise ValueError("continuum wavelength must be positive and increasing")
-    lte_absorption = helium_continuum_mass_absorption_coefficient(
-        atmosphere,
-        wavelength,
-        include_electron_scattering=False,
-        include_rayleigh_scattering=False,
-    )
+    # ``lte_absorption`` may be supplied by a caller that builds both the
+    # He I and He II problems on the same atmosphere and grid; it is exactly
+    # this LTE continuum, so the value is unchanged.
+    if lte_absorption is None:
+        lte_absorption = helium_continuum_mass_absorption_coefficient(
+            atmosphere,
+            wavelength,
+            include_electron_scattering=False,
+            include_rayleigh_scattering=False,
+        )
     lte_population, _, _ = _reference_populations(atmosphere, maximum_level)
     frequency = _LIGHT_SPEED_ANGSTROM_PER_SECOND / wavelength
     exponent = (

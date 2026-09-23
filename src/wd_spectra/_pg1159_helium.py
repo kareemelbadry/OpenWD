@@ -15,15 +15,55 @@ from .helium_nlte import (
 )
 from .helium_collisions import TlustyHeliumCollisionData
 from .multilevel_nlte import HydrogenElectronCollisionData
-from .nlte_core import NLTETransferCoefficients, _FixedTransferCache
+from .nlte_core import NLTETransferCoefficients, OpacitySpan, _FixedTransferCache
 
 FloatArray = NDArray[np.float64]
 
 
+_LINE_KEYS = ("he-i-line", "he-i-resonance", "he-ii-line")
+# Upper bound on retained line-profile storage for one population solve.
+_LINE_SPAN_CACHE_BYTES = 512 * 1024 * 1024
+
+
 class PG1159HeliumTransferCache(_FixedTransferCache):
-    """Cache fixed continuum kernels without retaining every full-grid line."""
+    """Cache fixed continuum kernels and compact He line opacities.
+
+    A full-grid LTE line opacity is almost entirely zero away from the line,
+    and dense copies of all He I/II lines would need gigabytes.  Keep only the
+    contiguous wavelength rows that contain nonzero values, returned as an
+    ``OpacitySpan``; its consumers add exactly the same terms to those rows
+    (all other rows of ``build()`` are zero).  Once the byte budget is spent,
+    remaining lines are recomputed each call.
+    """
+
+    def __init__(self, atmosphere, wavelength):
+        super().__init__(atmosphere, wavelength)
+        self.line_spans = {}
+        self.line_span_bytes = 0
 
     def get(self, key, build):
+        if key[0] in _LINE_KEYS:
+            span = self.line_spans.get(key)
+            if span is not None:
+                return span
+            value = build()
+            if not (
+                isinstance(value, np.ndarray)
+                and value.dtype == np.float64
+                and value.ndim == 2
+            ):
+                return value
+            # Keep signed zeros too, so the retained rows are bit-exact.
+            rows = np.flatnonzero(
+                np.any((value != 0.0) | np.signbit(value), axis=1)
+            )
+            start = int(rows[0]) if rows.size else 0
+            stop = int(rows[-1]) + 1 if rows.size else 0
+            span = OpacitySpan(start, value[start:stop].copy(), value.shape[0])
+            if self.line_span_bytes + span.block.nbytes <= _LINE_SPAN_CACHE_BYTES:
+                self.line_spans[key] = span
+                self.line_span_bytes += span.block.nbytes
+            return span
         if key[0] not in ("he-i-continuum", "he-ii-continuum"):
             return build()
         return super().get(key, build)

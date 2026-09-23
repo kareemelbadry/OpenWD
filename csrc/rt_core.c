@@ -582,6 +582,28 @@ cleanup_lte_metal:
  * kernel performs only the element-independent profile arithmetic.  Keeping
  * the output arrays caller-owned avoids constructing enormous Python lists.
  */
+/* Blocked copy between a (wave, depth) C-ordered array and its (depth, wave)
+ * transpose.  direction 0: wave_depth -> depth_wave; 1: the reverse. */
+static void
+transpose_wave_depth(double *wave_depth, double *depth_wave,
+                     Py_ssize_t n_wave, Py_ssize_t n_depth, int direction)
+{
+    const Py_ssize_t block = 64;
+    Py_ssize_t w0, w, d;
+    for (w0 = 0; w0 < n_wave; w0 += block) {
+        const Py_ssize_t w1 = w0 + block < n_wave ? w0 + block : n_wave;
+        for (d = 0; d < n_depth; ++d) {
+            for (w = w0; w < w1; ++w) {
+                if (direction == 0) {
+                    depth_wave[d * n_wave + w] = wave_depth[w * n_depth + d];
+                } else {
+                    wave_depth[w * n_depth + d] = depth_wave[d * n_wave + w];
+                }
+            }
+        }
+    }
+}
+
 static PyObject *
 accumulate_metal_line_profiles(PyObject *self, PyObject *args)
 {
@@ -590,6 +612,7 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
     Py_buffer views[METAL_PROFILE_BUFFER_COUNT] = {{0}};
     Py_ssize_t n_wave, n_depth, n_line, line, depth, wave;
     int retain_inverted_emissivity;
+    int depth_major = 0;
     int index;
     const double pi = 3.1415926535897932384626433832795;
     const double light_speed = 2.99792458e10;
@@ -598,13 +621,13 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
     (void)self;
     if (!PyArg_ParseTuple(
             args,
-            "OOOOOOOOOOOOOOOOOp:accumulate_metal_line_profiles",
+            "OOOOOOOOOOOOOOOOOp|p:accumulate_metal_line_profiles",
             &objects[0], &objects[1], &objects[2], &objects[3],
             &objects[4], &objects[5], &objects[6], &objects[7],
             &objects[8], &objects[9], &objects[10], &objects[11],
             &objects[12], &objects[13], &objects[14], &objects[15],
             &objects[16],
-            &retain_inverted_emissivity)) {
+            &retain_inverted_emissivity, &depth_major)) {
         return NULL;
     }
     for (index = 0; index < METAL_PROFILE_BUFFER_COUNT; ++index) {
@@ -635,15 +658,18 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
         goto cleanup_metal;
     }
     n_wave = views[0].shape[0];
-    n_depth = views[1].shape[1];
+    n_depth = views[1].shape[depth_major ? 0 : 1];
     n_line = views[2].shape[0];
     if (n_wave < 1 || n_depth < 1 || n_line < 1 ||
-        views[1].shape[0] != n_wave || views[3].shape[0] != n_line ||
+        views[1].shape[depth_major ? 1 : 0] != n_wave ||
+        views[3].shape[0] != n_line ||
         views[6].shape[0] != n_line ||
         views[13].shape[0] != views[14].shape[0] ||
         views[13].shape[0] < 1 ||
-        views[15].shape[0] != n_wave || views[15].shape[1] != n_depth ||
-        views[16].shape[0] != n_wave || views[16].shape[1] != n_depth) {
+        views[15].shape[depth_major ? 1 : 0] != n_wave ||
+        views[15].shape[depth_major ? 0 : 1] != n_depth ||
+        views[16].shape[depth_major ? 1 : 0] != n_wave ||
+        views[16].shape[depth_major ? 0 : 1] != n_depth) {
         PyErr_SetString(PyExc_ValueError,
                         "metal-profile array shapes are inconsistent");
         goto cleanup_metal;
@@ -705,7 +731,37 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                                    quadrature_weight, quadrature_size);
         }
 
+        {
+        /* The loop below runs line -> depth -> wavelength.  Accumulating in
+         * depth-major copies makes its innermost reads/writes contiguous; the
+         * (wavelength, depth) outputs are transposed back once afterwards.
+         * Each element receives exactly the same additions in the same
+         * order, so results are bit-identical to direct accumulation. */
+        double *transposed = NULL;
+        double *absorption_t, *emissivity_t;
+        const double *planck_t;
+        if (depth_major) {
+            absorption_t = absorption;
+            emissivity_t = emissivity;
+            planck_t = planck;
+        } else {
+            transposed = (double *)PyMem_RawMalloc(
+                (size_t)n_wave * (size_t)n_depth * 3 * sizeof(double));
+            if (transposed == NULL) {
+                PyErr_NoMemory();
+                goto cleanup_metal;
+            }
+            absorption_t = transposed;
+            emissivity_t = transposed + n_wave * n_depth;
+            planck_t = transposed + 2 * n_wave * n_depth;
+        }
         Py_BEGIN_ALLOW_THREADS
+        if (!depth_major) {
+            transpose_wave_depth(absorption, absorption_t, n_wave, n_depth, 0);
+            transpose_wave_depth(emissivity, emissivity_t, n_wave, n_depth, 0);
+            transpose_wave_depth((double *)planck, (double *)planck_t,
+                                 n_wave, n_depth, 0);
+        }
         for (line = 0; line < n_line; ++line) {
             const double line_center = center[line];
             const double center_cm = line_center * 1.0e-8;
@@ -782,9 +838,16 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                 for (wave = start; wave < stop; ++wave) {
                     const double offset = wavelength[wave] - line_center;
                     const double normalized_offset = offset / width;
-                    const double gaussian =
+                    /* exp() of an argument below -746 is exactly +0 in IEEE
+                     * double (the smallest subnormal is exp(-744.44)); skip
+                     * the call there.  Half of the far-wing samples of
+                     * Lorentz-dominated lines take this branch; results are
+                     * bit-identical. */
+                    const double gaussian_argument =
+                        -4.0 * log_two * normalized_offset * normalized_offset;
+                    const double gaussian = gaussian_argument < -746.0 ? 0.0 :
                         2.0 * sqrt(log_two) / (sqrt(pi) * width) *
-                        exp(-4.0 * log_two * normalized_offset * normalized_offset);
+                        exp(gaussian_argument);
                     const double lorentz =
                         2.0 / (pi * width) /
                         (1.0 + 4.0 * normalized_offset * normalized_offset);
@@ -792,7 +855,7 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                         mixing * lorentz + (1.0 - mixing) * gaussian;
                     double cross_section =
                         strength[line] * profile * frequency_conversion;
-                    const Py_ssize_t wave_depth = wave * n_depth + depth;
+                    const Py_ssize_t wave_depth = depth * n_wave + wave;
 
                     if (field_scale > 0.0) {
                         const double frequency =
@@ -810,16 +873,22 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                         }
                     }
                     if (net_departure > 0.0) {
-                        absorption[wave_depth] +=
+                        absorption_t[wave_depth] +=
                             cross_section * line_absorption_scale;
                     }
-                    emissivity[wave_depth] +=
+                    emissivity_t[wave_depth] +=
                         cross_section * line_emissivity_scale *
-                        planck[wave_depth];
+                        planck_t[wave_depth];
                 }
             }
         }
+        if (!depth_major) {
+            transpose_wave_depth(absorption, absorption_t, n_wave, n_depth, 1);
+            transpose_wave_depth(emissivity, emissivity_t, n_wave, n_depth, 1);
+        }
         Py_END_ALLOW_THREADS
+        PyMem_RawFree(transposed);
+        }
     }
 
     for (index = 0; index < METAL_PROFILE_BUFFER_COUNT; ++index) {
@@ -1101,6 +1170,13 @@ photoionization_rates(PyObject *self, PyObject *args)
             for (wave = 1; wave < n_wave; ++wave) {
                 const double sigma = cross_section[level * n_wave + wave];
                 const double lambda = wavelength[wave];
+                /* An interval with zero cross section at both ends adds a
+                 * signed zero to a zero-initialized, nonnegatively
+                 * accumulated rate: skipping it is bitwise exact. */
+                if (sigma == 0.0 &&
+                    cross_section[level * n_wave + wave - 1] == 0.0) {
+                    continue;
+                }
                 const double interval = lambda - wavelength[wave - 1];
                 const double *local_intensity = intensity + wave * n_depth;
                 for (depth = 0; depth < n_depth; ++depth) {
@@ -1841,6 +1917,13 @@ accumulate_bound_free_nlte(PyObject *self, PyObject *args)
         double *absorption = views[7].buf, *emissivity = views[8].buf;
         Py_BEGIN_ALLOW_THREADS
         for (Py_ssize_t w = 0; w < nw; ++w) {
+            /* Longward of an edge sigma is exactly zero and every term below
+             * is a signed zero, which leaves the zero-initialized,
+             * nonnegatively accumulated outputs bitwise unchanged.  Skipping
+             * those rows avoids streaming the full grid for every level. */
+            if (sigma[w] == 0.0) {
+                continue;
+            }
             for (Py_ssize_t d = 0; d < nd; ++d) {
                 const Py_ssize_t k = w * nd + d;
                 const double base = sigma[w] * population[d] / density[d];
@@ -2127,5 +2210,14 @@ static struct PyModuleDef module_definition = {
 PyMODINIT_FUNC
 PyInit__rt(void)
 {
-    return PyModule_Create(&module_definition);
+    PyObject *module = PyModule_Create(&module_definition);
+    if (module == NULL) {
+        return NULL;
+    }
+    /* Capability flag: accumulate_metal_line_profiles accepts depth_major. */
+    if (PyModule_AddIntConstant(module, "METAL_PROFILE_DEPTH_MAJOR", 1) < 0) {
+        Py_DECREF(module);
+        return NULL;
+    }
+    return module;
 }

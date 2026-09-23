@@ -774,6 +774,19 @@ def test_compiled_metal_line_profile_accumulation_matches_python():
     np.testing.assert_allclose(
         compiled_emissivity, python_emissivity, rtol=3.0e-13, atol=0.0
     )
+    if getattr(_rt, "METAL_PROFILE_DEPTH_MAJOR", 0):
+        depth_absorption = np.zeros((n_depth, wavelength.size))
+        depth_emissivity = np.zeros_like(depth_absorption)
+        _rt.accumulate_metal_line_profiles(
+            wavelength, np.ascontiguousarray(planck.T), center, strength,
+            gaussian, lorentz, minimum_half_window, static_scale,
+            static_amplitude, population, lower_departure, upper_departure,
+            exponential, _HOLTSMARK_COMPILED_ARGUMENT,
+            _HOLTSMARK_COMPILED_WEIGHT, depth_absorption,
+            depth_emissivity, True, True,
+        )
+        np.testing.assert_array_equal(depth_absorption.T, compiled_absorption)
+        np.testing.assert_array_equal(depth_emissivity.T, compiled_emissivity)
 
 
 def test_compiled_metal_line_rate_means_match_python():
