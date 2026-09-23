@@ -6,10 +6,10 @@ shell-averaged H I levels and an H II continuum while keeping the atmospheric
 temperature, pressure, electron density, and molecular populations fixed.
 
 Electron-impact excitation and ionization are integrated directly from the
-external convergent-close-coupling (CCC) cross sections distributed by the
-Curtin CCC database.  The data are deliberately not bundled with this BSD
-package; :func:`read_ccc_hydrogen_collision_data` accepts the downloaded ZIP
-archive without extracting it.
+convergent-close-coupling (CCC) cross sections distributed by the Curtin CCC
+database. OpenWD bundles the release archive with permission;
+:func:`read_ccc_hydrogen_collision_data` also accepts another ZIP archive
+without extracting it.
 
 The transfer iteration updates H I bound-free extinction and Milne emissivity
 with the populations while retaining the LTE H-minus, free-free, and molecular

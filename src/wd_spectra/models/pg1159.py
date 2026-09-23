@@ -163,7 +163,7 @@ def compute_pg1159(
     # nearly fourfold without changing the requested stellar model. Reserve
     # the denser quadrature for production-quality resolution studies.
     structure_continuum, structure_angles = {
-        "quick": (80, 2),
+        "quick": (120, 2),
         "standard": (120, 2),
         "production": (300, 3),
     }[config.quality]
@@ -195,12 +195,11 @@ def compute_pg1159(
         tau_max=100.0,
     )
     seed = model.rebuild_atmosphere(seed, seed.temperature, None)
-    from .._pg1159_reference import gray_opacity_seed, reference_temperature_seed
+    from .._pg1159_reference import gray_opacity_seed
 
     seed = gray_opacity_seed(
         model, seed, wavelength_points=structure_continuum
     )
-    seed = reference_temperature_seed(model, seed)
     result = solve_pg1159_atmosphere(
         seed,
         model,
@@ -233,11 +232,14 @@ def compute_pg1159(
             formal_model,
             population_transfer="mass",
             use_population_ali=False,
-            # Match the validated structural closure: a short accelerated
-            # approach followed by the undamped physical map near the target.
-            # The builder's 0.25 damping made the expanded formal atom spend
-            # tens of costly iterations applying quarter-sized updates.
-            coupled_population_acceleration_depth=6,
+            # Match the validated structural closure: the 80-state weighted
+            # SVD history resolves weak population modes, followed by the
+            # undamped physical map near the target. The builder's 0.25
+            # damping made the expanded formal atom spend tens of costly
+            # iterations applying quarter-sized updates.
+            coupled_population_acceleration_depth=(
+                model.coupled_population_acceleration_depth
+            ),
             metal_population_acceleration_depth=0,
             metal_population_damping=1.0,
             helium_population_damping=1.0,
@@ -277,8 +279,14 @@ def compute_pg1159(
     )
     qualified_status = status if state.converged and closure < 1e-6 else "unconverged"
     if qualified_status != "converged":
+        detail = (
+            "; the spectrum passed its declared qualification profile"
+            if qualified_status == "spectrum-qualified"
+            else ""
+        )
         warnings.warn(
-            "PG1159 model has not passed the equilibrium certificate and final population checks",
+            "PG1159 model has not passed the full equilibrium certificate"
+            + detail,
             AtmosphereConvergenceWarning,
             stacklevel=2,
         )
@@ -324,6 +332,7 @@ def compute_pg1159(
             "helium_ii_collision_fallback": "Mihalas above CCC shell limit",
             "atmosphere_convergence_status": qualified_status,
             "structure_convergence_status": status,
+            "spectral_qualification": qualified_status == "spectrum-qualified",
             "atomic_data_sha256": identity,
             "formal_population_converged": state.converged,
             "formal_population_defect": getattr(state, "metadata", {}).get(

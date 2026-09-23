@@ -92,16 +92,13 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
     wave = validate_wavelength(wavelength)
     data = ModelData.default() if data is None else data
     helium_i_path = data.cache / "helium-stark" / config.helium_i_profile
-    external = (data.ccc_hydrogen_collisions, data.tlusty_source, data.tlusty_helium_atom)
-    missing = [str(path) for path in external if not path.is_file()]
-    if missing:
-        raise FileNotFoundError(
-            "DO/DAO require external NLTE data; these files are not bundled: "
-            + ", ".join(missing)
-            + ". Configure ModelData/OPENWD_DATA as described in docs/models/DO-DAO.md.")
-    # These profiles ship in the wheel; a custom data root must supply them
-    # there too. Do not label a missing bundled profile as external NLTE data.
-    data.require(helium_i_path, data.helium_ii_stark)
+    data.require(
+        data.ccc_hydrogen_collisions,
+        data.tlusty_source,
+        data.tlusty_helium_atom,
+        helium_i_path,
+        data.helium_ii_stark,
+    )
     identity = {"hot_nlte_revision": "restricted-h-he-joint-newton-v7-emissivity"}
     for name in ("ccc_hydrogen_collisions", "tlusty_source", "tlusty_helium_atom",
                  "helium_i_stark", "helium_ii_stark"):

@@ -34,6 +34,31 @@ Observatory of Belgium, and licensed under CC BY 4.0. The original license is
 retained beside the tables in
 `src/wd_spectra/data/runtime/cache/metal-opacity/atomic-line-list/stout`.
 
+## Hot-star NLTE atomic inputs
+
+OpenWD has permission to redistribute the release copies of the hot-star
+atomic inputs installed under `src/wd_spectra/data/runtime/cache/`. These
+files remain scientific data from their named projects and are not covered by
+OpenWD's BSD source-code license:
+
+- Curtin CCC database shell-resolved electron--hydrogen excitation and
+  ionization cross sections in `ccc/e-H_XSEC_LS.zip`.
+- TLUSTY 200 source coefficients, its 14-level He I atom, and the C III,
+  C IV, O IV, O V, and O VI model atoms under `tlusty-source/` and
+  `tlusty-atoms/`. Credit Hubeny and Lanz and the Opacity Project as
+  appropriate for the selected records.
+- Tübingen Model-Atom Database (TMAD) C III--V and O III--VII structure and
+  formal-synthesis atoms under `tmad-atoms/`. Credit T. Rauch and the TMAD
+  contributors; the files retain their embedded authorship headers.
+- SIROCCO-distributed TOPbase O VI level and photoionization data under
+  `sirocco-atomic/`.
+- CHIANTI O VI effective collision strengths under `chianti/o_6/`. Credit
+  the CHIANTI collaboration and the sources identified by that database.
+
+Scientific publications should cite the original databases and atomic-data
+papers used by the applicable model. Redistribution permission does not alter
+their attribution or ownership.
+
 ## Other scientific tables
 
 The DQ constitutive data in `src/wd_spectra/data/dq` include derived ExoMol

@@ -186,10 +186,14 @@ def test_nested_populations_are_saved_without_pickle(atom, tmp_path,change):
         assert metadata['maximum_relative_population_change']==(change if np.isfinite(change) else None)
 
 
-def test_external_data_error_does_not_recommend_reinstalling(tmp_path):
+def test_incomplete_custom_data_error_lists_missing_bundled_inputs(tmp_path):
     from wd_spectra import compute_do
-    with pytest.raises(FileNotFoundError, match='external NLTE data.*not bundled'):
+    with pytest.raises(FileNotFoundError, match='required model data are missing') as raised:
         compute_do(data=ModelData(tmp_path))
+    message = str(raised.value)
+    assert 'e-H_XSEC_LS.zip' in message
+    assert 'tlusty200.f' in message
+    assert 'he1_14lev.dat' in message
 
 
 def test_low_level_atom_rejects_invalid_work_budget_and_cross_composition(atom):

@@ -59,9 +59,11 @@ is distinct from accuracy against observations and complete physical validation.
 Before release packaging, the integrated source passed 1,293 fast tests and
 92 tests from an isolated installed wheel. The public cold evidence above
 includes final independent temperature, flux, cell energy, source closure and
-boundary checks plus population convergence. Source revision and external data
-identities are retained; raw external collision files and observation caches
-are not redistributed. The final publication checks are recorded below.
+boundary checks plus population convergence. Source revision and atomic-data
+identities are retained. The original release required separately installed
+collision files; the current package includes those inputs with redistribution
+permission. Observation caches are not redistributed. The final publication
+checks are recorded below.
 
 The initially published 0.1.4 wheel's 129 Python files were compared with the cold-qualified
 wheel. Only the package version string and trailing whitespace in an

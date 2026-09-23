@@ -10,6 +10,19 @@ from wd_spectra._mass_feautrier import mass_emissivity_energy
 from wd_spectra._pg1159_response import thermal_response
 
 
+def test_default_local_energy_window_excludes_numerical_surface_boundary():
+    from types import SimpleNamespace
+    from wd_spectra._pg1159_structure import _local_energy_mask
+
+    atmosphere = gray_helium_atmosphere(
+        140000.0, 7.0, n_depth=32, tau_min=1e-8, tau_max=100.0
+    )
+    mask = _local_energy_mask(atmosphere, SimpleNamespace())
+    cell_depth = atmosphere.rosseland_optical_depth[:-1]
+    assert np.all(cell_depth[mask] >= 1.0e-5)
+    assert np.any(cell_depth[~mask] < 1.0e-5)
+
+
 def test_material_response_matches_independent_depth_probes():
     a=gray_helium_atmosphere(90000.,7.,n_depth=8)
     wave=np.geomspace(50.,10000.,60)
@@ -34,6 +47,52 @@ def test_material_response_matches_independent_depth_probes():
         delta=np.zeros(a.n_depth);delta[i]=step
         numerical[:,i]=(residual(coefficients(base+delta))-residual(coefficients(base-delta)))/(2*step)
     np.testing.assert_allclose(jac,numerical,atol=2e-7,rtol=2e-5)
+
+
+def test_flux_profile_response_matches_independent_depth_probes():
+    a = gray_helium_atmosphere(90000.0, 7.0, n_depth=8)
+    wave = np.geomspace(50.0, 10000.0, 60)
+    target = STEFAN_BOLTZMANN * a.effective_temperature**4
+    base = np.log(a.temperature)
+
+    def coefficients(log_t):
+        temperature = np.exp(log_t)
+        absorption = np.broadcast_to(
+            0.4 * (temperature / a.temperature) ** 1.7,
+            (len(wave), a.n_depth),
+        ).copy()
+        scattering = np.full_like(absorption, 0.2)
+        emissivity = absorption * planck_lambda_angstrom(
+            wave[:, None], temperature[None, :]
+        )
+        return NLTETransferCoefficients(
+            wave, absorption, emissivity, scattering, {}
+        )
+
+    def residual(log_t):
+        _, field, _ = transfer_field(
+            a, coefficients(log_t), n_angle=2, check_source=False
+        )
+        return trapezoid(field.interface_flux, wave, axis=0) / target - 1.0
+
+    step = 1.0e-5
+    jacobian = thermal_response(
+        a,
+        wave,
+        coefficients(base),
+        [(coefficients(base + step), coefficients(base - step), step)],
+        target,
+        2,
+        flux_profile_residual=True,
+    )
+    numerical = np.empty_like(jacobian)
+    for index in range(a.n_depth):
+        delta = np.zeros(a.n_depth)
+        delta[index] = step
+        numerical[:, index] = (
+            residual(base + delta) - residual(base - delta)
+        ) / (2.0 * step)
+    np.testing.assert_allclose(jacobian, numerical, atol=2e-7, rtol=2e-5)
 
 
 @pytest.mark.parametrize("force_scale", [0., .1, 1.])
@@ -539,14 +598,14 @@ def test_provisional_response_can_bound_expensive_population_probes():
     np.testing.assert_allclose(corrected @ calls[0], actual @ calls[0])
 
 
-def test_population_response_probe_budget_grows_toward_full_nlte():
+def test_population_response_probe_budget_stays_bounded_at_full_nlte():
     from wd_spectra._pg1159_structure import _population_response_probe_limit
 
     assert _population_response_probe_limit(0.6) == 1
-    assert _population_response_probe_limit(0.8) == 2
-    assert _population_response_probe_limit(0.9) == 2
-    assert _population_response_probe_limit(1.0, False) == 2
-    assert _population_response_probe_limit(1.0) is None
+    assert _population_response_probe_limit(0.8) == 1
+    assert _population_response_probe_limit(0.9) == 1
+    assert _population_response_probe_limit(1.0, False) == 1
+    assert _population_response_probe_limit(1.0) == 1
 
 
 def test_initializer_handoff_uses_physical_metrics_not_transformed_residual():
@@ -569,6 +628,32 @@ def test_initializer_handoff_uses_physical_metrics_not_transformed_residual():
     )
 
     assert _initializer_ready(evaluation, 0.01)
+
+
+def test_full_nlte_handoff_requires_the_flux_profile():
+    from types import SimpleNamespace
+    from wd_spectra._pg1159_structure import _initializer_ready
+    from wd_spectra.nonlinear import NonlinearEvaluation
+
+    diagnostics = {
+        "surface_flux_ratio": 1.001,
+        "maximum_photospheric_total_flux_residual": 0.2,
+        "maximum_all_depth_total_flux_residual": 0.4,
+        "maximum_relative_cell_energy_balance_residual": 0.001,
+        "maximum_hydrostatic_log_pressure_residual": 0.0,
+    }
+    evaluation = NonlinearEvaluation(
+        np.zeros(2), None, (None, SimpleNamespace(converged=True), diagnostics)
+    )
+    assert _initializer_ready(evaluation, 0.01)
+    assert not _initializer_ready(
+        evaluation, 0.01, require_flux_profile=True
+    )
+    diagnostics["maximum_photospheric_total_flux_residual"] = 0.009
+    diagnostics["maximum_all_depth_total_flux_residual"] = 0.009
+    assert _initializer_ready(
+        evaluation, 0.01, require_flux_profile=True
+    )
 
 
 def test_initializer_handoff_applies_separate_local_energy_tolerance():

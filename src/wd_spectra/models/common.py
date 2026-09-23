@@ -31,7 +31,9 @@ from ..spectrum import Spectrum
 FloatArray = NDArray[np.float64]
 Quality = Literal["quick", "standard", "production"]
 AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
-ConvergenceStatus = Literal["converged", "unconverged", "unknown"]
+ConvergenceStatus = Literal[
+    "converged", "spectrum-qualified", "unconverged", "unknown"
+]
 
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 1
 _MODEL_PHYSICS_REVISION = "openwd-0.1.3-qmhd-undoubled-v4"
@@ -322,13 +324,21 @@ def warn_if_atmosphere_not_converged(
     status = atmosphere_convergence_status(atmosphere)
     if status == "converged":
         return status
-    if status == "unconverged":
+    if status == "spectrum-qualified":
+        detail = (
+            "passes the declared spectrum-qualification checks but does not "
+            "record full equilibrium convergence"
+        )
+    elif status == "unconverged":
         detail = "records that radiative/convective equilibrium did not converge"
     else:
         detail = "does not record a verified atmosphere-convergence status"
     if atmosphere.metadata.get("fixed_synthesis_request_verified") is False:
         detail = "does not verify equilibrium for the requested parameters and physics (checkpoint request mismatch)"
-    elif atmosphere.metadata.get("radiative_equilibrium_solver_converged") is True:
+    elif (
+        status != "spectrum-qualified"
+        and atmosphere.metadata.get("radiative_equilibrium_solver_converged") is True
+    ):
         detail = "passes the solver flux checks but does not pass all equilibrium certification checks"
     metrics = []
     certificate = atmosphere.metadata.get("equilibrium_certificate", {})

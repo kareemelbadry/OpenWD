@@ -84,6 +84,35 @@ def test_declared_residual_contract_records_but_does_not_require_stationarity():
     assert recorded_equilibrium_status(data) == "converged"
 
 
+def test_pg1159_spectrum_profile_cannot_report_equilibrium_convergence():
+    data = measured()
+    data.update(
+        temperature_correction_measured=False,
+        maximum_unrestricted_log_temperature_correction=None,
+    )
+    required = (
+        "surface_flux",
+        "photospheric_flux",
+        "all_depth_flux",
+        "local_energy",
+        "source_closure",
+        "boundary_screening",
+    )
+    data["equilibrium_certificate"] = equilibrium_certificate(
+        data,
+        required_checks=required,
+        profile="pg1159-spectrum-gate-v1",
+    )
+    report = data["equilibrium_certificate"]
+    assert report["schema"] == 2
+    assert report["profile"] == "pg1159-spectrum-gate-v1"
+    assert report["verified"]
+    assert recorded_equilibrium_status(data) == "spectrum-qualified"
+
+    data["maximum_photospheric_total_flux_residual"] = 0.1
+    assert recorded_equilibrium_status(data) == "unconverged"
+
+
 def test_local_energy_can_use_a_stricter_declared_tolerance_than_flux():
     data = measured()
     data["maximum_all_depth_total_flux_residual"] = 8e-3

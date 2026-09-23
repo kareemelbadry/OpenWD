@@ -12,6 +12,10 @@ Use [getting started](../../getting-started.md) for current commands and
 
 - [DO/DAO release integration and cold-start evidence](do-dao-release-2026-09-20.md)
 
+## PG1159 models
+
+- [PG1159 shared-solver release and qualification](pg1159-release-2026-09-22.md)
+
 ## Numerical baseline and reliability
 
 - [Microphysics normalization and buffer audit](microphysics-audit-2026-09-10.md)

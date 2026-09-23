@@ -1,4 +1,4 @@
-"""Public adapter integration with synthetic external collision input.
+"""Public adapter integration with a compact synthetic collision fixture.
 
 Quick cases run the real bounded nonlinear solver. Standard cases replace
 the expensive LTE/NLTE relaxations while checking their adapter contracts.
@@ -29,8 +29,8 @@ def public_data(tmp_path,monkeypatch):
         target=data.cache/'helium-stark'/name
         target.parent.mkdir(parents=True,exist_ok=True)
         target.symlink_to(bundled.cache/'helium-stark'/name)
-    # TLUSTY's optional files are not distributed with the test suite. Keep
-    # real CCC loading, model construction, profiles, transfer and saving.
+    # Keep this integration test small while retaining real CCC loading,
+    # model construction, profiles, transfer and saving.
     monkeypatch.setattr(hot,'read_tlusty_helium_collision_data',lambda *args:None)
     return data
 

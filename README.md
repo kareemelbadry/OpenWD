@@ -24,14 +24,15 @@ final-spectrum flux check. See the [DQ quick start](docs/getting-started.md#dq-h
 
 Experimental **DO/DAO** presets add restricted H/He NLTE through the shared
 thermal Newton solver. See the [DO/DAO guide](docs/models/DO-DAO.md) for the
-API, external data, retained LTE charge closure, and qualification limits.
+API, bundled atomic data, retained LTE charge closure, and qualification limits.
 Seven prescribed DO/DAO configurations have converged from cold starts;
 observational discrepancies remain. See the [release evidence](docs/development/history/do-dao-release-2026-09-20.md).
 
 The experimental `PG1159Config` / `compute_pg1159` adapter brings the development
 He/C/O atom into the shared nonlinear workflow. The PG 1424+535 preset has
-converged from a cold start and reproduces the legacy optical spectrum to
-0.65% RMS over their common wavelength range; see the
+passed the declared spectrum-qualification checks from a cold start and
+reproduces the legacy optical spectrum to 0.65% RMS over their common
+wavelength range; see the
 [model guide](docs/models/PG1159.md) and
 [release evidence](docs/development/history/pg1159-release-2026-09-22.md).
 

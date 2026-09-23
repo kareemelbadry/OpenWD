@@ -9,6 +9,50 @@ from wd_spectra._mass_feautrier import (mass_emissivity_field, mass_emissivity_e
     mass_response, MassResponseOperator, InvalidRadiationFieldError)
 
 
+@pytest.mark.parametrize("n_angle", [2, 3, 4])
+def test_pg1159_gray_lte_flux_normalization_at_supported_angle_orders(n_angle):
+    """Rule out a shared angular or 4-pi normalization error in PG1159 transfer."""
+    from types import SimpleNamespace
+    from wd_spectra._pg1159_transfer import transfer_field
+    from wd_spectra.constants import STEFAN_BOLTZMANN
+    from wd_spectra.nlte_core import NLTETransferCoefficients
+    from wd_spectra.spectrum import planck_lambda_angstrom
+
+    effective_temperature = 1.0e5
+    tau = np.geomspace(1.0e-7, 1.0e3, 80)
+    temperature = (
+        0.75 * effective_temperature**4 * (tau + 2.0 / 3.0)
+    ) ** 0.25
+    atmosphere = SimpleNamespace(column_mass=tau, n_depth=tau.size)
+    wavelength = np.geomspace(10.0, 1.0e6, 400)
+    planck = planck_lambda_angstrom(
+        wavelength[:, None], temperature[None, :]
+    )
+    absorption = np.ones_like(planck)
+    coefficients = NLTETransferCoefficients(
+        wavelength,
+        absorption,
+        absorption * planck,
+        np.zeros_like(planck),
+        {},
+    )
+
+    _, field, _ = transfer_field(
+        atmosphere, coefficients, n_angle=n_angle, check_source=False
+    )
+    normalized = trapezoid(field.interface_flux, wavelength, axis=0) / (
+        STEFAN_BOLTZMANN * effective_temperature**4
+    )
+
+    # The Eddington gray temperature law is not the exact discrete-ordinate
+    # solution near the surface, so its interior profile differs by a few
+    # percent.  Both boundaries retain the absolute sigma Teff^4
+    # normalization, and the entire profile rules out the proposed ~42%
+    # angular-quadrature error.
+    np.testing.assert_allclose(normalized[[0, -1]], 1.0, rtol=3.0e-4)
+    assert np.max(abs(normalized - 1.0)) < 0.04
+
+
 @pytest.mark.parametrize('angles',[1,3])
 @pytest.mark.parametrize('gain',[False,True])
 def test_frozen_response_operator_reuses_anchor_for_distinct_material_directions(angles,gain):

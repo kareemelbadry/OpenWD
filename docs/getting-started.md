@@ -225,16 +225,15 @@ For a deeper explanation of selection and certification, see the
 
 Use the explicit `DOConfig` (pure helium) or `DAOConfig` (mixed H/He).
 A high temperature in `DAConfig` or `DBConfig` does not select NLTE.
-These experimental models require external CCC/TLUSTY files; see the
-[DO/DAO setup](models/DO-DAO.md#external-data) before running.
+The required CCC, TLUSTY and line-profile inputs are installed with OpenWD;
+see the [DO/DAO data notes](models/DO-DAO.md#bundled-atomic-data).
 
 ```python
-from wd_spectra import DOConfig, ModelData, run_model
+from wd_spectra import DOConfig, run_model
 
 run = run_model(
     DOConfig(effective_temperature=50_000, logg=8, quality="standard"),
     "results/do-50000",  # new directory; always starts from scratch
-    data=ModelData.default("/path/to/data"),
     require_convergence=True,
 )
 ```
@@ -242,7 +241,7 @@ run = run_model(
 The CLI equivalent is:
 
 ```bash
-python examples/one_shot_do.py --teff 50000 --data-root /path/to/data --output results/do-50000
+python examples/one_shot_do.py --teff 50000 --output results/do-50000
 ```
 
 Add `--log-hydrogen-to-helium 2` for DAO. Expect roughly one to several hours

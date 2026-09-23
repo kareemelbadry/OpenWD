@@ -99,7 +99,11 @@ def test_public_result_has_flux_metadata_and_saves(tmp_path,monkeypatch,trace_fa
     monkeypatch.setattr(public,'structure_wavelength',lambda *args:np.geomspace(50.,10000.,60))
     seen={}
     def solve(a,m,w,**kwargs):
-        seen.update(teff=a.effective_temperature,logg=a.logg)
+        seen.update(
+            teff=a.effective_temperature,
+            logg=a.logg,
+            structure_acceleration_depth=m.coupled_population_acceleration_depth,
+        )
         return SimpleNamespace(atmosphere=replace(a,metadata={'radiative_equilibrium_converged':False}),population_state=SimpleNamespace(converged=trace_failure))
     monkeypatch.setattr(public,'solve_pg1159_atmosphere',solve)
     fractions={'He':.52,'C':.45,'O':.03}
@@ -110,6 +114,9 @@ def test_public_result_has_flux_metadata_and_saves(tmp_path,monkeypatch,trace_fa
             def __init__(self,a,*args,**kwargs):
                 self.a=a
                 seen['formal_tolerance']=args[0].metal_population_relative_tolerance
+                seen['formal_acceleration_depth']=(
+                    args[0].coupled_population_acceleration_depth
+                )
             def initial_state(self):return np.log(self.a.temperature)
             def material(self,x):return self.a,SimpleNamespace(converged=False)
         monkeypatch.setattr(public,'PG1159Equations',FormalEquations)
@@ -119,13 +126,15 @@ def test_public_result_has_flux_metadata_and_saves(tmp_path,monkeypatch,trace_fa
         result=compute_pg1159(config,np.linspace(3800.,6800.,40),data=data)
     assert seen['teff'] == 110000.
     assert seen['logg'] == 7.
+    assert seen['structure_acceleration_depth'] == 80
     assert result.metadata['cold_start'] is True
     assert result.metadata['ccc_maximum_shell']==8
     assert result.metadata['helium_ii_collision_model']=='ccc-scaled'
-    assert result.metadata['structure_continuum_points']==80
+    assert result.metadata['structure_continuum_points']==120
     assert result.metadata['structure_angle_points']==2
     if trace_failure:
         assert seen['formal_tolerance'] == pytest.approx(1e-2)
+        assert seen['formal_acceleration_depth'] == 80
         assert result.metadata['structure_convergence_status']=='converged'
         assert not result.population_state.line_formation.converged
         assert result.population_state.structure.converged
@@ -174,22 +183,23 @@ def test_cold_continuation_introduces_full_force_only_with_full_nlte(monkeypatch
         metal_population_damping:float=.25
         helium_population_damping:float=.4
         metal_population_acceleration_depth:int=4
-        coupled_population_acceleration_depth:int=6
+        coupled_population_acceleration_depth:int=80
         metal_population_relative_tolerance:float=1e-4
         metal_population_iterations:int=120
+        use_pg1159_response_jacobian:bool=False
     calls=[]
     seed=gray_helium_atmosphere(110000.,7.,n_depth=8)
     def stage(a,m,w,**kwargs):
-        calls.append((m.population_nlte_fraction,kwargs['include_radiative_acceleration'],kwargs['radiative_acceleration_scale'],kwargs['certification_stage'],kwargs['material_tolerance_ceiling'],kwargs['stage_name']))
+        calls.append((m.population_nlte_fraction,m.coupled_population_acceleration_depth,kwargs['include_radiative_acceleration'],kwargs['radiative_acceleration_scale'],kwargs['certification_stage'],kwargs['material_tolerance_ceiling'],kwargs['stage_name']))
         return structure.PG1159AtmosphereResult(replace(a,metadata={'elapsed_seconds':1.}),
             object(),SimpleNamespace(converged=True,iterations=1))
     monkeypatch.setattr(structure,'_solve_stage',stage)
     result=structure.solve_pg1159_atmosphere(seed,Model(),np.array([100.,1000.]),include_radiative_acceleration=True,cold_start=True)
     assert calls==[
-        (0.,False,0.,False,1e-4,'planck-initializer'),
-        (.5,True,.5,False,1e-2,'half-nlte-population-bridge'),
-        (1.,True,1.,False,1e-2,'full-nlte-relaxation'),
-        (1.,True,1.,True,1e-4,'full-nlte-certification'),
+        (0.,80,False,0.,False,1e-4,'planck-initializer'),
+        (.5,80,True,.5,False,1e-2,'half-nlte-population-bridge'),
+        (1.,80,True,1.,False,1e-2,'full-nlte-relaxation'),
+        (1.,80,True,1.,True,1e-4,'full-nlte-certification'),
     ]
     assert result.atmosphere.metadata['initialization']['previous_model_supplied'] is False
 

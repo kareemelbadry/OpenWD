@@ -12,13 +12,12 @@ temperature in `DBConfig`, `DABConfig` or `DAConfig` does not switch that
 request to NLTE automatically.
 
 ```python
-from wd_spectra import DAOConfig, ModelData, run_model
+from wd_spectra import DAOConfig, run_model
 
 run_model(
     DAOConfig(effective_temperature=60000, logg=8,
               log_hydrogen_to_helium=2, quality="standard"),
     "results/dao-60000",
-    data=ModelData.default("/path/to/atomic-data-workspace"),
     require_convergence=True,
 )
 ```
@@ -136,24 +135,24 @@ refinement and comparison with observed stars remain separate requirements.
 Unconverged outputs warn; `require_convergence=True` rejects them after saving
 diagnostics. No observational range is qualified yet.
 
-## External data
+## Bundled atomic data
 
-The optional CCC and TLUSTY data are not redistributed. Supply a data root
-with these files under `cache/` (or `.cache/` for the research workspace):
+OpenWD installs the required collision and profile inputs under its runtime
+data directory:
 
 - `ccc/e-H_XSEC_LS.zip`
 - `tlusty-source/tlusty200.f`
 - `tlusty-atoms/he1_14lev.dat`
 
-The profiles `helium-stark/Tremblay26.txt` and `helium-stark/he2prf.dat`
-are bundled under `wd_spectra/data/runtime/cache/`. When using a custom data
-root, copy or link these profiles into its `cache/helium-stark/` directory
-too: all `ModelData(root)` paths resolve under that selected root.
+The profiles `helium-stark/Tremblay26.txt` and `helium-stark/he2prf.dat` are
+installed there as well. No separate download or `OPENWD_DATA` setting is
+needed for a normal package installation.
 
-Use `ModelData.default(root)` or `OPENWD_DATA`. Missing data produce an
-explicit error; the adapter does not replace them with approximate rates or
-download them implicitly. The existing research workspace already contains
-these inputs. Their existing third-party restrictions still apply.
+`ModelData.default(root)` and `OPENWD_DATA` remain available for a complete
+custom data tree. All paths then resolve under that selected root; missing
+files produce an explicit error and are never replaced or downloaded
+implicitly. See `THIRD_PARTY_NOTICES.md` for attribution and redistribution
+terms.
 
 ## Cold-start qualification and runtime
 
@@ -202,17 +201,16 @@ python -m pip install -e '.[test]'
 python -m pytest tests/test_helium_nlte.py tests/test_hot_nlte.py tests/test_hot_structure.py
 python -m pytest tests/test_hot_public.py tests/test_hot_error_boundary.py tests/test_hot_recovery_*.py tests/test_hot_response.py
 
-# Seven expensive fresh calculations; requires the external data above.
-OPENWD_DATA=/path/to/data OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+# Seven expensive fresh calculations using the installed data.
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
   python -m pytest -m canary tests/test_hot_cold_canary.py
 ```
 
-The ordinary tests use synthetic collision input where third-party data cannot
-be redistributed, but read the bundled Tremblay profile default. The slow
-canaries require actual external physics data and are excluded from fast CI.
-Unset `OPENWD_DATA` skips those optional canaries; an explicitly selected but
-incomplete data root fails them. The canaries must not be reported as passed
-when skipped.
+The ordinary tests use small synthetic collision fixtures to keep fast CI
+bounded, while package tests verify that the complete inputs are installed.
+The slow cold-start canaries use the bundled physical data and remain excluded
+from fast CI. An explicitly selected but incomplete custom data root fails
+them. The canaries must not be reported as passed when skipped.
 
 For an instrumented public run, including source hashes and per-stage
 numerical diagnostics:

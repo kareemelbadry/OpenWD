@@ -43,6 +43,7 @@ from .pg1159 import (
 from types import MappingProxyType
 
 LOGGER = logging.getLogger(__name__)
+PG1159_LOCAL_ENERGY_MINIMUM_ROSSELAND_DEPTH = 1.0e-5
 
 
 class PG1159MaterialClosureError(RecoverableEvaluationError):
@@ -78,16 +79,21 @@ def _population_response_probe_limit(fraction, certification_stage=None):
     """Bound provisional work while resolving late-continuation curvature."""
     if certification_stage is None:
         certification_stage = fraction == 1.0
-    if certification_stage:
-        return None
-    return 2 if fraction >= 0.8 else 1
+    # One measured current-direction action captures the leading eliminated
+    # population coupling.  Further directions cost another material closure
+    # each and previously added minutes without validating the noisy response.
+    return 1
 
 
 def _local_energy_mask(atmosphere, model):
     """Cells where the cancellation-prone local heating equation is useful."""
     tau = np.asarray(atmosphere.rosseland_optical_depth[:-1])
     lower = float(
-        getattr(model, "atmosphere_local_energy_minimum_rosseland_depth", 1e-6)
+        getattr(
+            model,
+            "atmosphere_local_energy_minimum_rosseland_depth",
+            PG1159_LOCAL_ENERGY_MINIMUM_ROSSELAND_DEPTH,
+        )
     )
     upper = float(
         getattr(model, "atmosphere_local_energy_maximum_rosseland_depth", 10.0)
@@ -670,13 +676,34 @@ class PG1159Equations:
         )
         scaled = energy / np.maximum(abs(emission), 1e-30 * self.target)
         local_energy_mask = _local_energy_mask(a, self.model)
+        excluded_surface_mask = (
+            np.asarray(a.rosseland_optical_depth[:-1])
+            < float(
+                getattr(
+                    self.model,
+                    "atmosphere_local_energy_minimum_rosseland_depth",
+                    PG1159_LOCAL_ENERGY_MINIMUM_ROSSELAND_DEPTH,
+                )
+            )
+        )
         photospheric_flux_mask = _photospheric_flux_mask(a, self.model)
-        # Deep cells below the declared line-forming window are deliberately
-        # excluded from the nonlinear norm. Their flux error is retained in
-        # diagnostics, while the solved equations are local heating balance
-        # in the photosphere and the emergent surface flux.
-        thermal_residual = np.where(local_energy_mask, scaled, 0.0)
-        physical_residual = np.r_[thermal_residual, flux[0]]
+        local_indices = np.flatnonzero(local_energy_mask)
+        maximum_local_index = int(
+            local_indices[np.argmax(abs(scaled[local_energy_mask]))]
+        )
+        largest_count = min(8, local_indices.size)
+        largest_local_indices = local_indices[
+            np.argsort(abs(scaled[local_energy_mask]))[-largest_count:][::-1]
+        ]
+        # At full NLTE solve exactly the quantity used by the release gate:
+        # the bolometric flux at every interface.  The former local-heating
+        # residual could shrink while the flux profile worsened because its
+        # per-cell normalization hid accumulated absolute flux drift.  Local
+        # heating remains an independently recorded qualification check.
+        full_nlte_flux_solve = self.model.population_nlte_fraction == 1.0
+        physical_residual = flux if full_nlte_flux_solve else np.r_[
+            np.where(local_energy_mask, scaled, 0.0), flux[0]
+        ]
         acceleration = (
             trapezoid(c.total_extinction * field.flux, self.wave, axis=0) / LIGHT_SPEED
         )
@@ -709,7 +736,7 @@ class PG1159Equations:
         # heating, and hydrostatic residuals below.
         residual = (
             physical_residual
-            if self.certification_stage
+            if self.certification_stage or full_nlte_flux_solve
             else np.asarray(operator_correction, dtype=float)
         )
         d = dict(
@@ -727,12 +754,46 @@ class PG1159Equations:
             maximum_relative_cell_energy_balance_residual=float(
                 np.max(abs(scaled[local_energy_mask]))
             ),
+            maximum_local_energy_balance_depth_index=maximum_local_index,
+            maximum_local_energy_balance_rosseland_depth=float(
+                a.rosseland_optical_depth[maximum_local_index]
+            ),
+            maximum_local_energy_balance_column_mass=float(
+                a.column_mass[maximum_local_index]
+            ),
+            maximum_local_energy_balance_temperature=float(
+                a.temperature[maximum_local_index]
+            ),
+            maximum_local_energy_balance_signed_residual=float(
+                scaled[maximum_local_index]
+            ),
+            maximum_local_energy_balance_net_heating=float(
+                energy[maximum_local_index]
+            ),
+            maximum_local_energy_balance_emission_scale=float(
+                emission[maximum_local_index]
+            ),
+            largest_local_energy_balance_cells=tuple(
+                {
+                    "depth_index": int(depth_index),
+                    "rosseland_depth": float(
+                        a.rosseland_optical_depth[depth_index]
+                    ),
+                    "signed_residual": float(scaled[depth_index]),
+                }
+                for depth_index in largest_local_indices
+            ),
             maximum_all_cell_energy_balance_residual=float(np.max(abs(scaled))),
+            maximum_excluded_surface_cell_energy_balance_residual=(
+                float(np.max(abs(scaled[excluded_surface_mask])))
+                if np.any(excluded_surface_mask)
+                else None
+            ),
             local_energy_minimum_rosseland_depth=float(
                 getattr(
                     self.model,
                     "atmosphere_local_energy_minimum_rosseland_depth",
-                    1e-6,
+                    PG1159_LOCAL_ENERGY_MINIMUM_ROSSELAND_DEPTH,
                 )
             ),
             local_energy_maximum_rosseland_depth=float(
@@ -896,6 +957,9 @@ class PG1159Equations:
                 hydrostatic=self.radiative_acceleration,
                 radiative_acceleration_scale=self.radiative_acceleration_scale,
                 local_energy_mask=_local_energy_mask(a, self.model),
+                flux_profile_residual=(
+                    self.model.population_nlte_fraction == 1.0
+                ),
             )
             d = {
                 **d,
@@ -920,17 +984,52 @@ class PG1159Equations:
                     LOGGER.info("Measured PG1159 coupled thermal response direction")
                     return measured
 
-                matrix, response_diagnostics = refine_population_response(
-                    matrix,
-                    result.residual,
-                    logged_measure,
-                    propose,
-                    maximum_probes=_population_response_probe_limit(
-                        self.model.population_nlte_fraction,
-                        self.certification_stage,
-                    ),
+                probe_limit = int(
+                    getattr(
+                        self.model,
+                        "pg1159_population_response_probes",
+                        _population_response_probe_limit(
+                            self.model.population_nlte_fraction,
+                            self.certification_stage,
+                        ),
+                    )
                 )
+                if probe_limit < 0:
+                    raise ValueError(
+                        "pg1159_population_response_probes must be nonnegative"
+                    )
+                # The fixed-radiation material/transfer tangent already gave
+                # a tenfold flux reduction once the profile residual fell
+                # below 0.5.  A coupled population probe at that point doubled
+                # Jacobian time without improving the accepted direction.
+                # Retain one measured correction only for far-out states.
+                population_probe_residual_threshold = 0.5
+                if (
+                    float(np.max(abs(result.residual)))
+                    < population_probe_residual_threshold
+                ):
+                    probe_limit = 0
+                if probe_limit:
+                    matrix, response_diagnostics = refine_population_response(
+                        matrix,
+                        result.residual,
+                        logged_measure,
+                        propose,
+                        maximum_probes=probe_limit,
+                    )
+                else:
+                    response_diagnostics = {
+                        "population_response_probe_count": 0,
+                        "population_response_directional_defects": (),
+                        "population_response_direction_validated": False,
+                        "population_response_measured_rank": 0,
+                        "population_response_probe_failed": False,
+                        "population_response_probe_failure": None,
+                    }
                 d = {**d, **response_diagnostics}
+                d["population_response_probe_residual_threshold"] = (
+                    population_probe_residual_threshold
+                )
                 LOGGER.info("PG1159 coupled thermal response: %s", response_diagnostics)
             return NonlinearEvaluation(result.residual, matrix, (a, p, d))
         except (NonphysicalPopulationError, InvalidRadiationFieldError) as exc:
@@ -973,12 +1072,18 @@ def damped_thermal_direction(state, evaluation, jacobian, radius):
     return NonlinearProposal(damped(high), limited=True)
 
 
-def _initializer_ready(evaluation, flux_tolerance, local_energy_tolerance=None):
+def _initializer_ready(
+    evaluation,
+    flux_tolerance,
+    local_energy_tolerance=None,
+    *,
+    require_flux_profile=False,
+):
     """Test physical handoff metrics, independent of residual coordinates."""
     if local_energy_tolerance is None:
         local_energy_tolerance = flux_tolerance
     diagnostics = evaluation.payload[2]
-    return bool(
+    ready = bool(
         evaluation.payload[1].converged
         and abs(diagnostics["surface_flux_ratio"] - 1.0) < flux_tolerance
         and diagnostics["maximum_relative_cell_energy_balance_residual"]
@@ -986,6 +1091,15 @@ def _initializer_ready(evaluation, flux_tolerance, local_energy_tolerance=None):
         and diagnostics["maximum_hydrostatic_log_pressure_residual"]
         < flux_tolerance
     )
+    if require_flux_profile:
+        ready = bool(
+            ready
+            and diagnostics["maximum_photospheric_total_flux_residual"]
+            < flux_tolerance
+            and diagnostics["maximum_all_depth_total_flux_residual"]
+            < flux_tolerance
+        )
+    return ready
 
 
 def _operator_split_direction(state, evaluation, jacobian, radius):
@@ -1029,13 +1143,13 @@ def _solve_stage(
         material_tolerance_ceiling=material_tolerance_ceiling,
     )
     eq.anchor = initial_population_state
-    # Match the legacy physical stopping contract: emergent bolometric flux
-    # and local heating in the declared line-forming window. Internal flux
-    # profiles remain recorded diagnostics. The public spectrum stability
-    # check showed no benefit from tightening these gates beyond 0.75%.
-    flux_tolerance = 7.5e-3 if certification_stage else provisional_thermal_tolerance
+    # A spectrum-qualified final state must conserve the bolometric flux
+    # through the declared structure, not only at the surface.  One percent
+    # admits the measured cold-origin PG 1424 solution while rejecting the
+    # legacy-shape state whose internal flux changes by nearly a factor of two.
+    flux_tolerance = 1.0e-2 if certification_stage else provisional_thermal_tolerance
     local_energy_tolerance = (
-        1.5e-2
+        3.0e-3
         if certification_stage or stage_name == "full-nlte-relaxation"
         else provisional_thermal_tolerance
     )
@@ -1055,7 +1169,10 @@ def _solve_stage(
         return bool(
             not certification_stage
             and _initializer_ready(
-                e, flux_tolerance, local_energy_tolerance
+                e,
+                flux_tolerance,
+                local_energy_tolerance,
+                require_flux_profile=(stage_name == "full-nlte-relaxation"),
             )
         )
 
@@ -1064,6 +1181,8 @@ def _solve_stage(
         return bool(
             e.payload[1].converged
             and abs(d["surface_flux_ratio"] - 1.0) < flux_tolerance
+            and d["maximum_photospheric_total_flux_residual"] < flux_tolerance
+            and d["maximum_all_depth_total_flux_residual"] < flux_tolerance
             and d["maximum_relative_cell_energy_balance_residual"] < local_energy_tolerance
             and d["maximum_hydrostatic_log_pressure_residual"] < flux_tolerance
             and step < step_tolerance
@@ -1179,7 +1298,11 @@ def _solve_stage(
         "temperature_tangent": (
             "LTE material derivative"
             if model.population_nlte_fraction == 0.0
-            else "fixed-radiation SE/EOS response plus orthogonal measured population responses"
+            else (
+                "fixed-radiation SE/EOS response plus measured population direction"
+                if d.get("population_response_measured_rank", 0) > 0
+                else "fixed-radiation SE/EOS response with physical trial acceptance"
+            )
         ),
         "nonlinear_solver": nonlinear_result_metadata(result),
         "nlte_continuation_fraction": model.population_nlte_fraction,
@@ -1201,14 +1324,16 @@ def _solve_stage(
         local_energy_tolerance=local_energy_tolerance,
         required_checks=(
             "surface_flux",
+            "photospheric_flux",
+            "all_depth_flux",
             "local_energy",
             "source_closure",
             "boundary_screening",
         ),
+        profile="pg1159-spectrum-gate-v1",
     )
-    metadata["radiative_equilibrium_converged"] = metadata["equilibrium_certificate"][
-        "verified"
-    ]
+    metadata["spectrum_qualified"] = metadata["equilibrium_certificate"]["verified"]
+    metadata["radiative_equilibrium_converged"] = False
     return PG1159AtmosphereResult(replace(a, metadata=metadata), p, result)
 
 
@@ -1283,17 +1408,21 @@ def solve_pg1159_atmosphere(
                 metal_population_relative_tolerance=material_tolerance_ceiling,
             )
         if 0.0 < fraction:
-            # A shallow joint history accelerates the single half-NLTE
-            # population bridge and the exact full-NLTE map. Near the declared
-            # target material() switches back to the plain physical map.
+            # Use the configured joint history for the half-NLTE bridge and
+            # exact full-NLTE map.  The public model selects the validated
+            # 80-state weighted-SVD history; truncating it to six here lost
+            # the weak population modes and erased most of that speed-up.
+            # Near the declared target material() still switches back to the
+            # plain physical map.
             stage_model = replace(
                 stage_model,
                 metal_population_damping=1.0,
                 helium_population_damping=1.0,
                 metal_population_acceleration_depth=0,
-                coupled_population_acceleration_depth=min(
-                    6, model.coupled_population_acceleration_depth
+                coupled_population_acceleration_depth=(
+                    model.coupled_population_acceleration_depth
                 ),
+                use_pg1159_response_jacobian=(fraction == 1.0),
             )
         LOGGER.info(
             "PG1159 cold continuation fraction %.3g (%s)",

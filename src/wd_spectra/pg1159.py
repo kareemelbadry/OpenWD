@@ -434,36 +434,6 @@ def _formal_spectrum_transition_keys(
     return frozenset(allowed)
 
 
-def _damp_light_metal_state(
-    previous: LightMetalNLTEState | None,
-    current: LightMetalNLTEState,
-    damping: float,
-) -> LightMetalNLTEState:
-    if previous is None or damping >= 1.0:
-        return current
-    populations = {
-        element: (1.0 - damping) * previous.ion_number_density[element]
-        + damping * current.ion_number_density[element]
-        for element in current.ion_number_density
-    }
-    departures = {
-        (element, charge): _finite_departure_ratio(
-            populations[element][charge],
-            current.lte_ion_number_density[element][charge],
-        )
-        for element in populations
-        for charge in range(populations[element].shape[0])
-    }
-    metadata = dict(current.metadata)
-    metadata["population_damping"] = damping
-    return replace(
-        current,
-        ion_number_density=MappingProxyType(populations),
-        ion_departure_coefficient=MappingProxyType(departures),
-        metadata=metadata,
-    )
-
-
 def _add_missing_lte_ion_ladders(
     state: LightMetalNLTEState,
     metal_state: MetalLTEState,
@@ -1235,6 +1205,11 @@ class PG1159NLTEModel:
     metal_population_acceleration_depth: int = 0
     metal_population_acceleration_damping: float = 0.7
     adaptive_atmosphere_population_effort: bool = False
+    # Full-NLTE atmosphere stages can use the transfer response to solve the
+    # bolometric flux profile directly.  Initializer stages retain the cheap
+    # operator-split map and override this flag in the structure driver.
+    use_pg1159_response_jacobian: bool = False
+    pg1159_population_response_probes: int = 1
     atmosphere_coarse_population_iterations: int = 12
     atmosphere_coarse_population_relative_tolerance: float = 2.0e-2
     atmosphere_population_tightening_threshold: float = 1.5e-2
@@ -2602,7 +2577,7 @@ class PG1159NLTEModel:
                 "model_atom": self.name,
                 "helium_model_atom": helium_state.metadata.get("model_atom"),
                 "carbon_oxygen_population_model": (
-                    "explicit C III-V and O V-VII reduced atoms"
+                    "explicit C III-V and O III-VII reduced atoms"
                     if carbon_level_state is not None
                     and oxygen_level_state is not None
                     else (
@@ -2611,7 +2586,7 @@ class PG1159NLTEModel:
                     )
                     if carbon_level_state is not None
                     else (
-                        "explicit O V-VII levels; NLTE ion stages for "
+                        "explicit O III-VII levels; NLTE ion stages for "
                         + ", ".join(self.nlte_metal_elements)
                     )
                     if oxygen_level_state is not None

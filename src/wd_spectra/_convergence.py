@@ -22,6 +22,7 @@ def equilibrium_certificate(
     temperature_tolerance=3e-4,
     source_tolerance=1e-6,
     required_checks=None,
+    profile=None,
 ) -> dict:
     """Evaluate finite recorded diagnostics with their actual normalizations."""
     if local_energy_tolerance is None:
@@ -118,8 +119,11 @@ def equilibrium_certificate(
     failures = [name for name in required_checks if not checks[name]["passed"]]
     if not solver:
         failures.insert(0, "solver_completion")
+    if profile is not None and profile != "pg1159-spectrum-gate-v1":
+        raise ValueError("unknown equilibrium-certificate profile")
     return dict(
-        schema=1,
+        schema=1 if profile is None else 2,
+        **({} if profile is None else {"profile": profile}),
         scope="declared equations on the structure grid",
         verified=not failures,
         checks=checks,
@@ -135,7 +139,13 @@ def recorded_equilibrium_status(metadata: Mapping) -> str:
     if metadata.get("fixed_synthesis_request_verified") is False:
         return "unconverged"
     certificate = metadata.get("equilibrium_certificate")
-    if isinstance(certificate, Mapping) and certificate.get("schema") == 1:
+    if isinstance(certificate, Mapping) and certificate.get("schema") in (1, 2):
+        profile = certificate.get("profile")
+        if certificate.get("schema") == 1:
+            if profile is not None:
+                return "unknown"
+        elif profile != "pg1159-spectrum-gate-v1":
+            return "unknown"
         # Re-evaluate the diagnostics: a copied True field is not authority.
         old_checks = certificate.get("checks", {})
         if not isinstance(old_checks, Mapping) or any(
@@ -179,13 +189,15 @@ def recorded_equilibrium_status(metadata: Mapping) -> str:
             for v in tolerances.values()
         ):
             return "unknown"
-        return (
-            "converged"
-            if equilibrium_certificate(
-                metadata, required_checks=required_checks, **tolerances
-            )["verified"]
-            else "unconverged"
-        )
+        verified = equilibrium_certificate(
+            metadata,
+            required_checks=required_checks,
+            profile=profile,
+            **tolerances,
+        )["verified"]
+        if not verified:
+            return "unconverged"
+        return "converged" if profile is None else "spectrum-qualified"
     if metadata.get("radiative_equilibrium_converged") is False:
         return "unconverged"
     return "unknown"

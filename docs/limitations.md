@@ -128,4 +128,5 @@ LTE closure; NLTE ionization does not feed back into charge balance. Metals,
 winds, radiative acceleration and convection are omitted. One DO target still
 fails the strict legacy profile comparison, and GD153's H-alpha profile remains
 worse than the TMAP reference. A numerical certificate does not resolve these
-physical and observational limitations. External CCC/TLUSTY data are required.
+physical and observational limitations. The required CCC/TLUSTY inputs are
+installed with OpenWD.

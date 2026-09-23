@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cold DO/DAO runs; see docs/models/DO-DAO.md for required external data."""
+"""Cold DO/DAO runs using the atomic data installed with OpenWD."""
 import argparse
 import logging
 from wd_spectra import DOConfig, DAOConfig, ModelData, run_model
@@ -12,7 +12,10 @@ def main():
     parser.add_argument('--log-hydrogen-to-helium', type=float,
                         help='Enable the mixed DAO model; log10 N(H)/N(He)')
     parser.add_argument('--quality', choices=('quick', 'standard', 'production'), default='standard')
-    parser.add_argument('--data-root')
+    parser.add_argument(
+        '--data-root',
+        help='optional complete custom data root; bundled data are the default',
+    )
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)

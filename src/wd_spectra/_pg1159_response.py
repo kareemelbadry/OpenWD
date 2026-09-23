@@ -24,6 +24,7 @@ def thermal_response(
     hydrostatic=False,
     radiative_acceleration_scale=1.0,
     local_energy_mask=None,
+    flux_profile_residual=False,
 ):
     """Return all depth derivatives with bounded wavelength-chunk memory.
 
@@ -143,14 +144,22 @@ def thermal_response(
         thermal[cells, cells] -= np.where(
             abs(emission) > 1e-30 * target, energy * emission_j / scale ** 2, 0.0
         )
-        thermal = np.where(
-            local_energy_mask[:, None], thermal, np.diff(df, axis=0)
-        )
-        # Match the legacy PG1159 correction: flux constancy supplies the
-        # cell equations and the emergent bolometric flux fixes the remaining
-        # nearly constant temperature mode.  The deepest interface is the
-        # least reliable place to anchor that mode on a finite atmosphere.
-        matrix = np.vstack((thermal, df[0]))
+        if flux_profile_residual:
+            # The release gate is stated in terms of the bolometric flux at
+            # every interface.  Differentiating that same profile gives every
+            # temperature coordinate an explicit equation and avoids the
+            # accumulated drift that can satisfy small cell-wise heating
+            # ratios while missing the target flux by tens of percent.
+            matrix = df
+        else:
+            thermal = np.where(
+                local_energy_mask[:, None], thermal, np.diff(df, axis=0)
+            )
+            # Match the legacy PG1159 correction: flux constancy supplies the
+            # cell equations and the emergent bolometric flux fixes the remaining
+            # nearly constant temperature mode.  The deepest interface is the
+            # least reliable place to anchor that mode on a finite atmosphere.
+            matrix = np.vstack((thermal, df[0]))
         if hydrostatic:
             indices = np.arange(nd)
             acceleration_j[indices, indices] += (
