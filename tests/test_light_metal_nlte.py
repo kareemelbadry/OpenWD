@@ -37,6 +37,7 @@ from wd_spectra import (
     TmadLTEBoundBoundCoupling,
 )
 from wd_spectra.constants import LIGHT_SPEED, PLANCK
+from wd_spectra._compat import trapezoid
 from wd_spectra.metals import (
     ATOMIC_MASS_U,
     EV_TO_ERG,
@@ -612,7 +613,7 @@ def test_holtsmark_microfield_distribution_matches_reference_values():
         _holtsmark_microfield_distribution(beta), expected, rtol=2.0e-3
     )
     integration_grid = np.geomspace(1.0e-6, 1.0e5, 20_000)
-    integral = np.trapz(
+    integral = trapezoid(
         _holtsmark_microfield_distribution(integration_grid), integration_grid
     )
     assert abs(integral - 1.0) < 2.0e-3
@@ -624,7 +625,7 @@ def test_formula4_uses_half_the_microfield_magnitude_distribution_per_side():
     # side must carry half the area.  Its 0.0368/1.385 prefactor then recovers
     # pi e^2/(m_e c), rather than twice the oscillator-strength integral.
     beta = np.geomspace(1.0e-6, 1.0e5, 20_000)
-    two_sided_area = 2.0 * np.trapz(
+    two_sided_area = 2.0 * trapezoid(
         0.5 * _holtsmark_microfield_distribution(beta), beta
     )
     assert two_sided_area == pytest.approx(1.0, abs=2.0e-3)
@@ -642,7 +643,7 @@ def test_ion_motion_fills_holtsmark_center_and_preserves_profile_area():
 
     assert static[0] == 0.0
     assert moving[0] > 0.02
-    assert 2.0 * np.trapz(moving, beta) == pytest.approx(1.0, rel=5.0e-3)
+    assert 2.0 * trapezoid(moving, beta) == pytest.approx(1.0, rel=5.0e-3)
     # Over the beta<=30 support used by formula 4 the dynamic correction is
     # still core dominated; the static wing remains the leading term.
     assert moving[np.searchsorted(beta, 10.0)] < 1.25 * static[
