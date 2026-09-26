@@ -75,6 +75,62 @@ def measured_directional_response(
             h *= .5
 
 
+TRACE_LENGTH = 16
+MAXIMUM_SECANT_CORRECTIONS = 6
+MAXIMUM_SECANT_REPAIRS = 6
+
+
+def secant_corrected(matrix, corrections):
+    """Return the least change of ``matrix`` that reproduces measured actions.
+
+    ``corrections`` holds (unit direction, measured residual derivative) pairs.
+    The corrected matrix maps every direction to its measured derivative and
+    is unchanged on their orthogonal complement.
+    """
+    q = np.column_stack([c[0] for c in corrections])
+    m = np.column_stack([c[1] for c in corrections])
+    coefficients = np.linalg.lstsq(q, np.eye(q.shape[0]), rcond=1e-8)[0]
+    return matrix + (m - matrix @ q) @ coefficients
+
+
+def rejected_direction_secant(trace, anchor):
+    """Fit the residual derivative along the last rejected line search.
+
+    The trials after the anchor evaluation lie on anchor + f * direction.
+    A per-component fit dR = f a + f^2 b separates the directional derivative
+    ``a`` from the curvature the backtracking factors also sample.  Returns
+    (unit direction, derivative per unit length) or None.
+    """
+    anchor = np.asarray(anchor, dtype=float)
+    base = None
+    for index, (x, residual) in enumerate(trace):
+        if np.array_equal(x, anchor):
+            base = index
+    if base is None:
+        return None
+    r0 = trace[base][1]
+    trials = [(x - anchor, residual - r0) for x, residual in trace[base + 1:]]
+    if not trials:
+        return None
+    last = trials[-1][0]
+    batch = [
+        (dx, dr) for dx, dr in trials
+        if np.linalg.norm(dx) > 0
+        and float(dx @ last) / (np.linalg.norm(dx) * np.linalg.norm(last)) > 0.999
+    ]
+    if len(batch) < 2:
+        return None
+    direction = max((dx for dx, _ in batch), key=np.linalg.norm)
+    factors = np.array([float(dx @ direction) / float(direction @ direction) for dx, _ in batch])
+    design = np.column_stack([factors, factors ** 2])
+    changes = np.vstack([dr for _, dr in batch])
+    derivative = np.linalg.lstsq(design, changes, rcond=None)[0][0]
+    length = float(np.linalg.norm(direction))
+    if not np.all(np.isfinite(derivative)) or length <= 0:
+        return None
+    return direction / length, derivative / length
+
+
 def _population_response_probe_limit(fraction, certification_stage=None):
     """Bound provisional work while resolving late-continuation curvature."""
     if certification_stage is None:
@@ -339,7 +395,8 @@ def remap_material(model, template, temperature, pressure, state):
     )
 
 
-def rate_response_material(model, template, temperature, pressure, state):
+def rate_response_material(model, template, temperature, pressure, state, *,
+                           local_lambda_operator=False):
     """Local SE/EOS tangent with the accepted radiation field held fixed.
 
     All depth temperatures can be perturbed together: the frozen radiation
@@ -351,6 +408,18 @@ def rate_response_material(model, template, temperature, pressure, state):
             "NLTE material response requires its population radiation field"
         )
     radiation = (state.radiation_wavelength, state.radiation_mean_intensity)
+    # A diagonal-Lambda* local radiation response was tested here (2026-09-24)
+    # and made the upper-atmosphere columns worse against finite differences;
+    # the missing damping is non-local.  Keep the frozen-field tangent.
+    operator = (
+        (state.radiation_diagonal_lambda, state.radiation_source_function)
+        if local_lambda_operator
+        and getattr(state, "radiation_diagonal_lambda", None) is not None
+        and getattr(state, "radiation_source_function", None) is not None
+        else None
+    )
+    if local_lambda_operator and operator is None:
+        raise ValueError("the anchor population state has no local lambda operator")
     local = replace(
         model,
         metal_population_iterations=1,
@@ -365,7 +434,10 @@ def rate_response_material(model, template, temperature, pressure, state):
     p = state
     for iteration in range(6):
         a = local.rebuild_atmosphere(template, temperature, p)
-        next_state = local.solve_populations(a, p, _fixed_radiation=radiation)
+        next_state = local.solve_populations(
+            a, p, _fixed_radiation=radiation,
+            **({"_local_lambda_operator": operator} if operator is not None else {}),
+        )
         refreshed = local.rebuild_atmosphere(template, temperature, next_state)
         charge = float(np.max(abs(refreshed.electron_density / a.electron_density - 1)))
         defect = population_defect(p, next_state, local)
@@ -380,6 +452,10 @@ class PG1159AtmosphereResult:
     atmosphere: object
     population_state: object
     nonlinear_result: object
+    # Material closure a stage ended on after a rejected-direction response
+    # (tolerance, resolved flag, secant corrections); None otherwise.  The next
+    # full-NLTE stage starts from it instead of re-opening the loose closure.
+    closure_state: object = None
 
     @property
     def converged(self):
@@ -397,8 +473,24 @@ class PG1159Equations:
         radiative_acceleration_scale=1.0,
         certification_stage=None,
         material_tolerance_ceiling=None,
+        resolved_material_closure=False,
     ):
         self.seed, self.model, self.wave = seed, model, np.asarray(wave)
+        # A resolved closure keeps the coupled population history through the
+        # root and measures population-response directions near it.  It is
+        # used only after a rejected direction at the minimum material
+        # tolerance; see _solve_stage.
+        self.resolved_material_closure = bool(resolved_material_closure)
+        # Residuals of recent full evaluations, and measured directional
+        # derivatives (unit direction, residual action) that correct the
+        # analytic tangent in a resolved closure.
+        self.trace = []
+        self.secant_corrections = []
+        # Cells [first, last) whose full-NLTE rows are local heating instead
+        # of interface flux (None: flux profile only).
+        self.hybrid_band = None
+        # Resolved-closure numerics: population ALI in the material closure.
+        self.population_ali = False
         self.nd = seed.n_depth
         self.radiative_acceleration = radiative_acceleration
         self.radiative_acceleration_scale = radiative_acceleration_scale
@@ -477,6 +569,7 @@ class PG1159Equations:
         # every returned material state.
         closure_model = replace(
             self.model,
+            use_population_ali=bool(self.model.use_population_ali or self.population_ali),
             metal_population_relative_tolerance=rate_tolerance,
             metal_population_minimum_iterations=1,
             metal_population_iterations=(
@@ -492,7 +585,13 @@ class PG1159Equations:
         history = PopulationHistory()
         previous_electrons = None
         defect = accepted_update = charge = np.inf
+        # The inner loop stops on its own iterate update, which can sit just
+        # below the gate while the independent plain-Lambda defect sits just
+        # above it; each such near miss then tightens the inner stop.
+        inner_stop = [raw_rate_tolerance]
+        stopped_on_inner_target = [False]
         for closure_iteration in range(maximum_closure_iterations):
+            stopped_on_inner_target[0] = False
             a = self.model.rebuild_atmosphere(template, temperature, state)
             if previous_electrons is not None:
                 small_density_change = np.max(abs(np.log(
@@ -522,6 +621,28 @@ class PG1159Equations:
                         worst,
                     )
 
+            raw_updates = []
+
+            def restart_stagnant_history(update):
+                # Secants retained across an EOS refresh can dominate the
+                # Anderson fit for a whole history depth and cancel the step:
+                # the raw update then stays constant for tens of iterations.
+                # Discard the history when ten iterations gain under 5%.
+                raw_updates.append(update)
+                if (
+                    self.resolved_material_closure
+                    and len(raw_updates) >= 10
+                    and update > 0.95 * raw_updates[-10]
+                    and (len(history) or history.retained)
+                ):
+                    LOGGER.info(
+                        "PG1159 population update stagnated at %.4g; restarting "
+                        "the coupled history (%d retained, %d samples)",
+                        update, len(history.retained), len(history),
+                    )
+                    history.restart(0, retain=False)
+                    raw_updates.clear()
+
             def refresh_charge_before_oversolving(iteration, population):
                 # Once the remaining population update is smaller than the
                 # stale electron-EOS error, update the EOS before spending
@@ -530,7 +651,9 @@ class PG1159Equations:
                 # retain the final population and charge tolerances.
                 update = population.metadata["undamped_population_relative_change"]
                 accepted = population.metadata["metal_population_relative_change"]
-                if update < raw_rate_tolerance:
+                restart_stagnant_history(update)
+                if update < inner_stop[0]:
+                    stopped_on_inner_target[0] = True
                     LOGGER.info(
                         "PG1159 population update %.4g and raw defect %.4g "
                         "satisfy the material gate",
@@ -547,14 +670,17 @@ class PG1159Equations:
                     return True
                 return False
 
-            candidate = closure_model.solve_populations(
+            candidate = replace(
+                closure_model, metal_population_relative_tolerance=inner_stop[0]
+            ).solve_populations(
                 a, state, iteration_callback=population_progress,
                 _stop_iteration=refresh_charge_before_oversolving,
                 _coupled_population_history=history,
                 _coupled_population_near_root_history=(
                     0
                     if (
-                        self.model.population_nlte_fraction > 0.0
+                        not self.resolved_material_closure
+                        and self.model.population_nlte_fraction > 0.0
                         and closure_model.coupled_population_acceleration_depth
                     )
                     else None
@@ -562,7 +688,8 @@ class PG1159Equations:
                 _coupled_population_near_root_threshold=(
                     3.0 * rate_tolerance
                     if (
-                        self.model.population_nlte_fraction > 0.0
+                        not self.resolved_material_closure
+                        and self.model.population_nlte_fraction > 0.0
                         and closure_model.coupled_population_acceleration_depth
                     )
                     else None
@@ -605,6 +732,13 @@ class PG1159Equations:
                 and charge < charge_tolerance
             ):
                 break
+            # Tighten only after a near miss: the inner loop met its own
+            # target but the independent check did not.  A pass that ran out
+            # of iterations far from the root says nothing about the target,
+            # and tightening then can push it below the plain map's
+            # reachable floor.
+            if defect >= raw_rate_tolerance and stopped_on_inner_target[0]:
+                inner_stop[0] *= 0.5
         state = replace(
             state,
             metadata={
@@ -704,6 +838,15 @@ class PG1159Equations:
         physical_residual = flux if full_nlte_flux_solve else np.r_[
             np.where(local_energy_mask, scaled, 0.0), flux[0]
         ]
+        if full_nlte_flux_solve and self.hybrid_band == "auto":
+            # Freeze the band at the stage's first (anchor) evaluation so the
+            # residual rows stay fixed for the whole solve.
+            first = int(np.argmax(np.r_[local_energy_mask, True]))
+            last = int(np.argmax(np.r_[abs(emission) >= self.target, True]))
+            self.hybrid_band = (first, last) if first < last else None
+        if full_nlte_flux_solve and self.hybrid_band is not None:
+            first, last = self.hybrid_band
+            physical_residual = np.r_[flux[:first], scaled[first:last], flux[last:]]
         acceleration = (
             trapezoid(c.total_extinction * field.flux, self.wave, axis=0) / LIGHT_SPEED
         )
@@ -804,7 +947,12 @@ class PG1159Equations:
                 )
             ),
             maximum_legacy_proposed_log_temperature_correction=proposed_correction,
+            pg1159_hybrid_band=self.hybrid_band,
             _operator_split_correction=operator_correction,
+            # Reused by the hybrid temperature correction, which would
+            # otherwise repeat this formal solution.
+            _transfer_coefficients=c,
+            _radiation_field=field,
             electron_scattering_source_final_maximum_relative_residual=closure,
             maximum_hydrostatic_log_pressure_residual=hydro,
             maximum_radiative_acceleration_fraction=float(
@@ -842,6 +990,8 @@ class PG1159Equations:
                 c = self.model.transfer_coefficients(a, self.wave, p)
                 self.cache[key] = self.field_residual(a, p, coefficients=c)
                 trial = self.cache[key]
+                self.trace = [*self.trace[-(TRACE_LENGTH - 1):],
+                              (x.copy(), trial.residual.copy())]
                 trial_diagnostics = trial.payload[2]
                 LOGGER.info(
                     "PG1159 residual evaluation %d: merit %.6g, maximum residual %.6g, "
@@ -960,6 +1110,7 @@ class PG1159Equations:
                 flux_profile_residual=(
                     self.model.population_nlte_fraction == 1.0
                 ),
+                hybrid_band=self.hybrid_band,
             )
             d = {
                 **d,
@@ -1004,7 +1155,13 @@ class PG1159Equations:
                 # Jacobian time without improving the accepted direction.
                 # Retain one measured correction only for far-out states.
                 population_probe_residual_threshold = 0.5
-                if (
+                if self.resolved_material_closure:
+                    # Short-closure population probes are too noisy near the
+                    # root; the resolved closure instead corrects the tangent
+                    # with directional derivatives measured by the rejected
+                    # line searches themselves (see secant_corrected).
+                    probe_limit = 0
+                elif (
                     float(np.max(abs(result.residual)))
                     < population_probe_residual_threshold
                 ):
@@ -1031,9 +1188,22 @@ class PG1159Equations:
                     population_probe_residual_threshold
                 )
                 LOGGER.info("PG1159 coupled thermal response: %s", response_diagnostics)
+            if self.resolved_material_closure and self.secant_corrections:
+                matrix = secant_corrected(matrix, self.secant_corrections)
+                d = {**d, "pg1159_secant_corrections": len(self.secant_corrections)}
+                LOGGER.info("Applied %d measured PG1159 secant corrections",
+                            len(self.secant_corrections))
             return NonlinearEvaluation(result.residual, matrix, (a, p, d))
         except (NonphysicalPopulationError, InvalidRadiationFieldError) as exc:
             LOGGER.info("Rejected PG1159 material trial: %s", exc)
+            raise RecoverableEvaluationError(str(exc)) from exc
+        except ValueError as exc:
+            # A trial whose NLTE opacity gives non-positive transfer faces
+            # (a local population inversion) is outside the physical domain,
+            # like a nonphysical population: shorten the step, do not abort.
+            if "optical face resistances" not in str(exc):
+                raise
+            LOGGER.info("Rejected PG1159 transfer trial: %s", exc)
             raise RecoverableEvaluationError(str(exc)) from exc
 
 
@@ -1110,6 +1280,67 @@ def _operator_split_direction(state, evaluation, jacobian, radius):
     )
 
 
+def _solve_stage_driver(
+    eq,
+    state,
+    maximum_iterations,
+    *,
+    model,
+    residual_tolerance,
+    step_tolerance,
+    qualified,
+    ready_for_next_phase,
+    certification_stage,
+    callback,
+    rejected_step_handoff,
+):
+    """Run the shared trust-region driver for one PG1159 stage residual."""
+    return solve_trust_region_newton(
+        state,
+        eq.evaluate,
+        maximum_iterations=maximum_iterations,
+        # A four-percent temperature proposal drives the eliminated He/C/O
+        # populations several tenths away from their rate fixed point and can
+        # spend many EOS cycles relearning weak modes. Start final NLTE at one
+        # percent and permit conservative growth after successful trials.
+        initial_trust_radius=(
+            0.05 if model.population_nlte_fraction == 1.0
+            else 0.04
+        ),
+        maximum_trust_radius=(
+            0.05 if model.population_nlte_fraction == 1.0
+            else 0.12
+        ),
+        residual_tolerance=residual_tolerance,
+        step_tolerance=step_tolerance,
+        convergence_test=qualified,
+        # A provisional Planck-blended problem only prepares the next phase;
+        # it need not have a stationary root of its own. The explicit handoff
+        # reports converged=False. Full NLTE still requires the independent
+        # residual certificate and material checks.
+        accepted_state_handoff=(
+            ready_for_next_phase if not certification_stage else None
+        ),
+        allow_initial_convergence=True,
+        jacobian_refresh_interval=1 if model.population_nlte_fraction == 0.0 else 4,
+        finite_difference_fallback_step=None,
+        broyden_updates=False,
+        linear_regularization=0.0,
+        step_builder=(
+            _operator_split_direction
+            if not getattr(model, "use_pg1159_response_jacobian", False)
+            else damped_thermal_direction
+        ),
+        merit_function="least-squares",
+        # The common model-agreement policy intentionally refuses radius growth
+        # for limited proposals. LM proposals are intrinsically bounded, so
+        # retain the driver's backtracking-based growth policy here.
+        trust_update="legacy",
+        callback=callback,
+        rejected_step_handoff=rejected_step_handoff,
+    )
+
+
 def _solve_stage(
     seed,
     model,
@@ -1124,8 +1355,22 @@ def _solve_stage(
     material_tolerance_ceiling=None,
     provisional_thermal_tolerance=1e-2,
     stage_name=None,
+    closure_state=None,
 ):
     start = time.monotonic()
+    if closure_state is not None:
+        carried_tolerance = float(closure_state["tolerance"])
+        model = replace(
+            model,
+            metal_population_relative_tolerance=min(
+                model.metal_population_relative_tolerance, carried_tolerance
+            ),
+        )
+        material_tolerance_ceiling = (
+            carried_tolerance
+            if material_tolerance_ceiling is None
+            else min(float(material_tolerance_ceiling), carried_tolerance)
+        )
     certification_stage = (
         model.population_nlte_fraction == 1.0
         if certification_stage is None
@@ -1141,6 +1386,9 @@ def _solve_stage(
         radiative_acceleration_scale=radiative_acceleration_scale,
         certification_stage=certification_stage,
         material_tolerance_ceiling=material_tolerance_ceiling,
+        resolved_material_closure=bool(
+            closure_state is not None and closure_state.get("resolved")
+        ),
     )
     eq.anchor = initial_population_state
     # A spectrum-qualified final state must conserve the bolometric flux
@@ -1188,8 +1436,13 @@ def _solve_stage(
             and step < step_tolerance
         )
 
+    # Iterations already accepted by earlier solves of this stage; nonzero
+    # only after a rejected-step material tightening restarts the driver.
+    iteration_offset = 0
+
     def callback(it, x, e):
         eq.anchor = e.payload[1]
+        it = replace(it, iteration=it.iteration + iteration_offset)
         d = {
             **{k: v for k, v in e.payload[2].items() if not k.startswith("_")},
             "solver_phase": "shared-pg1159-newton",
@@ -1205,49 +1458,161 @@ def _solve_stage(
         if iteration_callback:
             iteration_callback(it.iteration, e.payload[0], e.payload[1], d)
 
-    result = solve_trust_region_newton(
-        eq.initial_state(),
-        eq.evaluate,
-        maximum_iterations=maximum_iterations,
-        # A four-percent temperature proposal drives the eliminated He/C/O
-        # populations several tenths away from their rate fixed point and can
-        # spend many EOS cycles relearning weak modes. Start final NLTE at one
-        # percent and permit conservative growth after successful trials.
-        initial_trust_radius=(
-            0.05 if model.population_nlte_fraction == 1.0
-            else 0.04
-        ),
-        maximum_trust_radius=(
-            0.05 if model.population_nlte_fraction == 1.0
-            else 0.12
-        ),
-        residual_tolerance=residual_tolerance,
-        step_tolerance=step_tolerance,
-        convergence_test=qualified,
-        # A provisional Planck-blended problem only prepares the next phase;
-        # it need not have a stationary root of its own. The explicit handoff
-        # reports converged=False. Full NLTE still requires the independent
-        # residual certificate and material checks.
-        accepted_state_handoff=(
-            ready_for_next_phase if not certification_stage else None
-        ),
-        allow_initial_convergence=True,
-        jacobian_refresh_interval=1 if model.population_nlte_fraction == 0.0 else 4,
-        finite_difference_fallback_step=None,
-        broyden_updates=False,
-        linear_regularization=0.0,
-        step_builder=(
-            _operator_split_direction
-            if not getattr(model, "use_pg1159_response_jacobian", False)
-            else damped_thermal_direction
-        ),
-        merit_function="least-squares",
-        # The common model-agreement policy intentionally refuses radius growth
-        # for limited proposals. LM proposals are intrinsically bounded, so
-        # retain the driver's backtracking-based growth policy here.
-        trust_update="legacy",
-        callback=callback,
+    # The full-NLTE flux residual is evaluated through an eliminated material
+    # closure that stops once one undamped rate update falls below the
+    # material tolerance.  Near the root the plain map contracts slowly
+    # (spectral radius ~0.97 at PG 1159-035), so a one-percent update can
+    # leave the populations several tens of percent from their fixed point
+    # and bias the bolometric flux by more than the flux gate itself.  Once
+    # that bias dominates, every temperature trial of a whole direction is
+    # uphill, including 1/64 steps.  Respond to exactly that event by
+    # re-closing the anchor with a tighter material tolerance and restarting
+    # the driver on the more accurate residual.  States that never reject a
+    # direction (PG 1424, PG 1707) are unaffected.
+    #
+    # At the minimum tolerance the plain near-root map is almost neutral
+    # (spectral radius ~0.9993 at PG 1159-035), so a tighter update gate
+    # cannot be reached, and the stopped populations still lag along the
+    # slow mode.  That lag reversed the measured slope of the true descent
+    # direction.  A rejection there therefore switches once to a resolved
+    # closure: coupled Anderson history through the root at
+    # pg1159_resolved_material_tolerance.  The analytic tangent also has the
+    # wrong sign along that mode, so every rejected line search there adds
+    # its measured directional derivative as a persistent secant correction
+    # of the tangent (at most MAXIMUM_SECANT_REPAIRS restarts per stage).
+    material_tightening = float(
+        getattr(model, "pg1159_rejected_step_material_tightening", 0.1)
     )
+    minimum_material_tolerance = float(
+        getattr(model, "pg1159_minimum_material_tolerance", 1.0e-3)
+    )
+    resolved_material_tolerance = float(
+        getattr(model, "pg1159_resolved_material_tolerance", 1.0e-4)
+    )
+    if (
+        not 0.0 < material_tightening < 1.0
+        or minimum_material_tolerance <= 0.0
+        or resolved_material_tolerance <= 0.0
+    ):
+        raise ValueError("PG1159 material tightening settings are invalid")
+    material_tightenings = []
+
+    def effective_material_tolerance(equations):
+        return min(
+            equations.model.metal_population_relative_tolerance,
+            equations.material_tolerance_ceiling,
+        )
+
+    def can_tighten(equations):
+        return (
+            effective_material_tolerance(equations) * material_tightening
+            >= minimum_material_tolerance * (1.0 - 1.0e-12)
+        )
+
+    hybrid_band = (
+        closure_state.get("hybrid_band") if closure_state is not None else None
+    )
+    if hybrid_band is not None and hybrid_band != "auto":
+        hybrid_band = tuple(int(v) for v in hybrid_band)
+    if (
+        hybrid_band is None
+        and model.population_nlte_fraction == 1.0
+        and bool(getattr(model, "pg1159_hybrid_surface_energy", True))
+    ):
+        hybrid_band = "auto"
+    eq.hybrid_band = hybrid_band
+    population_ali = bool(
+        closure_state.get("population_ali", False) if closure_state is not None else False
+    )
+    eq.population_ali = population_ali
+    secant_repairs = 0
+    secant_corrections = list(
+        closure_state.get("secant_corrections", ()) if closure_state is not None else ()
+    )
+    eq.secant_corrections = list(secant_corrections)
+
+    def tighten_material_on_rejection(x, e):
+        if model.population_nlte_fraction != 1.0:
+            return False
+        if can_tighten(eq) or not eq.resolved_material_closure:
+            return True
+        return bool(
+            secant_repairs < MAXIMUM_SECANT_REPAIRS
+            and rejected_direction_secant(getattr(eq, "trace", ()), x) is not None
+        )
+
+    state = eq.initial_state()
+    remaining_iterations = maximum_iterations
+    while True:
+        result = _solve_stage_driver(
+            eq,
+            state,
+            remaining_iterations,
+            model=model,
+            residual_tolerance=residual_tolerance,
+            step_tolerance=step_tolerance,
+            qualified=qualified,
+            ready_for_next_phase=ready_for_next_phase,
+            certification_stage=certification_stage,
+            callback=callback,
+            rejected_step_handoff=tighten_material_on_rejection,
+        )
+        if result.diagnostics.terminal_reason != "rejected-step-phase-handoff":
+            break
+        state = result.state
+        iteration_offset += result.iterations
+        remaining_iterations = max(1, remaining_iterations - result.iterations)
+        secant = rejected_direction_secant(getattr(eq, "trace", ()), result.state)
+        hybrid_band = getattr(eq, "hybrid_band", hybrid_band)
+        if can_tighten(eq):
+            action, resolved = "tighten", False
+            tolerance = effective_material_tolerance(eq) * material_tightening
+        elif not eq.resolved_material_closure:
+            action, resolved = "resolve", True
+            tolerance = min(effective_material_tolerance(eq), resolved_material_tolerance)
+        else:
+            action, resolved = "secant", True
+            tolerance = effective_material_tolerance(eq)
+            secant_repairs += 1
+        if resolved and secant is not None:
+            secant_corrections = [*secant_corrections, secant][-MAXIMUM_SECANT_CORRECTIONS:]
+        LOGGER.info(
+            "PG1159 %s: whole direction rejected after %d accepted iterations; "
+            "%s: material tolerance %.3g, %d secant corrections",
+            stage_name,
+            iteration_offset,
+            action,
+            tolerance,
+            len(secant_corrections) if resolved else 0,
+        )
+        material_tightenings.append(
+            {
+                "after_iteration": iteration_offset,
+                "action": action,
+                "material_tolerance": tolerance,
+                "resolved_closure": resolved,
+                "secant_corrections": len(secant_corrections) if resolved else 0,
+                "hybrid_band": hybrid_band,
+            }
+        )
+        anchor = eq.anchor
+        evaluations = eq.evaluations
+        eq = PG1159Equations(
+            seed,
+            replace(model, metal_population_relative_tolerance=tolerance),
+            wave,
+            radiative_acceleration=include_radiative_acceleration,
+            radiative_acceleration_scale=radiative_acceleration_scale,
+            certification_stage=certification_stage,
+            material_tolerance_ceiling=tolerance,
+            resolved_material_closure=resolved,
+        )
+        eq.anchor = anchor
+        eq.evaluations = evaluations
+        eq.hybrid_band = hybrid_band
+        eq.population_ali = population_ali
+        if resolved:
+            eq.secant_corrections = list(secant_corrections)
     # Only a successful full-physics stage can be certified. Initializers
     # and failed solves do not need another expensive stationarity Jacobian.
     measure_stationarity = False
@@ -1313,6 +1678,7 @@ def _solve_stage(
         "radiative_acceleration_scale": radiative_acceleration_scale,
         "elapsed_seconds": time.monotonic() - start,
         "residual_evaluations": eq.evaluations,
+        "material_tolerance_tightenings": tuple(material_tightenings),
         "independent_grid_validation": False,
         "full_physics_validation": False,
     }
@@ -1334,7 +1700,21 @@ def _solve_stage(
     )
     metadata["spectrum_qualified"] = metadata["equilibrium_certificate"]["verified"]
     metadata["radiative_equilibrium_converged"] = False
-    return PG1159AtmosphereResult(replace(a, metadata=metadata), p, result)
+    hybrid_band = getattr(eq, "hybrid_band", hybrid_band)
+    carried_closure = (
+        None
+        if closure_state is None and not material_tightenings
+        else {
+            "tolerance": effective_material_tolerance(eq),
+            "resolved": eq.resolved_material_closure,
+            "secant_corrections": tuple(secant_corrections),
+            "hybrid_band": hybrid_band,
+            "population_ali": population_ali,
+        }
+    )
+    return PG1159AtmosphereResult(
+        replace(a, metadata=metadata), p, result, closure_state=carried_closure
+    )
 
 
 def solve_pg1159_atmosphere(
@@ -1345,13 +1725,21 @@ def solve_pg1159_atmosphere(
     maximum_iterations=60,
     include_radiative_acceleration=False,
     iteration_callback=None,
-    cold_start=False
+    cold_start=False,
+    refinement=None,
 ):
     """Cold initialization followed by Planck-to-NLTE continuation.
 
     All stages belong to the requested atmosphere. Stellar parameters,
     composition, atomic rates, and final tolerances remain fixed. Only the
     final fraction-one equations can receive an equilibrium certificate.
+
+    ``refinement=(model, wave, options)`` adds two stages after the
+    certification stage: the upper atmosphere is converged to local radiative
+    equilibrium on ``model``/``wave`` (:func:`refine_upper_atmosphere`, with
+    ``options`` as keyword arguments), and the refined state is certified
+    again on the same equations.  The returned certificate then belongs to
+    the refined equations.
     """
     stages = (
         (
@@ -1389,6 +1777,7 @@ def solve_pg1159_atmosphere(
     )
     gray_initialization = seed.metadata.get("pg1159_gray_opacity_initialization")
     population = None
+    closure_state = None
     history = []
     started = time.monotonic()
     for (
@@ -1449,6 +1838,11 @@ def solve_pg1159_atmosphere(
                 else provisional_thermal_tolerance
             ),
             stage_name=stage_name,
+            **(
+                {"closure_state": closure_state}
+                if closure_state is not None and fraction == 1.0
+                else {}
+            ),
         )
         history.append(
             {
@@ -1464,9 +1858,27 @@ def solve_pg1159_atmosphere(
         )
         seed = result.atmosphere
         population = result.population_state
+        closure_state = getattr(result, "closure_state", None)
         if not (result.nonlinear_result.converged
                 or result.atmosphere.metadata.get("continuation_initializer_ready", False)):
             break
+    refinement_info = None
+    if (
+        refinement is not None
+        and history
+        and history[-1]["stage"] == "full-nlte-certification"
+    ):
+        result, refinement_info, refinement_history = _refine_and_certify(
+            seed,
+            population,
+            refinement,
+            maximum_iterations=maximum_iterations,
+            include_radiative_acceleration=include_radiative_acceleration,
+            iteration_callback=iteration_callback,
+        )
+        history.extend(refinement_history)
+        seed = result.atmosphere
+        population = result.population_state
     # Only the public entry point, which constructs its own continuum seed,
     # establishes cold provenance. An arbitrary caller-supplied seed cannot.
     metadata = {
@@ -1482,6 +1894,91 @@ def solve_pg1159_atmosphere(
             "gray_opacity_preconditioning": gray_initialization,
         },
         "continuation_history": history,
+        **(
+            {"upper_atmosphere_refinement": {k: v for k, v in refinement_info.items() if k != "history"}}
+            if refinement_info is not None
+            else {}
+        ),
         "elapsed_seconds": time.monotonic() - started,
     }
     return replace(result, atmosphere=replace(seed, metadata=metadata))
+
+
+def _refine_and_certify(
+    atmosphere,
+    population,
+    refinement,
+    *,
+    maximum_iterations=60,
+    include_radiative_acceleration=False,
+    iteration_callback=None,
+):
+    """Upper-atmosphere refinement of a certified state, then re-certification.
+
+    ``refinement=(model, wave, options)``.  Returns
+    ``(stage result, refinement info, continuation-history entries)``.
+    """
+    from ._pg1159_ali_temperature import refine_upper_atmosphere
+
+    refinement_model, refinement_wave, refinement_options = refinement
+    LOGGER.info("PG1159 upper-atmosphere refinement")
+    started = time.monotonic()
+    options = dict(refinement_options or {})
+    if iteration_callback is not None and "iteration_callback" not in options:
+        options["iteration_callback"] = iteration_callback
+    refined_atmosphere, refined_population, info = refine_upper_atmosphere(
+        atmosphere,
+        population,
+        refinement_model,
+        refinement_wave,
+        **options,
+    )
+    history = [
+        {
+            "fraction": 1.0,
+            "certification_stage": False,
+            "stage": "upper-atmosphere-refinement",
+            "material_tolerance_ceiling": info["material_tolerance"],
+            "nonlinear_converged": info["converged"],
+            "initializer_ready": True,
+            "iterations": info["iterations"],
+            "elapsed_seconds": time.monotonic() - started,
+        }
+    ]
+    certification_model = replace(
+        refinement_model,
+        population_nlte_fraction=1.0,
+        metal_population_damping=1.0,
+        helium_population_damping=1.0,
+        metal_population_acceleration_depth=0,
+        coupled_population_acceleration_depth=(
+            refinement_model.coupled_population_acceleration_depth
+        ),
+        use_pg1159_response_jacobian=True,
+    )
+    result = _solve_stage(
+        refined_atmosphere,
+        certification_model,
+        refinement_wave,
+        maximum_iterations=maximum_iterations,
+        include_radiative_acceleration=include_radiative_acceleration,
+        iteration_callback=iteration_callback,
+        initial_population_state=refined_population,
+        certification_stage=True,
+        material_tolerance_ceiling=refinement_model.metal_population_relative_tolerance,
+        provisional_thermal_tolerance=1e-2,
+        stage_name="upper-atmosphere-certification",
+    )
+    history.append(
+        {
+            "fraction": 1.0,
+            "certification_stage": True,
+            "stage": "upper-atmosphere-certification",
+            "material_tolerance_ceiling": refinement_model.metal_population_relative_tolerance,
+            "nonlinear_converged": result.nonlinear_result.converged,
+            "initializer_ready": result.atmosphere.metadata.get("continuation_initializer_ready", False),
+            "iterations": result.nonlinear_result.iterations,
+            "elapsed_seconds": result.atmosphere.metadata["elapsed_seconds"],
+        }
+    )
+    return result, info, history

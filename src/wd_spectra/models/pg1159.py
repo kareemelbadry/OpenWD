@@ -34,6 +34,9 @@ class PG1159Config:
     include_radiative_acceleration: bool = False
     population_maximum_iterations: int = 120
     population_tolerance: float = 1e-2
+    # Converge the upper atmosphere (tau_Ross < 1e-2) to local radiative
+    # equilibrium after certification and certify the refined structure.
+    refine_upper_atmosphere: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ def validate_config(config):
         raise ValueError("unknown oxygen atom")
     if not isinstance(config.include_radiative_acceleration, bool):
         raise ValueError("include_radiative_acceleration must be boolean")
+    if not isinstance(config.refine_upper_atmosphere, bool):
+        raise ValueError("refine_upper_atmosphere must be boolean")
     if (
         isinstance(config.population_maximum_iterations, bool)
         or not isinstance(config.population_maximum_iterations, int)
@@ -200,12 +205,26 @@ def compute_pg1159(
     seed = gray_opacity_seed(
         model, seed, wavelength_points=structure_continuum
     )
+    refinement = None
+    if config.refine_upper_atmosphere:
+        from .._pg1159_ali_temperature import REFINEMENT_LINE_VELOCITY_SAMPLES_KMS
+
+        refinement_model = replace(
+            model,
+            metal_rate_line_velocity_samples_kms=REFINEMENT_LINE_VELOCITY_SAMPLES_KMS,
+        )
+        refinement = (
+            refinement_model,
+            structure_wavelength(refinement_model, structure_continuum),
+            {},
+        )
     result = solve_pg1159_atmosphere(
         seed,
         model,
         structure_wavelength(model, structure_continuum),
         maximum_iterations=resolution.maximum_iterations,
         cold_start=True,
+        refinement=refinement,
         include_radiative_acceleration=config.include_radiative_acceleration,
         iteration_callback=(
             None

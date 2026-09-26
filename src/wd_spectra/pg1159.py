@@ -910,6 +910,11 @@ class PG1159NLTEState:
 
     radiation_wavelength: FloatArray | None = None
     radiation_mean_intensity: FloatArray | None = None
+    # Local approximate lambda operator of the last population field (diagonal
+    # Lambda* and total source function on radiation_wavelength); recorded only
+    # when the population iteration uses ALI.
+    radiation_diagonal_lambda: FloatArray | None = None
+    radiation_source_function: FloatArray | None = None
 
     @property
     def converged(self) -> bool:
@@ -1325,6 +1330,7 @@ class PG1159NLTEModel:
         *,
         iteration_callback: Callable[[int, PG1159NLTEState], None] | None = None,
         _fixed_radiation: tuple[FloatArray,FloatArray] | None = None,
+        _local_lambda_operator: tuple[FloatArray, FloatArray] | None = None,
         _stop_iteration: Callable[[int, PG1159NLTEState], bool] | None = None,
         _coupled_population_history: Any | None = None,
         _coupled_population_near_root_history: int | None = None,
@@ -1431,6 +1437,9 @@ class PG1159NLTEModel:
                 self.nlte_metal_elements,
             )
         rate_wavelength = rate_mean_intensity = None
+        rate_diagonal_lambda = rate_source_function = None
+        if _local_lambda_operator is not None and _fixed_radiation is None:
+            raise ValueError("a local lambda operator needs its fixed radiation field")
         population_iteration_count = 0
         population_relative_change = np.inf
         undamped_population_change = np.inf
@@ -1617,7 +1626,7 @@ class PG1159NLTEModel:
                 previous_light_metal_state = light_metal_state
                 previous_carbon_level_state = carbon_level_state
                 previous_oxygen_level_state = oxygen_level_state
-                if _fixed_radiation is None:
+                if _fixed_radiation is None or _local_lambda_operator is not None:
                     helium_coefficients = self.helium_model.transfer_coefficients(
                         composed, ionization_wavelength, helium_state, **helium_transfer_options
                     )
@@ -1895,16 +1904,55 @@ class PG1159NLTEModel:
                         (emissivity + helium_coefficients.scattering * planck) / total
                     )
                     field = None
-                    need_legacy_operator = (self.population_transfer == "legacy" or
+                    need_legacy_operator = _local_lambda_operator is None and (
+                        self.population_transfer == "legacy" or
                         (self.use_population_ali and self.population_nlte_fraction == 1.))
-                    if need_legacy_operator:
+                    if _local_lambda_operator is not None:
+                        # Local ALO response (TMAP-style linearization): the
+                        # radiation follows this state's own source function
+                        # through the anchor's diagonal operator,
+                        #   J = J0 + Lambda* (S - S0),  S = (eta + sigma J) / chi,
+                        # solved in closed form at every wavelength and depth.
+                        # No cross-depth coupling enters, so depth columns of a
+                        # simultaneous perturbation stay separable.
+                        old_wave, old_mean = _fixed_radiation
+                        anchor_mean = _interpolate_mean_intensity(
+                            old_wave, old_mean, ionization_wavelength)
+                        operator, anchor_source = _local_lambda_operator
+                        if (np.shape(operator) != np.shape(anchor_mean)
+                                or np.shape(anchor_source) != np.shape(anchor_mean)):
+                            raise ValueError("local lambda operator has the wrong shape")
+                        scattering_fraction = helium_coefficients.scattering / total
+                        denominator = 1.0 - operator * scattering_fraction
+                        local_mean = (
+                            anchor_mean + operator * (emissivity / total - anchor_source)
+                        ) / np.maximum(denominator, 1e-12)
+                        field = RadiationField(
+                            mean_intensity=np.maximum(local_mean, 0.0),
+                            flux=np.zeros_like(local_mean))
+                    elif need_legacy_operator:
+                        operator_depth = optical_depth
+                        if self.population_transfer == "mass":
+                            # This field only supplies the approximate Lambda
+                            # diagonal; the rates use the exact mass-transfer
+                            # field below.  Keep its optical depth strictly
+                            # increasing where rounding or a local inversion
+                            # gives a non-positive increment.
+                            increment = np.diff(optical_depth, axis=-1)
+                            floor = 1e-14 * np.maximum(abs(optical_depth[..., 1:]), 1e-300)
+                            if np.any(increment <= floor):
+                                operator_depth = np.concatenate(
+                                    (optical_depth[..., :1],
+                                     optical_depth[..., :1]
+                                     + np.cumsum(np.maximum(increment, floor), axis=-1)),
+                                    axis=-1)
                         for _ in range(1 if self.population_transfer == "mass" else self.ionization_scattering_iterations):
-                            field = radiation_field(optical_depth, source,
+                            field = radiation_field(operator_depth, source,
                                 n_angle=self.helium_model.population_n_angle,
                                 calculate_diagonal_lambda=self.use_population_ali)
                             source = np.ascontiguousarray((emissivity
                                 + helium_coefficients.scattering * field.mean_intensity) / total)
-                    if self.population_transfer == "mass":
+                    if self.population_transfer == "mass" and _local_lambda_operator is None:
                         from ._pg1159_transfer import transfer_field
                         coefficients = NLTETransferCoefficients(
                             ionization_wavelength, true_absorption, emissivity,
@@ -1918,7 +1966,8 @@ class PG1159NLTEModel:
                         # and exact scattering closure as the atmosphere equations.
                         field = (exact_field if field is None else
                             replace(exact_field, diagonal_lambda=field.diagonal_lambda))
-                    elif self.population_transfer != "legacy":
+                    elif (self.population_transfer != "legacy"
+                          and _local_lambda_operator is None):
                         raise ValueError("unknown PG1159 population transfer")
                 else:
                     old_wave,old_mean=_fixed_radiation
@@ -1930,6 +1979,12 @@ class PG1159NLTEModel:
                 if self.population_transfer=='mass':
                     rate_wavelength=ionization_wavelength
                     rate_mean_intensity=field.mean_intensity
+                    if (_fixed_radiation is None
+                            and getattr(field, "diagonal_lambda", None) is not None):
+                        rate_diagonal_lambda = field.diagonal_lambda
+                        rate_source_function = (
+                            emissivity + helium_coefficients.scattering * field.mean_intensity
+                        ) / total
                 if not 0 <= self.population_nlte_fraction <= 1:
                     raise ValueError("population_nlte_fraction must lie in [0, 1]")
                 if self.population_nlte_fraction != 1:
@@ -2583,6 +2638,8 @@ class PG1159NLTEModel:
         return PG1159NLTEState(
             radiation_wavelength=rate_wavelength,
             radiation_mean_intensity=rate_mean_intensity,
+            radiation_diagonal_lambda=rate_diagonal_lambda,
+            radiation_source_function=rate_source_function,
             helium_state=helium_state,
             metal_state=metal_state,
             light_metal_state=light_metal_state,

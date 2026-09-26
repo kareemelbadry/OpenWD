@@ -83,6 +83,16 @@ BARKLEM_NEUTRAL_H_BROADENING_SHA256 = (
 # must sample the same support or trapezoidal frequency integration assigns
 # broad wavelength intervals to unresolved wing values.
 METAL_LINE_MINIMUM_HALF_WINDOW_ANGSTROM = 0.25
+# Maximum profile half-window of the hot NLTE metal lines (light_metal_nlte),
+# as a fraction of a line's central wavelength.  The impact (Lorentz)
+# approximation fails at detunings approaching the line frequency itself.
+# Without this bound the Stark-broadened high-Rydberg Delta-n=1 lines of
+# O IV-O VI (FWHM up to ~1e4 A at 2-6 micron) extend their Lorentz wings across
+# the entire spectrum and act as a spurious UV/optical pseudo-continuum (the
+# PG 1159-035 audit of 2026-09-24).  The LTE metal-line path is not bounded:
+# pressure-broadened wings in cool dense atmospheres (DQ) are genuine opacity.
+# Must match LINE_WINDOW_MAX_FRACTION in csrc/rt_core.c.
+LINE_WINDOW_MAX_FRACTION = 0.1
 KURUCZ_GF100_FILES = MappingProxyType(
     {
         "gf0300.100": (

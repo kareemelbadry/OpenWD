@@ -25,6 +25,7 @@ def thermal_response(
     radiative_acceleration_scale=1.0,
     local_energy_mask=None,
     flux_profile_residual=False,
+    hybrid_band=None,
 ):
     """Return all depth derivatives with bounded wavelength-chunk memory.
 
@@ -151,6 +152,11 @@ def thermal_response(
             # accumulated drift that can satisfy small cell-wise heating
             # ratios while missing the target flux by tens of percent.
             matrix = df
+            if hybrid_band is not None:
+                # Cells whose emission is below the stellar flux barely move
+                # the interface fluxes; solve their local heating instead.
+                first, last = hybrid_band
+                matrix = np.vstack((df[:first], thermal[first:last], df[last:]))
         else:
             thermal = np.where(
                 local_energy_mask[:, None], thermal, np.diff(df, axis=0)

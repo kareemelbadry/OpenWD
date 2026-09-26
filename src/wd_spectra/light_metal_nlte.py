@@ -36,6 +36,7 @@ from .constants import (
 )
 from .gaunt import hydrogen_free_free_gaunt_factor
 from .metals import (
+    LINE_WINDOW_MAX_FRACTION,
     ATOMIC_MASS_U,
     EV_TO_ERG,
     AtomicDatabase,
@@ -296,6 +297,7 @@ def _accumulate_metal_line_profiles_python(
                 100.0 * lorentz_hwhm[line_index, depth],
                 static_half_window,
             )
+            half_window = min(half_window, LINE_WINDOW_MAX_FRACTION * line_center)
             start = int(np.searchsorted(wavelength, line_center - half_window))
             stop = int(np.searchsorted(
                 wavelength, line_center + half_window, side="right"
@@ -533,10 +535,10 @@ def _profile_weighted_line_means_python(
     mean_lambda = np.zeros_like(gaussian_sigma)
     for line_index, line_center in enumerate(center):
         for depth in range(intensity.shape[1]):
-            half_width = max(
+            half_width = min(max(
                 7.0 * gaussian_sigma[line_index, depth],
                 100.0 * lorentz_hwhm[line_index, depth],
-            )
+            ), LINE_WINDOW_MAX_FRACTION * line_center)
             start = int(np.searchsorted(wavelength, line_center - half_width))
             stop = int(np.searchsorted(
                 wavelength, line_center + half_width, side="right"
@@ -669,11 +671,11 @@ def _profile_weighted_line_means(
             static_half_width = (
                 30.0 * local_field * center_cm**2 / LIGHT_SPEED * 1.0e8
             )
-            half_width = max(
+            half_width = min(max(
                 7.0 * gaussian_sigma[line_index, depth],
                 100.0 * lorentz_hwhm[line_index, depth],
                 static_half_width,
-            )
+            ), LINE_WINDOW_MAX_FRACTION * line_center)
             start = int(np.searchsorted(wavelength, line_center - half_width))
             stop = int(np.searchsorted(
                 wavelength, line_center + half_width, side="right"

@@ -2,6 +2,11 @@
 #include <Python.h>
 #include <math.h>
 
+/* Maximum hot NLTE metal-line profile half-window as a fraction of the line's
+   central wavelength (matches wd_spectra.metals.LINE_WINDOW_MAX_FRACTION).
+   The LTE metal-line kernel is not bounded. */
+#define LINE_WINDOW_MAX_FRACTION 0.1
+
 /*
  * Formal solution for outward rays in a plane-parallel, pure-absorption
  * atmosphere.  Source functions are represented as linear in optical depth
@@ -791,8 +796,16 @@ accumulate_metal_line_profiles(PyObject *self, PyObject *args)
                 if (100.0 * gamma > half_window) {
                     half_window = 100.0 * gamma;
                 }
+                /* Impact (Lorentz) wings are not valid at detunings comparable
+                   to the line frequency; see LINE_WINDOW_MAX_FRACTION. */
+                if (half_window > LINE_WINDOW_MAX_FRACTION * line_center) {
+                    half_window = LINE_WINDOW_MAX_FRACTION * line_center;
+                }
                 if (static_half_window > half_window) {
                     half_window = static_half_window;
+                }
+                if (half_window > LINE_WINDOW_MAX_FRACTION * line_center) {
+                    half_window = LINE_WINDOW_MAX_FRACTION * line_center;
                 }
                 start = lower_bound_double(
                     wavelength, n_wave, line_center - half_window);
@@ -1006,7 +1019,9 @@ metal_line_mean_intensity(PyObject *self, PyObject *args)
                 const Py_ssize_t line_depth = line * n_depth + depth;
                 const double sigma = gaussian_sigma[line_depth];
                 const double gamma = lorentz_hwhm[line_depth];
-                const double half_width = fmax(7.0 * sigma, 100.0 * gamma);
+                const double half_width = fmin(
+                    fmax(7.0 * sigma, 100.0 * gamma),
+                    LINE_WINDOW_MAX_FRACTION * center[line]);
                 const Py_ssize_t start = lower_bound_double(
                     wavelength, n_wave, center[line] - half_width);
                 const Py_ssize_t stop = upper_bound_double(
