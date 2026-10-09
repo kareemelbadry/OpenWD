@@ -339,7 +339,7 @@ def solve_adaptive_lte_structure(
     use_convective_gradient_preconditioner: bool = True,
     maximum_convective_preconditioner_iterations: int | None = None,
     preconditioner_stationary_completion_iterations: int | None = 2,
-    use_preconditioner_flux_handoff: bool = False,
+    use_preconditioner_flux_handoff: bool = True,
     maximum_formal_flux_continuations: int = 2,
     use_adiabatic_asymptotic_conditioning: bool = False,
     use_initial_bolometric_rescaling: bool = True,
@@ -374,8 +374,8 @@ def solve_adaptive_lte_structure(
     exact checkpoint that may bypass conditioning. The projection mode and
     stationary-completion setting preserve validated composition-specific
     initialization policies without duplicating the nonlinear solver.
-    ``use_preconditioner_flux_handoff`` is an experimental, disabled-by-default
-    progress policy for the first convective-gradient preconditioner. With
+    ``use_preconditioner_flux_handoff`` (enabled by default) is a progress
+    policy for the first convective-gradient preconditioner. With
     local energy enforcement enabled, two genuine accepted Newton updates
     with balanced actual flux and provisional residual but unresolved local
     energy end that phase as unconverged. Formal and energy completion plus

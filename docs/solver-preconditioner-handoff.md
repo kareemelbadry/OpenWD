@@ -1,16 +1,19 @@
-# Experimental LTE preconditioner handoff
+# LTE preconditioner handoff and thermal-conditioning steps
 
 The shared LTE solver can spend additional iterations on its approximate
 convective-gradient objective after actual total flux is balanced. Those
-iterations need not improve local radiative energy balance. The opt-in
-`use_preconditioner_flux_handoff=True` argument to
-`solve_adaptive_lte_structure` transfers that accepted atmosphere to the
-existing formal-flux completion phase earlier.
+iterations need not improve local radiative energy balance. The
+`use_preconditioner_flux_handoff` argument to `solve_adaptive_lte_structure`
+transfers that accepted atmosphere to the existing formal-flux completion
+phase earlier.
 
-The option defaults to `False`. No composition adapter enables it. Ordinary
-convective LTE calculations with local energy enforcement can request it;
-DO/DAO and PG1159 use other structure paths. DQ also calls this shared adapter,
-but its policy and callers are unchanged and it is excluded from this study.
+The option is enabled by default (see
+[Default enablement](#default-enablement-with-faster-thermal-conditioning)).
+Pass `use_preconditioner_flux_handoff=False` to recover the previous
+trajectory. It acts on convective LTE calculations with local energy
+enforcement, including DQ, which calls this shared adapter; DO/DAO and PG1159
+use other structure paths. The sections before that one record the evidence
+gathered while the option was still off by default.
 
 ## Progress policy and final checks
 
@@ -366,6 +369,66 @@ binary are unchanged from the previously validated bundle. The option remains
 default-off; the cool-DA work regression and outstanding DZ/full-D6
 qualification still apply. DQ and hot NLTE algorithms remain unchanged.
 
+## Default enablement with faster thermal conditioning
+
+The handoff is now combined with a change to `thermal_condition`, the
+pseudo-time phase between formal-flux completion and the local-energy Newton
+solve. Its first sweep keeps the previous cautious control (0.04 ln T bound,
+doubling the pseudo-time step only after a temporal defect below 0.0625). If
+that sweep lowers the largest local energy defect, later sweeps use fast
+control: every accepted step doubles the pseudo-time step, the ln T bound is
+the shared solver's 0.12 maximum trust radius, and the handoff to the Newton
+solve waits for a quarter of the local tolerance. The first fast sweep that
+does not lower the defect discards the fast sweeps and resumes from the state
+and pseudo-time step after the first sweep with the original cautious control
+and tolerance, so a non-monotone case follows the previous trajectory exactly.
+Acceptance (temporal defect at most 0.25), admissibility checks and every
+final certificate are unchanged.
+
+Simpler step rules failed and were rejected: always-fast steps (DB 10000 at
+production depth then exceeds its 90-iteration canary guard), reverting to
+cautious control after a rise (same failure), and handing off to Newton at
+the first rise (DAZ GALEX J1931 then fails certification).
+
+The two changes act on different phases and reinforce each other: stopping
+the preconditioner before it drifts away from local balance leaves the thermal
+phase a monotone problem that fast steps can finish. The handoff alone also
+reduces thermal sweeps, which the earlier driver-request counts above do not
+include.
+
+Validation, all serial on one machine from true cold starts with public
+`run_model` defaults, comparing against the parent commit:
+
+| Case | Structure-evaluation work |
+| --- | ---: |
+| DAZ GALEX J1931 | -56% |
+| DA 3000 | -46% |
+| DA 20000 | -41% |
+| DAZ G29-38 | -25% |
+| DB 10000 | -23% |
+| DA 4000 | -22% |
+| DAZ G149-28 | -17% |
+| DA 12000 | -13% |
+| DA 5000, DZ J0738, DZ PG1225, DAB 20000 | -5% to -7% |
+| DB 22000, DAH J1007+1237, DAH J1254+5612 | unchanged |
+
+Work counts every structure evaluation, including thermal sweeps, priced at
+the baseline's measured per-evaluation cost for that case and phase. All 15
+models verify; none needs more work than its baseline. Spectra agree with
+the baseline to better than 2e-5 of the peak flux. Two weakly constrained
+outermost layers differ (Rosseland depth below 1e-7): the top node of DA 4000
+and the top four nodes of DB 10000, where the baseline itself already shows a
+pre-existing alternating temperature pattern. Neither affects the spectrum or
+any check. The quick-quality D6 preset fails certification identically with
+and without this change.
+
+`tools/validate.py cold` passes all 16 requested cases (DB 10000 and 22000,
+DB 22000 standard, DA 3000/4000/5000/20000, DA G76-48, DAB 20000, DAZ
+G149-28/G29-38/GALEX J1931, DZ PG1225, DAH J1007+1237/J1254+5612 and DQ J1235),
+and `tools/validate.py fast` passes. The full 48-depth/25,000-line J1637 cold
+start was not rerun locally with this combination; it is part of the CI
+full-validation cold tier.
+
 ## Reproduction and remaining qualification
 
 Build the native extension and make the normal model data available first.
@@ -395,7 +458,9 @@ source/data/native identities and total work before interpreting timings.
 JSON and sibling NPZ outputs retain the measurements and spectra. Command
 completion alone is not qualification.
 
-Before any default or public adapter opt-in, obtain qualified DZ endpoints and test wider ranges of
+The following list predates default enablement; the section above records
+which items were addressed. Before the earlier opt-in decision it read: obtain
+qualified DZ endpoints and test wider ranges of
 DA, DAH, DB and DAB temperatures, gravities and native grids, and improve or
 bound the extra completion work exposed by the 5000 K DA case. Resolve the
 capped DAB and failed diagnostic DAH controls without relaxing their gates.

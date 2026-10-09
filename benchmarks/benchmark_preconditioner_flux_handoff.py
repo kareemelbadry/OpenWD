@@ -1,6 +1,6 @@
-"""Compare a default-off provisional LTE flux handoff through complete solves.
+"""Compare the provisional LTE flux handoff through complete solves.
 
-Baseline omits use_preconditioner_flux_handoff; candidate passes True to the
+Baseline passes use_preconditioner_flux_handoff=False; candidate passes True to the
 production adaptive adapter. The benchmark does not implement a controller or
 change driver acceptance. Both arms retain complete physical equations, phase
 routing, final five gates, and identical shared budgets. A driver wrapper only
@@ -124,11 +124,9 @@ def options(fixture, args, candidate):
         use_convective_gradient_preconditioner=True,
         resume_supplied_structure_in_formal_flux_phase=False,
         iteration_callback=None)
-    # Baseline exercises the production default rather than explicitly setting
-    # False; captured adapter options cannot silently opt it in.
-    controls.pop(ALGORITHM_OPTION, None)
-    if candidate:
-        controls[ALGORITHM_OPTION] = True
+    # The handoff is the production default; the baseline disables it
+    # explicitly so captured adapter options cannot silently change either arm.
+    controls[ALGORITHM_OPTION] = bool(candidate)
     return controls
 
 
@@ -274,7 +272,7 @@ def measure(fixture, args, candidate, flush, row, arrays, label):
                 row["production_algorithm_metadata"] = handoff_metadata
             else:
                 assert metadata_key not in atmosphere.metadata, "Baseline inherited current-solve handoff metadata"
-                assert not any(hook_presence), "Baseline must use production default with no accepted hook"
+                assert not any(hook_presence), "Disabled baseline must not install an accepted-state hook"
                 row["production_algorithm_metadata"] = None
             row["production_algorithm_contract_verified"] = True
             phase_stage = "fresh-final-diagnostic"
@@ -384,9 +382,9 @@ def main():
     report = dict(status="running", protocol=vars(args), records=[],
         DQ_excluded=True, DQ_model_exercised=False,
         production_sources_changed_relative_to_merged_baseline=True,
-        shared_algorithm_default_changed=False,
+        shared_algorithm_default_enabled=True,
         algorithm_option=ALGORITHM_OPTION,
-        scope="Complete reduced LTE solves using a default-off production algorithm option and fixed diagnostic synthesis; not a released-quality cold model or independent grid validation")
+        scope="Complete reduced LTE solves comparing the production algorithm option disabled and enabled and fixed diagnostic synthesis; not a released-quality cold model or independent grid validation")
     report["protocol"] = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
 
     def flush():
@@ -401,9 +399,9 @@ def main():
         args.output.with_suffix(".npz.tmp").replace(args.output.with_suffix(".npz"))
     try:
         parameter = inspect.signature(adaptive.solve_adaptive_lte_structure).parameters.get(ALGORITHM_OPTION)
-        if parameter is None or parameter.default is not False:
-            raise RuntimeError("Production algorithm option must exist with exact default False")
-        report["production_default_false_verified"] = True
+        if parameter is None or parameter.default is not True:
+            raise RuntimeError("Production algorithm option must exist with exact default True")
+        report["production_default_true_verified"] = True
         report["runtime"] = runtime_metadata()
         native_path = report["runtime"]["native_extension"]
         if native_path is None:
@@ -480,10 +478,11 @@ def main():
         report["spectral_comparisons"] = comparisons
         report["identical_initial_driver_states_and_measured_R_J_verified"] = True
         report["identical_initial_driver_noncallback_controls_verified"] = True
-        report["baseline_omits_algorithm_option"] = all(
-            row["algorithm_option"]["explicitly_passed"] is False
+        report["baseline_disables_algorithm_option"] = all(
+            row["algorithm_option"]["explicitly_passed"]
+            and row["algorithm_option"]["effective_value"] is False
             for row in report["records"] if row["variant"] == "baseline")
-        assert report["baseline_omits_algorithm_option"]
+        assert report["baseline_disables_algorithm_option"]
         report["source_after"] = inventory()
         report["data_after"] = model_data_identity(data)
         report["identities_unchanged"] = bool(report["source_before"] == report["source_after"]

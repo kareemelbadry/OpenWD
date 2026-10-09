@@ -192,7 +192,7 @@ def test_requested_policy_is_unused_outside_supported_preconditioner(monkeypatch
             **dict(options, **changes, use_preconditioner_flux_handoff=True))
 
 
-def test_default_metadata_routing_clears_only_inherited_current_solve_policy(monkeypatch):
+def test_default_metadata_routing_replaces_only_inherited_current_solve_policy(monkeypatch):
     seed, wave, options = adapter_arguments()
     inherited = {"convective_preconditioner_flux_handoff":
         {"requested": True, "used": True, "triggered": True},
@@ -208,7 +208,13 @@ def test_default_metadata_routing_clears_only_inherited_current_solve_policy(mon
     omitted = adaptive.solve_adaptive_lte_structure(seed, wave, **common)
     disabled = adaptive.solve_adaptive_lte_structure(seed, wave,
         **dict(common, use_preconditioner_flux_handoff=False))
-    assert "convective_preconditioner_flux_handoff" not in omitted.metadata
+    # The default records the current solve's policy, never the inherited one;
+    # an explicitly disabled solve removes the inherited record.
+    record = omitted.metadata["convective_preconditioner_flux_handoff"]
+    assert record["requested"] is True
+    assert record["used"] is False and record["triggered"] is False
+    assert record["inactive_reason"] == "no-gradient-preconditioner"
+    assert record["certifies_equilibrium"] is False
     assert "convective_preconditioner_flux_handoff" not in disabled.metadata
     assert omitted.metadata["retained_seed_provenance"] == "prior-source"
     assert inherited["convective_preconditioner_flux_handoff"]["used"] is True
@@ -230,7 +236,9 @@ def test_default_metadata_routing_clears_only_inherited_current_solve_policy(mon
             np.testing.assert_array_equal(left, right)
         else:
             assert left == right
-    equal(omitted.metadata, disabled.metadata)
+    without_record = {key: value for key, value in omitted.metadata.items()
+                      if key != "convective_preconditioner_flux_handoff"}
+    equal(without_record, disabled.metadata)
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -277,7 +285,7 @@ def test_initial_phase_hook_never_leaks_into_formal_completion(monkeypatch, enab
     assert len(calls) == 2
 
 
-def test_actual_dq_dispatch_omits_opt_in_and_shared_default_is_off(monkeypatch):
+def test_actual_dq_dispatch_inherits_the_enabled_shared_default(monkeypatch):
     from wd_spectra._dq import base
     calls = []
     marker = object()
@@ -289,7 +297,7 @@ def test_actual_dq_dispatch_omits_opt_in_and_shared_default_is_off(monkeypatch):
     assert result is marker
     assert "use_preconditioner_flux_handoff" not in calls[0]
     assert inspect.signature(adaptive.solve_adaptive_lte_structure).parameters[
-        "use_preconditioner_flux_handoff"].default is False
+        "use_preconditioner_flux_handoff"].default is True
 
 
 def test_ineligible_accepted_newton_update_resets_the_eligibility_streak():
