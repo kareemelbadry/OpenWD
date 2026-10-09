@@ -91,3 +91,27 @@ It requires a separate released checkout and archived atmosphere; it does
 not run a cold solve. See
 [native frequency-Voigt validation](../docs/native-frequency-voigt-validation.md#reproduction)
 for commands, input sizes, numerical checks and timing limitations.
+
+## Experimental preconditioner handoff
+
+`benchmark_preconditioner_flux_handoff.py` compares complete reduced DB, DAZ
+and D6 solves with the shared LTE algorithm option omitted or explicitly
+enabled. It keeps phase completion and all final physical checks, records all
+structure requests and material/transfer calls, and performs fresh endpoint
+diagnostics plus fixed narrow spectral comparisons. The driver wrapper only
+observes; the candidate uses the production option. Output paths must be fresh.
+
+The option is off by default and no composition adapter enables it. See
+[the handoff protocol and validation evidence](../docs/solver-preconditioner-handoff.md)
+for commands, broader-grid controls, standard DAZ and reduced-grid J1637
+public cold-start comparisons, DAH/DAB/cool DA/DB controls, additional named
+G29-38/GALEX J1931/J1235/GD 40 cold tests, timing confirmation
+without global profiling and remaining composition/default-resolution
+qualification. The new controls include a cool-DA work regression and retained
+failed/capped attempts. The named tests include a qualified full-standard G29
+pair, reduced-grid GALEX/J1235 pairs and matched capped GD 40 prefixes;
+initial capped-line DAZ synthesis failures remain retained. The option remains
+experimental and off by default.
+Public cold timers include
+initialization, completion and full-spectrum synthesis; the contained benchmark
+above uses narrower diagnostic requests.
