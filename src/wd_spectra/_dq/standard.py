@@ -43,6 +43,9 @@ class StandardDQMaterial(RefractiveDQMaterial):
     use_flux_gated_handoff = False
     seed_tau_min = 1.0e-12
     carbon_impact_validity_support = False
+    # Process-memory guard (safety, not physics); deeper refractive domains
+    # at 44+ layers exceeded the historical 4 GiB on J1803.
+    maximum_memory_bytes = 10 * 1024**3
     carbon_red_wing_boltzmann = True
 
     def __init__(self, *args, **kwargs):
