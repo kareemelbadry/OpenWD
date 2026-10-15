@@ -55,7 +55,8 @@ class HeliumREOS3Table:
     ``ln(rho/rho_ideal)`` and ``u - 3kT/(2 m_He)``, with PCHIP in ``log(P)``
     and a C1 cubic Hermite in ``log(T)``. It reproduces every tabulated point
     and the exact ideal monatomic gas, and gives continuous analytic c_P, Q
-    and nabla_ad (``thermodynamics``). Requests outside the rectangular
+    and nabla_ad (``thermodynamics``). Below the lowest tabulated density it
+    continues the dilute (ideal-gas) endpoint. Requests outside the rectangular
     pressure/temperature support are reported through ``inside_domain`` so a
     caller can retain its dilute-gas EOS rather than extrapolating the dense
     table.
@@ -238,7 +239,12 @@ class HeliumREOS3Table:
 
         def values(k, x):
             low, high, phi_curve, psi_curve = isotherms[k]
-            ok = (x >= low) & (x <= high)
+            # Below the lowest tabulated density (1e-10 g cm^-3) the excess is
+            # held at its dilute endpoint value: zero to 1e-6 for T <= 6000 K,
+            # where it is exact; it omits only the growth of thermal He
+            # ionization at still lower density for T >~ 1e4 K. Higher
+            # pressures than tabulated remain outside the domain.
+            ok = x <= high
             clipped = np.clip(x, low, high)
             return phi_curve(clipped), psi_curve(clipped), ok
 

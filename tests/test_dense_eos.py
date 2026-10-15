@@ -160,3 +160,26 @@ def test_ideal_excess_reos_thermodynamics_are_derivatives_of_its_density_and_ene
     np.testing.assert_allclose(
         gradient, pressure * expansion / (density * temperature * cp), rtol=1e-12
     )
+
+
+def test_ideal_excess_reos_continues_the_dilute_limit_below_the_table():
+    from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
+
+    table = _smooth_reos3()
+    temperature = np.array([4000.0, 6500.0, 7500.0])
+    pressure = np.array([1.0, 3.0, 5.0])  # below the 1e-10 g cm^-3 isotherm limit
+    density, energy, inside = table.evaluate(pressure, temperature)
+    assert np.all(inside)
+    # Ideal neutral He, up to the table's own (interpolated) 1e4 K ionization
+    # at its lowest density: <0.3% between the 6000 and 10000 K isotherms.
+    np.testing.assert_allclose(
+        density, pressure * HELIUM_MASS / (BOLTZMANN * temperature), rtol=3e-3
+    )
+    np.testing.assert_allclose(
+        density[0], pressure[0] * HELIUM_MASS / (BOLTZMANN * temperature[0]), rtol=1e-5
+    )
+    _, cp, _, gradient, inside = table.thermodynamics(pressure, temperature)
+    assert np.all(inside)
+    np.testing.assert_allclose(gradient, 0.4, atol=2e-3)
+    # Pressures above the tabulated support stay outside the domain.
+    assert not table.evaluate(np.array([1e20]), np.array([6000.0]))[2][0]
