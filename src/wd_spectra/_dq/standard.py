@@ -42,9 +42,13 @@ class StandardDQMaterial(RefractiveDQMaterial):
     declared_eos_seed = True
     use_flux_gated_handoff = False
     seed_tau_min = 1.0e-12
+    carbon_impact_validity_support = False
+    carbon_red_wing_boltzmann = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.bounded_carbon.impact_validity_support = self.carbon_impact_validity_support
+        self.bounded_carbon.red_wing_boltzmann = self.carbon_red_wing_boltzmann
         if self.helium_reos3 is None:
             raise ValueError("standard DQ requires the He-REOS.3 host EOS")
         self.helium_reos3 = self.helium_reos3.with_interpolation("ideal-excess")
@@ -54,6 +58,10 @@ class StandardDQMaterial(RefractiveDQMaterial):
             thermodynamics="analytic derivatives of the same smooth REOS interpolant",
             structure_solver="solve_adaptive_lte_structure, unpatched",
             seed="gray hydrostatic seed integrated with the declared REOS, tau_min 1e-12",
+            carbon_line_support=("He impact profile limited to its Weisskopf validity detuning"
+                                 if self.carbon_impact_validity_support else "100 Lorentz HWHM"),
+            carbon_red_wing=("ground-state Boltzmann factor exp(-h|dnu|/kT)"
+                             if self.carbon_red_wing_boltzmann else "symmetric Voigt"),
         )
 
     def thermodynamics(self, current):

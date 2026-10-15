@@ -15,6 +15,9 @@ from wd_spectra.constants import BOLTZMANN, PLANCK, LIGHT_SPEED, PI, ELEMENTARY_
 
 
 class BoundedCarbonLines:
+    impact_validity_support=False
+    red_wing_boltzmann=False
+
     def __init__(self,database,keys,anchors):
         self.database,self.keys,self.anchors=database,tuple(keys),anchors
         requested=set(keys)
@@ -114,7 +117,9 @@ class BoundedCarbonLines:
             keys=tuple(self.keys[i] for i in selected)
             result=metals.metal_line_mass_absorption_coefficient(a,padded,self.database,carbon,
                 minimum_oscillator_strength=1e-4,maximum_lines=None,transition_keys=keys,
-                uv_resonance_support_angstrom=self.uv_support)[indices]
+                uv_resonance_support_angstrom=self.uv_support,
+                impact_validity_support=self.impact_validity_support,
+                red_wing_boltzmann=self.red_wing_boltzmann)[indices]
         return result,dict(relative_bound=float(np.max(omitted/floor)),
             retained_line_layers=int(len(selected)*a.n_depth),total_line_layers=int(skip.size),
             omitted_bound=omitted)
