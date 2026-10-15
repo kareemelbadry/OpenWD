@@ -13,6 +13,12 @@ substituted. This module does not supply a qualified Blouin fluid model.
 Atomic units are used internally (r/a0, k*a0, energy/Hartree). The public
 integrator accepts vacuum wavelength in Angstrom and temperature in kelvin.
 No atmosphere solver or production dispatcher enables this module by default.
+
+``dielectric`` divides by |epsilon|^2 as written in Blouin Eq. 4. The shipped
+DQ table (tools/build_dq_dense_continuum.py) passes dielectric=1: Iglesias'
+own Fig. 2 (delta_ff -> S(0) as u -> 0) and Eq. 4.6 apply only the 1/n
+propagation factor, which the DQ ray kernel supplies. See
+docs/development/history/dq-dense-he-ff-2026-10-15.md.
 """
 
 from __future__ import annotations

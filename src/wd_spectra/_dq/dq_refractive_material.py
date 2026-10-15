@@ -8,8 +8,10 @@ modified. Use one atmosphere per process, never concurrent threads.
 Radiation uses frequency-dependent published refractivity. The published
 Rayleigh cross section is already a physical transport cross section:
 convert it to the reduced-transfer input sigma0=n*sigma_Ray (Iglesias et al.
-2002, Eq. 4.6). Free-free screening does NOT include its separate 1/n
-propagation factor. Rosseland transport uses (kappa0+sigma0)/n^3.
+2002, Eq. 4.6). The dense He- free-free table is the bare correlation
+ratio (no 1/|epsilon|^2); its only dielectric dressing is the 1/n propagation
+factor applied here, as in Iglesias Eq. 4.6. Rosseland transport uses
+(kappa0+sigma0)/n^3.
 ML2 remains a grey closure: its element optical depth
 uses a static-index approximation, while preserving the frequency-integrated
 diffusion limit and the n*chi0 optically thin limit in the grey case. This
