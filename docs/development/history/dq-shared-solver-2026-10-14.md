@@ -54,8 +54,30 @@ public worker contract (five gates + independent 218,520-point synthesis,
 
 ## Validation
 
-See the table at the end (cold starts, fixed published parameters, 40 initial
-layers, one job at a time on an M-series laptop).
+True cold starts at fixed published parameters, 40 initial layers, one job at
+a time on a laptop. Structure time to the certified atmosphere; total includes
+the independent 218,520-point synthesis and the 0.2% bolometric gate.
+
+| Object | Teff (K) | Before | Structure (domains) | Total | F_bol/σT⁴ |
+| --- | ---: | --- | --- | ---: | ---: |
+| J1225 | 6294 | 18–23 min | 16.9 min (40) | 25.2 min | 0.99995 |
+| J1311 | 5529 | never converged (0.5–3.3 h) | 45.0 min (40) | 53.5 min | 1.0016 |
+| J0804 | 5364 | 2–4 h, ~41 failed attempts | 23.5 min (40→43) | 32.6 min | 1.0002 |
+| J0940 | 7256 | 4.7 h | 24.8 min (40→43) | 34.1 min | 1.0001 |
+| J1235 | 9347 | 1.0–1.6 h | 44.6 min (40) | 52.8 min | 1.0013 |
+| DESI J1607 | 5050 | — | 20.4 min (40) | 28.5 min | 1.0020 |
+| DESI J1435 | 7182 | — | 15.6 min (40) | 20.9 min | 1.0000 |
+| DESI J1101 | 8476 | — | 21.9 min (40→43) | 28.2 min | 1.0003 |
+| J1803 | 4400 | never converged | first domain 12.3 min; deeper domain exceeds the dense-He⁻ table (ρ > 2.5 g cm⁻³) | — | — |
+
+SDSS, fixed published Teff/log g/C/He/mass/parallax, no scale or RV fit, 10 Å
+FWHM, 3850–6720 Å, RMS of (model−obs)/⟨obs⟩ (release → new): J0940 0.048 →
+0.042, J1235 0.056 → 0.042, J1225 0.152 → 0.136, J0804 0.168 → 0.170
+(continuum now right: blue 0.70 → 1.11, red 1.15 → 0.95, but Swan bands too
+deep), J1311 (digitized BD19 figure) 0.47 → 0.30. Against Koester's own models
+at his parameters (DESI EDR): J1101 within 1–9% from 3000 Å to 2 µm, J1435
+within 2–11%; J1607 band shapes match his model, but our 3000–3500 Å flux is
+1.45–1.7× his.
 
 ## Open issues
 
