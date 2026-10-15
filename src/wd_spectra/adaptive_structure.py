@@ -340,6 +340,7 @@ def solve_adaptive_lte_structure(
     maximum_convective_preconditioner_iterations: int | None = None,
     preconditioner_stationary_completion_iterations: int | None = 2,
     use_preconditioner_flux_handoff: bool = True,
+    use_completion_flux_handoff: bool = False,
     maximum_formal_flux_continuations: int = 2,
     use_adiabatic_asymptotic_conditioning: bool = False,
     use_initial_bolometric_rescaling: bool = True,
@@ -382,6 +383,13 @@ def solve_adaptive_lte_structure(
     energy end that phase as unconverged. Formal and energy completion plus
     all original final qualification gates remain authoritative. A requested
     policy is unused without that preconditioner or local energy enforcement.
+    ``use_completion_flux_handoff`` (off by default) applies the same
+    progress policy to the formal-radiative-flux completion when local
+    energy completion follows: two genuine accepted Newton updates with
+    balanced flux and residual but unresolved local energy end the flux phase,
+    instead of spending iterations on temperature stationarity in optically
+    thin layers that only the energy equations constrain. It never certifies
+    equilibrium; the energy phases and all final gates remain authoritative.
     ``use_convective_trial_correction`` is an experimental, disabled-by-default
     repair of overcarrying ML2 trial gradients. It does not cap evaluated
     fluxes or bypass any acceptance or final physical convergence tests.
@@ -442,6 +450,8 @@ def solve_adaptive_lte_structure(
         ml2_coefficient_function = _ml2_local_coefficients_from_thermodynamics
     if not callable(ml2_coefficient_function):
         raise ValueError("ml2 coefficient function must be callable")
+    if not isinstance(use_completion_flux_handoff, bool):
+        raise TypeError("use_completion_flux_handoff must be a boolean")
     if not isinstance(use_preconditioner_flux_handoff, bool):
         raise ValueError("preconditioner flux-handoff flag must be boolean")
     if not isinstance(enforce_local_energy_balance, bool):
@@ -2204,6 +2214,7 @@ def solve_adaptive_lte_structure(
             initial_options["accepted_state_handoff"] = preconditioner_handoff.handoff
             handoff_metadata["used"] = True
     nonlinear_solver_segments: list[dict[str, object]] = []
+    completion_handoff_metadata: dict[str, object] | None = None
     result = solve_trust_region_newton(
         initial_state,
         nonlinear_evaluator,
@@ -2305,9 +2316,26 @@ def solve_adaptive_lte_structure(
             # No temperature/composition threshold and no relaxed equations:
             # the trust region and full rebuilt flux still accept every step.
             completion_options["linear_regularization"] = 0.0
+        completion_handoff = None
+        if (
+            use_completion_flux_handoff
+            and enforce_local_energy_balance
+            and not energy_completion_active
+            and completion_options.get("accepted_state_handoff") is None
+        ):
+            completion_handoff = _PreconditionerFluxHandoff(
+                completion_state, target_flux, flux_tolerance,
+                completion_options.get("callback"),
+            )
+            completion_options["callback"] = completion_handoff.callback
+            completion_options["accepted_state_handoff"] = completion_handoff.handoff
         result = solve_trust_region_newton(
             completion_state, evaluate_state, **completion_options
         )
+        if completion_handoff is not None:
+            completion_handoff_metadata = {
+                "phase": solver_phase, **completion_handoff.metadata()
+            }
         nonlinear_solver_segments.append(
             {
                 "phase": solver_phase,
@@ -2334,9 +2362,9 @@ def solve_adaptive_lte_structure(
         and not energy_completion_active
     ):
         for _ in range(maximum_formal_flux_continuations):
-            if (
-                result.diagnostics.terminal_reason
-                == "rejected-step-phase-handoff"
+            if result.diagnostics.terminal_reason in (
+                "rejected-step-phase-handoff",
+                "accepted-state-phase-handoff",
             ):
                 break
             if result.converged:
@@ -2795,6 +2823,8 @@ def solve_adaptive_lte_structure(
         # Do not let copied seed metadata mislabel the equations actually used.
         common_metadata["transfer_discretization"] = "column-mass"
     # This policy record describes the current solve, not inherited seed history.
+    if completion_handoff_metadata is not None:
+        common_metadata["formal_flux_completion_handoff"] = completion_handoff_metadata
     if use_preconditioner_flux_handoff:
         common_metadata["convective_preconditioner_flux_handoff"] = handoff_metadata
     else:

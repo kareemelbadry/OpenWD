@@ -568,6 +568,9 @@ class DQMaterial:
                 flux_tolerance=2e-3,
                 n_angle=n_angle,
                 enforce_local_energy_balance=True,
+                # The energy phases constrain the optically thin top; do not
+                # spend formal-flux iterations on stationarity there.
+                use_completion_flux_handoff=True,
                 initial_temperature_was_supplied=polish
                 or initial_temperature is not None,
                 resume_supplied_structure_in_formal_flux_phase=polish,
