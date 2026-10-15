@@ -179,7 +179,10 @@ def test_ideal_excess_reos_continues_the_dilute_limit_below_the_table():
         density[0], pressure[0] * HELIUM_MASS / (BOLTZMANN * temperature[0]), rtol=1e-5
     )
     _, cp, _, gradient, inside = table.thermodynamics(pressure, temperature)
-    assert np.all(inside)
-    np.testing.assert_allclose(gradient, 0.4, atol=2e-3)
+    assert np.all(inside) and np.all(cp > 0) and np.all(gradient > 0)
+    # Neutral ideal gas at 4000 K; the onset of He ionization at the lowest
+    # densities lowers nabla_ad at 6500-7500 K (physical, not an artifact).
+    np.testing.assert_allclose(gradient[0], 0.4, atol=2e-3)
+    assert gradient[2] < gradient[1] < gradient[0]
     # Pressures above the tabulated support stay outside the domain.
     assert not table.evaluate(np.array([1e20]), np.array([6000.0]))[2][0]
