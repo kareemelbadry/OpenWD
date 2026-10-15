@@ -35,7 +35,8 @@ def test_explicit_support_matches_unchanged_full_state_gate(material):
     mat.prepare_opacity_state(a,c,c2)
     w=np.linspace(1500,1560,121)
     padded,indices=anchored_grid(w,mat.atomic_anchors)
-    kwargs=dict(minimum_oscillator_strength=1e-4,maximum_lines=None,transition_keys=mat.atomic_keys)
+    kwargs=dict(minimum_oscillator_strength=1e-4,maximum_lines=None,transition_keys=mat.atomic_keys,
+        red_wing_boltzmann=mat.bounded_carbon.red_wing_boltzmann)
     implicit=metals.metal_line_mass_absorption_coefficient(a,padded,mat.atomic,c,**kwargs)[indices]
     explicit=metals.metal_line_mass_absorption_coefficient(a,padded,mat.atomic,c,
         uv_resonance_support_angstrom=mat.bounded_carbon.uv_support,**kwargs)[indices]

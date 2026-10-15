@@ -36,7 +36,6 @@ from .dq_dense_continuum_inputs import atomic_polarizability
 from .dq_pair_virial_quadrature import pair_virial_integrals
 from .dq_hornkohl_bounded_energy import BoundedDirectEnergyDQMaterial
 from .dq_hornkohl_cell import CellIntegratedDQMaterial
-from .dq_hornkohl_gated_energy import gated_solve
 from .dq_refractive_finite_volume import solve as fv_solve, formal_field
 from .dq_refractive_fv_response import integrated_response
 
@@ -280,7 +279,6 @@ class RefractiveBackend:
 class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
     refraction_enabled=True
     ray_angles=4
-    declared_eos_seed=False
     maximum_memory_bytes=4*1024**3
 
     def __init__(self,*args,**kwargs):
@@ -288,7 +286,6 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         self.interface_index_cache=OrderedDict()
         from .provenance import digest
         self.experiment_metadata=dict(refraction_enabled=self.refraction_enabled,
-            declared_eos_seed=self.declared_eos_seed,
             ray_angles_per_invariant_interval=self.ray_angles,
             angular_coordinate='quadratic high-end turning-point map',
             maximum_process_memory_bytes=self.maximum_memory_bytes,
@@ -314,24 +311,6 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         # already-transport-form Rayleigh cross section must NOT be divided
         # again. Thomson is retained in the non-dispersive input convention.
         return electron+index*rayleigh
-
-    def hydrostatic_seed(self,teff,logg,n_depth):
-        if not self.declared_eos_seed:
-            return super().hydrostatic_seed(teff,logg,n_depth)
-        if self.helium_reos3 is None:
-            raise ValueError('Declared REOS seed requires the configured table')
-        print('DQ cold seed: using the declared REOS host in hydrostatic integration',flush=True)
-        return dq.helium_continuum_atmosphere(teff,logg,n_depth=n_depth,
-            correlated_microfields=True,metal_database=self.atomic,
-            metal_abundances={'C':self.config.log_carbon_to_helium},
-            include_dense_helium_metal_ionization=self.config.nonideal_carbon_ionization,
-            helium_reos3_table=self.helium_reos3)
-
-    def solve(self,*args,**kwargs):
-        # The refractive path performs its own explicit flux-to-energy handoff
-        # below. Skip the older research subclass whose implementation
-        # replaces the module-level solver function.
-        return CellIntegratedDQMaterial.solve(self,*args,**kwargs)
 
     def solve_adaptive_structure(self,seed,wave,**options):
         backend=RefractiveBackend(self,wave)
@@ -378,12 +357,7 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
 
         options['ml2_coefficient_function']=coefficients
         try:
-            if getattr(self,'use_flux_gated_handoff',True):
-                result=gated_solve(super().solve_adaptive_structure,seed,wave,
-                    finish_in_energy_equations=getattr(self,'finish_conditioning_in_energy_equations',False),
-                    **options)
-            else:
-                result=super().solve_adaptive_structure(seed,wave,**options)
+            result=super().solve_adaptive_structure(seed,wave,**options)
         finally:
             maximum_conservation_error=backend.maximum_conservation_error
             backend.release()

@@ -84,8 +84,8 @@ def test_public_material_thins_once_after_refinement_on_each_domain(tmp_path, mo
         def spectrum(self, atmosphere, wave, n_angle):
             return wave
 
-    monkeypatch.setattr(runtime.dq_explicit_gradient, 'gradient_material', lambda unused, **kwargs: Base)
-    material = runtime.material_class(tmp_path)()
+    material = refined_material(Base, 4000, full_continuum=True,
+                                structure_stride=runtime.STRUCTURE_STRIDE)()
     for original in (np.array([1000., 2000., 5000., 100000.]),
                      np.array([1000., 2222., 4444., 5555., 100000.])):
         full = augment_uv(original, 4000, full_continuum=True)

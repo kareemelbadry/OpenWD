@@ -35,7 +35,11 @@ from ..c2_profiles import (
     EXOMOL_PROFILE_DESCRIPTION,
     swan_density_shift_wavenumber,
 )
-from ..eos import hummer_mihalas_helium_lte, hummer_mihalas_helium_thermodynamics
+from ..eos import (
+    HeliumThermodynamics,
+    hummer_mihalas_helium_lte,
+    hummer_mihalas_helium_thermodynamics,
+)
 from ..dense_eos import read_helium_reos3_table
 from ..dense_helium_continuum import DenseHeliumCorrectionTable
 from ..helium import (
@@ -188,6 +192,7 @@ class DQMaterial:
     """EOS, opacity and convection inputs owned exclusively by DQ."""
 
     _ATOMIC_WAVELENGTH_BOUNDS_ANGSTROM = (100.0, 100_000.0)
+    seed_tau_min = 1.0e-12
     _ATOMIC_MINIMUM_OSCILLATOR_STRENGTH = 1.0e-4
 
     def __init__(self, config, data, table):
@@ -198,8 +203,11 @@ class DQMaterial:
             DenseHeliumCorrectionTable(config.helium_dense_continuum_path)
             if config.helium_dense_continuum_path else None
         )
+        # Ideal-excess interpolation: the same He-REOS.3 data, but with the
+        # exact ideal-gas limit and continuous c_P, Q and nabla_ad between the
+        # 1.7-2x spaced table isotherms (see HeliumREOS3Table).
         self.helium_reos3 = (
-            read_helium_reos3_table(data.helium_reos3)
+            read_helium_reos3_table(data.helium_reos3).with_interpolation("ideal-excess")
             if config.helium_eos == "reos3"
             else None
         )
@@ -409,14 +417,18 @@ class DQMaterial:
         if self.helium_reos3 is not None:
             current = self.chemistry(current)[0]
             pressure = np.asarray(current.metadata["dq_helium_host_pressure"])
-            for temperature in (
-                current.temperature * np.exp(-2e-4),
-                current.temperature * np.exp(2e-4),
-            ):
-                if not np.all(self.helium_reos3.evaluate(pressure, temperature)[2]):
-                    raise ValueError(
-                        "DQ He-REOS.3 thermodynamic derivative outside supplied EOS domain"
-                    )
+            _, heat, expansion, gradient, inside = self.helium_reos3.thermodynamics(
+                pressure, current.temperature
+            )
+            if not np.all(inside):
+                raise ValueError("DQ He-REOS.3 thermodynamics outside supplied EOS domain")
+            # Analytic derivatives of the same smooth interpolant used for
+            # the density, never a finite difference across table knots.
+            return HeliumThermodynamics(
+                specific_heat_constant_pressure=heat,
+                density_temperature_derivative=expansion,
+                adiabatic_temperature_gradient=gradient,
+            )
         else:
             pressure = current.gas_pressure
         return hummer_mihalas_helium_thermodynamics(
@@ -430,16 +442,20 @@ class DQMaterial:
     def hydrostatic_seed(self, teff, logg, n_depth):
         """Construct the common target-parameter seed used by cold starts."""
 
+        # As for cool DBs, start far above the photosphere: a column-mass
+        # top node at tau_R 1e-8 can be buried by the converging structure.
         return helium_continuum_atmosphere(
             teff,
             logg,
             n_depth=n_depth,
+            tau_min=self.seed_tau_min,
             correlated_microfields=True,
             metal_database=self.atomic,
             metal_abundances={"C": self.config.log_carbon_to_helium},
             include_dense_helium_metal_ionization=(
                 self.config.nonideal_carbon_ionization
             ),
+            helium_reos3_table=self.helium_reos3,
         )
 
     def solve_adaptive_structure(self, seed, wavelength, **options):
