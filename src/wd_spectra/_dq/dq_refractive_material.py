@@ -378,9 +378,12 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
 
         options['ml2_coefficient_function']=coefficients
         try:
-            result=gated_solve(super().solve_adaptive_structure,seed,wave,
-                finish_in_energy_equations=getattr(self,'finish_conditioning_in_energy_equations',False),
-                **options)
+            if getattr(self,'use_flux_gated_handoff',True):
+                result=gated_solve(super().solve_adaptive_structure,seed,wave,
+                    finish_in_energy_equations=getattr(self,'finish_conditioning_in_energy_equations',False),
+                    **options)
+            else:
+                result=super().solve_adaptive_structure(seed,wave,**options)
         finally:
             maximum_conservation_error=backend.maximum_conservation_error
             backend.release()

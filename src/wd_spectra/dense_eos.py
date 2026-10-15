@@ -10,11 +10,14 @@ level populations are solved at the resulting helium-nucleus density.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+from scipy.interpolate import PchipInterpolator
+
+from .constants import BOLTZMANN, HELIUM_MASS
 
 
 FloatArray = NDArray[np.float64]
@@ -26,13 +29,33 @@ HELIUM_REOS3_SHA256 = (
 )
 
 
+def _pchip_slope(left, right, h_left, h_right):
+    """Fritsch-Carlson weighted-harmonic node slope (zero at extrema)."""
+
+    w1, w2 = 2 * h_right + h_left, h_right + 2 * h_left
+    same = left * right > 0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slope = (w1 + w2) / (w1 / left + w2 / right)
+    return np.where(same, slope, 0.0)
+
+
 @dataclass(frozen=True)
 class HeliumREOS3Table:
     """Inverse ``(P,T)`` representation of the He-REOS.3 table.
 
-    Interpolation is linear in ``log(P)``, ``log(rho)``, and ``log(T)``.
-    The tabulated specific internal energy is interpolated linearly in energy
-    after the pressure interpolation.  Requests outside the rectangular
+    ``interpolation="log-linear"`` (the historical default) is linear in
+    ``log(P)``, ``log(rho)``, and ``log(T)``, with the specific internal energy
+    linear in ``log(T)``.  The table isotherms are 1.7-2x apart in T, so that
+    interpolant does not reproduce the ideal-gas limit between them: c_P and
+    nabla_ad are wrong by up to ~40% even at low density and jump at every
+    isotherm (e.g. nabla_ad 0.46 -> 0.35 across 6000 K at 1e8 dyn cm^-2).
+
+    ``interpolation="ideal-excess"`` uses the same tabulated values but
+    interpolates only the non-ideal excess of each isotherm,
+    ``ln(rho/rho_ideal)`` and ``u - 3kT/(2 m_He)``, with PCHIP in ``log(P)``
+    and a C1 cubic Hermite in ``log(T)``. It reproduces every tabulated point
+    and the exact ideal monatomic gas, and gives continuous analytic c_P, Q
+    and nabla_ad (``thermodynamics``). Requests outside the rectangular
     pressure/temperature support are reported through ``inside_domain`` so a
     caller can retain its dilute-gas EOS rather than extrapolating the dense
     table.
@@ -43,8 +66,11 @@ class HeliumREOS3Table:
     pressure_by_temperature: tuple[FloatArray, ...]
     internal_energy_by_temperature: tuple[FloatArray, ...]
     source: str = "Becker et al. (2014) He-REOS.3, VizieR J/ApJS/215/21 table 3"
+    interpolation: str = "log-linear"
 
     def __post_init__(self) -> None:
+        if self.interpolation not in ("log-linear", "ideal-excess"):
+            raise ValueError("REOS interpolation must be 'log-linear' or 'ideal-excess'")
         temperature = np.asarray(self.temperature_grid, dtype=np.float64)
         if temperature.ndim != 1 or temperature.size < 2:
             raise ValueError("REOS temperature grid must be one-dimensional")
@@ -123,6 +149,11 @@ class HeliumREOS3Table:
         flat_temperature = temp.ravel()
         log_pressure = np.log(flat_pressure)
         log_temperature = np.log(flat_temperature)
+        if self.interpolation == "ideal-excess":
+            phi, psi, _, _, inside = self._excess(log_pressure, log_temperature)
+            density = flat_pressure * HELIUM_MASS / (BOLTZMANN * flat_temperature) * np.exp(phi)
+            energy = 1.5 * BOLTZMANN * flat_temperature / HELIUM_MASS + psi
+            return density.reshape(shape), energy.reshape(shape), inside.reshape(shape)
         log_grid_temperature = np.log(self.temperature_grid)
         upper = np.searchsorted(log_grid_temperature, log_temperature, side="right")
         upper = np.clip(upper, 1, self.temperature_grid.size - 1)
@@ -162,6 +193,116 @@ class HeliumREOS3Table:
             (result_energy * KJ_G_TO_ERG_G).reshape(shape),
             inside.reshape(shape),
         )
+
+    def with_interpolation(self, interpolation: str) -> "HeliumREOS3Table":
+        return replace(self, interpolation=interpolation)
+
+    def _excess_isotherms(self):
+        cached = self.__dict__.get("_excess_cache")
+        if cached is None:
+            cached = []
+            for temperature, density, pressure, energy in zip(
+                self.temperature_grid,
+                self.density_by_temperature,
+                self.pressure_by_temperature,
+                self.internal_energy_by_temperature,
+            ):
+                log_pressure = np.log(pressure)
+                ideal_log_density = np.log(
+                    pressure * HELIUM_MASS / (BOLTZMANN * temperature)
+                )
+                ideal_energy = 1.5 * BOLTZMANN * temperature / HELIUM_MASS
+                cached.append((
+                    log_pressure[0],
+                    log_pressure[-1],
+                    PchipInterpolator(log_pressure, np.log(density) - ideal_log_density),
+                    PchipInterpolator(
+                        log_pressure, np.asarray(energy) * KJ_G_TO_ERG_G - ideal_energy
+                    ),
+                ))
+            object.__setattr__(self, "_excess_cache", cached)
+        return cached
+
+    def _excess(self, log_pressure: FloatArray, log_temperature: FloatArray):
+        """Hermite excess (phi, psi) and their log-T derivatives at fixed P."""
+
+        grid = np.log(self.temperature_grid)
+        n = grid.size
+        isotherms = self._excess_isotherms()
+        lower = np.clip(np.searchsorted(grid, log_temperature, side="right") - 1, 0, n - 2)
+        phi = np.empty_like(log_pressure)
+        psi = np.empty_like(log_pressure)
+        dphi = np.empty_like(log_pressure)
+        dpsi = np.empty_like(log_pressure)
+        inside = (log_temperature >= grid[0]) & (log_temperature <= grid[-1])
+
+        def values(k, x):
+            low, high, phi_curve, psi_curve = isotherms[k]
+            ok = (x >= low) & (x <= high)
+            clipped = np.clip(x, low, high)
+            return phi_curve(clipped), psi_curve(clipped), ok
+
+        for i in np.unique(lower):
+            sel = lower == i
+            x = log_pressure[sel]
+            y = log_temperature[sel]
+            f0, g0, ok0 = values(i, x)
+            f1, g1, ok1 = values(i + 1, x)
+            h = grid[i + 1] - grid[i]
+            secant_f, secant_g = (f1 - f0) / h, (g1 - g0) / h
+            # Monotone (Fritsch-Carlson/PCHIP) node slopes where the
+            # neighbouring isotherm covers this pressure, else the secant.
+            # This keeps the tabulated monotonicity of the excess energy
+            # (no negative c_P from cubic overshoot near ionization).
+            d0f, d0g = secant_f.copy(), secant_g.copy()
+            if i > 0:
+                fm, gm, okm = values(i - 1, x)
+                hm = grid[i] - grid[i - 1]
+                d0f = np.where(okm, _pchip_slope((f0 - fm) / hm, secant_f, hm, h), d0f)
+                d0g = np.where(okm, _pchip_slope((g0 - gm) / hm, secant_g, hm, h), d0g)
+            d1f, d1g = secant_f.copy(), secant_g.copy()
+            if i + 2 < n:
+                fp, gp, okp = values(i + 2, x)
+                hp = grid[i + 2] - grid[i + 1]
+                d1f = np.where(okp, _pchip_slope(secant_f, (fp - f1) / hp, h, hp), d1f)
+                d1g = np.where(okp, _pchip_slope(secant_g, (gp - g1) / hp, h, hp), d1g)
+            t = (y - grid[i]) / h
+            h00, h10 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t
+            h01, h11 = -2 * t**3 + 3 * t**2, t**3 - t**2
+            e00, e10 = (6 * t**2 - 6 * t) / h, 3 * t**2 - 4 * t + 1
+            e01, e11 = (-6 * t**2 + 6 * t) / h, 3 * t**2 - 2 * t
+            phi[sel] = h00 * f0 + h10 * h * d0f + h01 * f1 + h11 * h * d1f
+            psi[sel] = h00 * g0 + h10 * h * d0g + h01 * g1 + h11 * h * d1g
+            dphi[sel] = e00 * f0 + e10 * d0f + e01 * f1 + e11 * d1f
+            dpsi[sel] = e00 * g0 + e10 * d0g + e01 * g1 + e11 * d1g
+            inside[sel] &= np.where(t <= 1e-14, ok0, np.where(t >= 1 - 1e-14, ok1, ok0 & ok1))
+        return phi, psi, dphi, dpsi, inside
+
+    def thermodynamics(
+        self, gas_pressure: ArrayLike, temperature: ArrayLike
+    ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray, NDArray[np.bool_]]:
+        """Analytic ``(rho, c_P, Q, nabla_ad, inside)`` of the ideal-excess EOS.
+
+        ``Q = -dln(rho)/dln(T)`` at fixed P. Only available for the smooth
+        interpolation; the log-linear interpolant has no continuous derivative.
+        """
+
+        if self.interpolation != "ideal-excess":
+            raise ValueError("analytic REOS thermodynamics require interpolation='ideal-excess'")
+        pressure, temp = np.broadcast_arrays(
+            np.asarray(gas_pressure, dtype=np.float64),
+            np.asarray(temperature, dtype=np.float64),
+        )
+        shape = pressure.shape
+        p, t = pressure.ravel(), temp.ravel()
+        phi, _, dphi, dpsi, inside = self._excess(np.log(p), np.log(t))
+        density = p * HELIUM_MASS / (BOLTZMANN * t) * np.exp(phi)
+        expansion = 1.0 - dphi
+        specific_heat = (
+            1.5 * BOLTZMANN / HELIUM_MASS + dpsi / t + p * expansion / (density * t)
+        )
+        gradient = p * expansion / (density * t * specific_heat)
+        return tuple(a.reshape(shape) for a in (density, specific_heat, expansion, gradient, inside))
 
 
 def read_helium_reos3_table(path: str | Path) -> HeliumREOS3Table:
