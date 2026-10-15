@@ -99,12 +99,19 @@ does not extend the module's qualified scope to DQp stars.
 
 ## What is required for success
 
-The same shared nonlinear solver, ML2 helpers and screened-domain controller
-are used with DQ material/coordinate/transfer adapters. The current protocol
-uses current-state energy normalization, EOS-corner-aware thermal proposals,
-automatic between-phase coordinate refreshes, and one-cell lower-boundary
-extensions. Pseudo-time conditioning is only an initializer; its looser
-transient contraction target is not a final atmosphere tolerance.
+DQ supplies only physics to the shared structure solver: chemistry, opacity,
+refractive transfer and the equation of state enter through the solver's
+callbacks, and `solve_adaptive_lte_structure` runs unmodified, exactly as for
+cool DBs (ML2-gradient preconditioner, formal-flux completion, thermal
+conditioning and local-energy completion). The lower domain follows the cool-DB
+recipe: the gray seed starts at τR = 10⁻¹², and whenever boundary screening
+fails the bottom pressure is raised fourfold and the full phase sequence is
+repeated. When the flux is already balanced but local energy is not, the
+formal-flux phase hands over to the energy phases instead of chasing
+stationarity in optically thin layers that only the energy equations
+constrain (`use_completion_flux_handoff`). Until October 2026 DQ instead used a
+stack of patched Newton, coordinate and proposal layers; they were removed
+once the EOS kinks they were compensating for were fixed (see below).
 
 A successful public request must pass all five atmosphere checks: all-depth
 flux, local energy balance, temperature stationarity, source closure, and
@@ -124,6 +131,30 @@ alone does not cause an unqualified spectrum to be returned as successful.
 The public API deliberately has no saved-state restart mode.
 
 ## Physics and limitations
+
+**He-REOS.3 interpolation.** The Becker et al. (2014) table has isotherms only
+at 3000, 6000, 10000 and 20000 K in the DQ range. Interpolating the specific
+energy linearly in log T between them gave c_P and ∇ad errors of up to ~40%
+even in the ideal-gas limit, with jumps at every isotherm (∇ad 0.46 → 0.35
+across 6000 K at 10⁸ dyn cm⁻²). Those jumps produced wrong-sign Jacobian entries
+in near-adiabatic convection (the historical J1311 stall). The table is now
+interpolated as the exact ideal monatomic gas plus its tabulated non-ideal
+excess, `ln(ρ/ρ_ideal)` and `u − 3kT/2m`, with PCHIP in log P and a monotone C¹
+cubic Hermite in log T. Every tabulated point is reproduced; c_P, Q and ∇ad are
+the analytic derivatives of the same interpolant.
+
+**Carbon line wings.** At DQ photospheric densities (n_He ≈ 10²²–10²³ cm⁻³) the
+neutral-He impact widths of C I lines exceed their Weisskopf (impact-validity)
+detuning, and symmetric Lorentz wings of the far-UV C I lines — including the
+Rydberg series near 1100–1130 Å — used to dominate the *optical* continuum of
+the cooler and carbon-poorer stars (up to 400× the He⁻ free-free opacity at
+4000 Å in J1803). A red detuning hΔν needs a C–He configuration in which the
+ground-state energy exceeds the upper-state energy by hΔν; because the C*–He
+upper-state interactions are repulsive (Allard & Spiegelman 2024, doi:10.1093/mnras/stae477),
+the ground-state Boltzmann factor bounds the red wing by exp(−h|Δν|/kT). This
+bound (`red_wing_boltzmann`) is applied to every DQ carbon line; blue wings and
+line cores are unchanged and no strength multiplier is introduced. Unified
+C–He profiles would replace it.
 
 The implementation includes He-REOS.3 host thermodynamics, coupled He/C/C₂
 chemistry, dense-helium continuum corrections, and conservative refractive

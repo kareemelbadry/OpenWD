@@ -8689,7 +8689,7 @@ def metal_line_mass_absorption_coefficient(
     relative speed ``v``; no new constant is introduced. Beyond it the
     profile is quasi-static and set by the real C*-He potentials, whose
     difference curves give blue, not extended red, wings (Allard &
-    Spiegelman 2024, MNRAS 529, 1). The truncated Lorentz area is omitted
+    Spiegelman 2024, doi:10.1093/mnras/stae477). The truncated Lorentz area is omitted
     rather than redistributed. The Doppler core (10 sigma) is always kept.
     ``red_wing_boltzmann`` multiplies the red side of ordinary profiles by
     ``exp(-h|Delta nu|/kT)``. In the quasi-static picture a red detuning
