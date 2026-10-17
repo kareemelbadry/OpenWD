@@ -2,6 +2,11 @@
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
+[The October 12 DZ validation](../grids/dz-validation-2026-10-12/README.md) records
+two benchmarks under updated source and their remaining limits. The source in
+this PR is unchanged. Those calculations use a separate, recorded copy of
+upstream source `1386029`; updating the code does not recalculate stored spectra.
+
 `compute_dz` solves a helium-dominated polluted LTE atmosphere at fixed input
 abundances. Metals contribute electrons, bound-free opacity, sampled line
 blanketing, and therefore feed back on the relaxed structure. The default
