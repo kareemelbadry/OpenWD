@@ -187,6 +187,7 @@ class CoupledHeliumNLTEModel:
         wavelength_angstrom: FloatArray,
         state: Any,
         *,
+        lines: bool = True,
         _cache=None,
     ) -> NLTETransferCoefficients:
         if not isinstance(state, CoupledHeliumNLTEState):
@@ -203,9 +204,11 @@ class CoupledHeliumNLTEModel:
             _allow_signed_continuum=True,
             helium_i_stark_table=self.helium_i_stark_table,
             helium_ii_stark_table=self.helium_ii_stark_table,
-            include_helium_i_lines=self.include_helium_i_lines,
-            include_helium_i_resonance_lines=(self.include_helium_i_resonance_lines),
-            include_helium_ii_lines=self.include_helium_ii_lines,
+            include_helium_i_lines=lines and self.include_helium_i_lines,
+            include_helium_i_resonance_lines=(
+                lines and self.include_helium_i_resonance_lines
+            ),
+            include_helium_ii_lines=lines and self.include_helium_ii_lines,
         )
 
     def perturbed_transfer_coefficients(

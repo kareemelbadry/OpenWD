@@ -19,14 +19,15 @@ def test_explicit_mass_synthesis_and_default_isolation(monkeypatch):
         return result
     monkeypatch.setattr(mass,'mass_field',record)
     changed=synthesize_helium_spectrum(a,wave,transfer_discretization='column-mass',**options)
-    assert len(seen)==2
+    # Coupled and check solves for the spectrum, then the same pair for its continuum.
+    assert len(seen)==4
     np.testing.assert_array_equal(seen[0][0],planck_lambda_angstrom(wave[:,None],a.temperature[None,:]))
     np.testing.assert_array_equal(seen[1][0],seen[0][3][0])
     assert not np.any(seen[1][1])
     np.testing.assert_array_equal(changed.surface_flux_lambda,seen[0][3][1].interface_flux[:,0])
     assert changed.metadata['independent_radiation_scaled_source_error']<1e-10
     after=synthesize_helium_spectrum(a,wave,**options)
-    assert len(seen)==2
+    assert len(seen)==4
     np.testing.assert_array_equal(before.surface_flux_lambda,after.surface_flux_lambda)
     assert before.metadata==after.metadata
     legacy=synthesize_helium_spectrum(a,wave,transfer_discretization='optical-depth',**options)

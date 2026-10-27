@@ -176,12 +176,10 @@ class MolecularHHePhysics:
         return molecular_hydrogen_helium_thermodynamics(*args, **kwargs)
 
     def hydrogen_opacity(
-        self, atmosphere, wavelength, *, unified_allard_table=None, **kwargs
+        self, atmosphere, wavelength, *, unified_allard_table=None,
+        include_neutral_lyman_wing=True, **kwargs
     ):
-        from .opacity import (
-            hydrogen_continuum_mass_absorption_coefficient,
-            lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient,
-        )
+        from .opacity import hydrogen_continuum_mass_absorption_coefficient
 
         kwargs.pop("include_molecular_absorption", None)
         result = hydrogen_continuum_mass_absorption_coefficient(
@@ -195,14 +193,28 @@ class MolecularHHePhysics:
             result += h2_he_cia_mass_absorption_coefficient(
                 atmosphere, wavelength, self.h2_he_table
             )
-        if self.include_neutral_lyman_wing:
-            result += lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient(
-                atmosphere,
-                wavelength,
-                allard_table=(
-                    None
-                    if unified_allard_table is None
-                    else unified_allard_table.lines.get((1, 2))
-                ),
+        if include_neutral_lyman_wing:
+            result += self.neutral_lyman_wing_opacity(
+                atmosphere, wavelength, unified_allard_table=unified_allard_table
             )
         return result
+
+    def neutral_lyman_wing_opacity(
+        self, atmosphere, wavelength, *, unified_allard_table=None
+    ):
+        """Return the H-H/H-H2 Lyman-alpha far wing, or zero when disabled."""
+        from .opacity import (
+            lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient,
+        )
+
+        if not self.include_neutral_lyman_wing:
+            return np.zeros((np.size(wavelength), atmosphere.n_depth))
+        return lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient(
+            atmosphere,
+            wavelength,
+            allard_table=(
+                None
+                if unified_allard_table is None
+                else unified_allard_table.lines.get((1, 2))
+            ),
+        )

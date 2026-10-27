@@ -65,12 +65,16 @@ run = run_model(
 
 wavelength = run.spectrum.wavelength_angstrom
 surface_flux = run.spectrum.surface_flux_lambda
+continuum = run.spectrum.continuum_flux_lambda
 print("Numerical convergence verified:", run.convergence_verified)
 ```
 
 The calculation reports progress and saves its spectrum, diagnostics, and
 input parameters. Wavelengths are vacuum Angstroms; flux is the emergent
-surface `F_lambda` in erg s⁻¹ cm⁻² Å⁻¹. No previous atmosphere is needed.
+surface `F_lambda` in erg s⁻¹ cm⁻² Å⁻¹. `continuum_flux_lambda` is the
+line-free continuum of the same atmosphere (see
+[output files](docs/getting-started.md#output-files)). No previous atmosphere
+is needed.
 
 For an editable, plotting walkthrough, open the
 [example notebook](examples/generate_spectrum.ipynb).

@@ -1339,6 +1339,7 @@ def synthesize_magnetic_hydrogen_spectrum(
     regime = physics.regime(cells.maximum_field_megagauss)
     cache: dict[str, object] = {}
     flux = np.zeros(wavelength.size)
+    continuum_flux = np.zeros(wavelength.size)
     # Cells sharing a field (uniform geometry) share every local opacity.
     field_cache: dict[float, tuple] = {}
     for cell in range(cells.projected_weight.size):
@@ -1375,10 +1376,17 @@ def synthesize_magnetic_hydrogen_spectrum(
                 if polarized and physics.include_rwa_photoionization and regime == "h2db" and field > 0.0
                 else None
             )
-            if physics.include_rwa_photoionization and regime == "h2db":
-                polarized_opacity = lines + rwa
-            else:
-                polarized_opacity = lines
+            rwa_enabled = physics.include_rwa_photoionization and regime == "h2db"
+            # Full spectrum first, then the same continuum without the
+            # Balmer manifolds (RWA, cyclotron and dispersion retained).
+            polarized_variants = (
+                (lines + rwa if rwa_enabled else lines,
+                 None if line_dispersion is None else (
+                     line_dispersion if continuum_dispersion is None
+                     else line_dispersion + continuum_dispersion)),
+                (rwa if rwa_enabled else PolarizedOpacity.zeros(lines.isotropic().shape),
+                 continuum_dispersion),
+            )
             # Free electrons: with a field their free-free absorption and
             # Thomson scattering become the magneto-ionic mode coefficients,
             # replacing the zero-field values in the continuum.
@@ -1396,116 +1404,115 @@ def synthesize_magnetic_hydrogen_spectrum(
             else:
                 scattering = electron_scattering_mass_coefficient(local)[np.newaxis, :] + rayleigh
                 free_absorption = free_scattering = 0.0
-            thermal_isotropic = (
-                unpolarized + polarized_opacity.isotropic() + free_absorption
-            )
             isotropic_scattering = scattering + free_scattering
             planck = np.ascontiguousarray(
                 planck_lambda_angstrom(
                     wavelength[:, np.newaxis], local.temperature[np.newaxis, :]
                 )
             )
-            depth = optical_depth_from_mass_opacity(
-                local.column_mass, thermal_isotropic + isotropic_scattering
-            )
-            _, radiation, _ = solve_spectrum_source(
-                depth,
-                planck,
-                thermal_isotropic,
-                isotropic_scattering,
-                wavelength=wavelength,
-                n_angle=n_angle,
-                discretization="formal-linear",
-            )
-            dispersion = None
-            if line_dispersion is not None:
-                dispersion = (
-                    line_dispersion
-                    if continuum_dispersion is None
-                    else line_dispersion + continuum_dispersion
+            variants = []
+            for polarized_opacity, dispersion in polarized_variants:
+                thermal_isotropic = (
+                    unpolarized + polarized_opacity.isotropic() + free_absorption
                 )
+                depth = optical_depth_from_mass_opacity(
+                    local.column_mass, thermal_isotropic + isotropic_scattering
+                )
+                _, radiation, _ = solve_spectrum_source(
+                    depth,
+                    planck,
+                    thermal_isotropic,
+                    isotropic_scattering,
+                    wavelength=wavelength,
+                    n_angle=n_angle,
+                    discretization="formal-linear",
+                )
+                variants.append((polarized_opacity, dispersion, radiation.mean_intensity))
             field_cache.clear()
             field_cache[field] = (
                 local,
                 unpolarized,
-                polarized_opacity,
-                dispersion,
                 scattering,
                 planck,
-                radiation.mean_intensity,
                 include_cyclotron,
+                variants,
             )
         (
             local,
             unpolarized,
-            polarized_opacity,
-            dispersion,
             scattering,
             planck,
-            mean_intensity,
             include_cyclotron,
+            variants,
         ) = field_cache[field]
-        eta_i, eta_q, eta_v = polarized_opacity.stokes(cosine)
-        eta_i = eta_i + unpolarized
-        thermal_q, thermal_v = eta_q, eta_v
-        ray_scattering = scattering
-        scattered_q = scattered_v = 0.0
-        rho_q = np.zeros_like(eta_i)
-        rho_v = np.zeros_like(eta_i)
-        if dispersion is not None:
-            _, rho_q, rho_v = dispersion.stokes(cosine)
-        if include_cyclotron:
-            free = magnetized_free_electron_manifolds(local, wavelength, field, cosine)
-            a_i, a_q, a_v = PolarizedOpacity(*free.absorption).stokes(cosine)
-            s_i, s_q, s_v = PolarizedOpacity(*free.scattering).stokes(cosine)
-            # Extinction carries both parts with their dichroism; the thermal
-            # part emits B and the scattered part re-emits J in its own
-            # polarization (unpolarized re-emission would feed the mode the
-            # resonance cannot absorb).
-            eta_i = eta_i + a_i
-            eta_q = eta_q + a_q + s_q
-            eta_v = eta_v + a_v + s_v
-            thermal_q = thermal_q + a_q
-            thermal_v = thermal_v + a_v
-            ray_scattering = scattering + s_i
-            scattered_q, scattered_v = s_q, s_v
+        free = (
+            magnetized_free_electron_manifolds(local, wavelength, field, cosine)
+            if include_cyclotron else None
+        )
+        for variant, (polarized_opacity, dispersion, mean_intensity) in enumerate(variants):
+            eta_i, eta_q, eta_v = polarized_opacity.stokes(cosine)
+            eta_i = eta_i + unpolarized
+            thermal_q, thermal_v = eta_q, eta_v
+            ray_scattering = scattering
+            scattered_q = scattered_v = 0.0
+            rho_q = np.zeros_like(eta_i)
+            rho_v = np.zeros_like(eta_i)
+            if dispersion is not None:
+                _, rho_q, rho_v = dispersion.stokes(cosine)
+            if include_cyclotron:
+                a_i, a_q, a_v = PolarizedOpacity(*free.absorption).stokes(cosine)
+                s_i, s_q, s_v = PolarizedOpacity(*free.scattering).stokes(cosine)
+                # Extinction carries both parts with their dichroism; the thermal
+                # part emits B and the scattered part re-emits J in its own
+                # polarization (unpolarized re-emission would feed the mode the
+                # resonance cannot absorb).
+                eta_i = eta_i + a_i
+                eta_q = eta_q + a_q + s_q
+                eta_v = eta_v + a_v + s_v
+                thermal_q = thermal_q + a_q
+                thermal_v = thermal_v + a_v
+                ray_scattering = scattering + s_i
+                scattered_q, scattered_v = s_q, s_v
+                if polarized:
+                    _, d_q, d_v = PolarizedOpacity(*free.dispersion).stokes(cosine)
+                    rho_q = rho_q + d_q
+                    rho_v = rho_v + d_v
+            extinction = eta_i + ray_scattering
+            emission_i = eta_i * planck + ray_scattering * mean_intensity
+            source = emission_i / extinction
             if polarized:
-                _, d_q, d_v = PolarizedOpacity(*free.dispersion).stokes(cosine)
-                rho_q = rho_q + d_q
-                rho_v = rho_v + d_v
-        extinction = eta_i + ray_scattering
-        emission_i = eta_i * planck + ray_scattering * mean_intensity
-        source = emission_i / extinction
-        if polarized:
-            emission = np.zeros(extinction.shape + (4,))
-            emission[..., 0] = emission_i
-            emission[..., 1] = thermal_q * planck + scattered_q * mean_intensity
-            emission[..., 3] = thermal_v * planck + scattered_v * mean_intensity
-            stokes = emergent_stokes_specific_intensity(
-                local.column_mass,
-                extinction,
-                eta_q,
-                eta_v,
-                rho_q,
-                rho_v,
-                source,
-                mu,
-                emission_stokes=emission,
-                formal_solver="delo-linear",
-            )
-            intensity = stokes.i
-        else:
-            intensity = emergent_specific_intensity(
-                optical_depth_from_mass_opacity(local.column_mass, extinction),
-                source,
-                mu,
-            )
-        flux += cells.projected_weight[cell] * PI * intensity
-        if return_stokes:
-            q, u, v = _observer_polarization(
-                stokes.q, stokes.u, stokes.v, float(cells.field_azimuth_rad[cell])
-            )
-            polarization_flux += cells.projected_weight[cell] * PI * np.asarray((q, u, v))
+                emission = np.zeros(extinction.shape + (4,))
+                emission[..., 0] = emission_i
+                emission[..., 1] = thermal_q * planck + scattered_q * mean_intensity
+                emission[..., 3] = thermal_v * planck + scattered_v * mean_intensity
+                stokes = emergent_stokes_specific_intensity(
+                    local.column_mass,
+                    extinction,
+                    eta_q,
+                    eta_v,
+                    rho_q,
+                    rho_v,
+                    source,
+                    mu,
+                    emission_stokes=emission,
+                    formal_solver="delo-linear",
+                )
+                intensity = stokes.i
+            else:
+                intensity = emergent_specific_intensity(
+                    optical_depth_from_mass_opacity(local.column_mass, extinction),
+                    source,
+                    mu,
+                )
+            if variant == 1:
+                continuum_flux += cells.projected_weight[cell] * PI * intensity
+                continue
+            flux += cells.projected_weight[cell] * PI * intensity
+            if return_stokes:
+                q, u, v = _observer_polarization(
+                    stokes.q, stokes.u, stokes.v, float(cells.field_azimuth_rad[cell])
+                )
+                polarization_flux += cells.projected_weight[cell] * PI * np.asarray((q, u, v))
         if callable(progress):
             progress(cell + 1, cells.projected_weight.size)
     spectrum = Spectrum(
@@ -1554,7 +1561,14 @@ def synthesize_magnetic_hydrogen_spectrum(
             ),
             "balmer_profile": physics.balmer_profile,
             "normalize_balmer_strength": physics.normalize_balmer_strength,
+            "continuum_flux": (
+                "same cells and polarized transfer without the Balmer "
+                "manifolds; magnetic bound-free with its dissolved-level "
+                "pseudo-continuum, free-electron/cyclotron opacity, Rayleigh "
+                "scattering and continuum dispersion retained"
+            ),
         },
+        continuum_flux,
     )
     if not return_stokes:
         return spectrum
@@ -1569,7 +1583,7 @@ def synthesize_magnetic_hydrogen_spectrum(
         "surface_field_azimuth_rad": cells.field_azimuth_rad.tolist(),
         "polarimetry_validated": False,
     })
-    return StokesSpectrum(wavelength, flux, metadata, *polarization_flux)
+    return StokesSpectrum(wavelength, flux, metadata, *polarization_flux, continuum_flux)
 
 
 # ---------------------------------------------------------------------------

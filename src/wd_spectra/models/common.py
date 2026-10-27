@@ -773,11 +773,12 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     spectrum = result.spectrum
     atmosphere = result.atmosphere
-    np.savetxt(
-        directory / "spectrum.txt",
-        np.column_stack((spectrum.wavelength_angstrom, spectrum.surface_flux_lambda)),
-        header="vacuum_wavelength_angstrom surface_flux_erg_s-1_cm-2_A-1",
-    )
+    columns = [spectrum.wavelength_angstrom, spectrum.surface_flux_lambda]
+    header = "vacuum_wavelength_angstrom surface_flux_erg_s-1_cm-2_A-1"
+    if spectrum.continuum_flux_lambda is not None:
+        columns.append(spectrum.continuum_flux_lambda)
+        header += " continuum_flux_erg_s-1_cm-2_A-1"
+    np.savetxt(directory / "spectrum.txt", np.column_stack(columns), header=header)
     if isinstance(spectrum, StokesSpectrum):
         np.savetxt(
             directory / "stokes.txt",

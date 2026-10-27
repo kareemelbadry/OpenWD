@@ -59,9 +59,11 @@ def test_public_result_has_flux_metadata_and_saves(
         carbon_levels_per_charge:object=None
         oxygen_levels_per_charge:object=None
         def rebuild_atmosphere(self,a,t,p):return a
-        def transfer_coefficients(self,a,w,p):
+        def transfer_coefficients(self,a,w,p,*,lines=True):
             b=planck_lambda_angstrom(w[:,None],a.temperature[None,:])
-            return NLTETransferCoefficients(w,np.ones_like(b),b,np.full_like(b,.1),{})
+            # Lines add pure absorption at the local Planck source.
+            kappa=1.+lines
+            return NLTETransferCoefficients(w,np.full_like(b,kappa),kappa*b,np.full_like(b,.1),{})
     model=Material(carbon_levels_per_charge={2:1},oxygen_levels_per_charge={5:1})
     from wd_spectra import _pg1159_reference as reference
     monkeypatch.setattr(reference,'planck_state',lambda model,a,w:(a,None))
@@ -125,6 +127,8 @@ def test_public_result_has_flux_metadata_and_saves(
     assert result.spectrum.metadata['wavelength_medium']=='vacuum'
     assert result.spectrum.metadata['flux_unit']=='erg s^-1 cm^-2 Angstrom^-1'
     assert np.all(np.isfinite(result.spectrum.surface_flux_lambda))
+    assert np.all(result.spectrum.continuum_flux_lambda>0)
+    assert np.any(result.spectrum.continuum_flux_lambda!=result.spectrum.surface_flux_lambda)
     # Stub state is intentionally not a production dataclass; serialization
     # of the actual nested states is covered by the shared ModelResult tests.
     save_model_result(replace(result,population_state=None),tmp_path/'output')

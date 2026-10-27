@@ -58,9 +58,17 @@ def coupled_linear_source(tau, planck, absorption, scattering, n_angle=4, chunk_
     return source
 
 
-def pure_helium_opacities(atmosphere, wave):
+def pure_helium_opacities(atmosphere, wave, *, lines=True):
     from wd_spectra.models import ModelData, DBConfig
     from wd_spectra.models.stellar import _helium_tables
+    if not lines:
+        # Continuum (with the dissolved-level pseudo-continuum) and no lines.
+        absorption = helium.helium_continuum_mass_absorption_coefficient(
+            atmosphere, wave, include_electron_scattering=False,
+            include_rayleigh_scattering=False)
+        scattering = (helium.helium_rayleigh_scattering_mass_coefficient(atmosphere, wave)
+                      + electron_scattering_mass_coefficient(atmosphere)[None, :])
+        return absorption, scattering
     hi, hii = _helium_tables(ModelData.default())
     absorption = helium.helium_continuum_mass_absorption_coefficient(
         atmosphere, wave, include_electron_scattering=False, include_rayleigh_scattering=False)

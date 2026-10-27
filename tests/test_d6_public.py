@@ -94,6 +94,14 @@ def test_formal_spectrum_is_finite_and_records_its_physics(j1637_inputs):
     assert np.all(spectrum.surface_flux_lambda > 0.0)
     assert spectrum.metadata["composition"] == "hydrogen-helium-free-bulk-metals"
     assert spectrum.metadata["transfer_discretization"] == "formal-linear"
+    lineless = synthesize_d6_spectrum(
+        atmosphere, wavelength, database, photoionization,
+        SDSS_J1637_LOG_NUMBER_ABUNDANCE, include_lines=False,
+        topbase_photoionization_database=topbase, n_angle=2,
+    )
+    np.testing.assert_allclose(
+        spectrum.continuum_flux_lambda, lineless.surface_flux_lambda, rtol=1e-12
+    )
 
 
 def test_nonideal_populations_retain_oxygen_autoionizing_multiplet(j1637_inputs):
