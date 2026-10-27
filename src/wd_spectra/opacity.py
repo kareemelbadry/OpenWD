@@ -1524,16 +1524,15 @@ def hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
 
     For each populated lower level ``i``, a photon redward of its series limit
     is mapped to the fictitious upper level ``n*`` of Daeppen, Anderson &
-    Mihalas (1987).  The full dissolved fraction
-    ``1 - w(n*) / w(i)`` is retained through the transition to ``i + 3``, the
-    default pseudo-continuum cutoff used by SYNSPEC for explicit hydrogen
-    levels.  Between that cutoff and the first series member, only the
-    neutral-perturber part of the dissolved fraction is retained.  This
-    separates the long neutral-H tail, which is absent from the charged-only
-    Tremblay--Bergeron Stark profiles, from charged dissolution that would
-    otherwise become an artificial background beneath the first two members
-    of a series.  Lyman, Balmer, Paschen, and Brackett series are included by
-    default.  Charged and neutral perturbers use the same Q-MHD/HM occupation
+    Mihalas (1987).  The full dissolved fraction ``1 - w(n*) / w(i)`` is
+    retained up to the first series member.  The Tremblay--Bergeron Balmer,
+    Paschen and Brackett profiles include the occupation-probability
+    reduction of every line, so their dissolved strength belongs here; the
+    SYNSPEC/TLUSTY cutoff at the transition to ``i + 3`` discarded it, left a
+    discontinuity at that line (H-gamma for the Balmer series) and made the
+    flux between H-gamma and H-beta 1--2.4 per cent higher than the Koester
+    and Tremblay DA models at 12000--20000 K.  Lyman, Balmer, Paschen, and
+    Brackett series are included by default.  Charged and neutral perturbers use the same Q-MHD/HM occupation
     probabilities as the EOS.  The Lyman
     redistribution is cut off at 925 A by default: the first three Lyman
     profiles are supplied as ideal profiles, and extrapolating the raw DAM
@@ -1565,9 +1564,6 @@ def hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
     lyman_frequency = HYDROGEN_IONIZATION_ENERGY / PLANCK
     for lower_level in lower_levels:
         series_limit = lyman_limit * lower_level**2
-        charged_red_limit = series_limit / (
-            1.0 - (lower_level / (lower_level + 3.0)) ** 2
-        )
         first_line = series_limit / (
             1.0 - (lower_level / (lower_level + 1.0)) ** 2
         )
@@ -1610,49 +1606,10 @@ def hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
         lower_probability = distribution.occupation_probability[
             :, lower_level - 1
         ]
-        total_survival = np.clip(
+        dissolved_fraction = 1.0 - np.clip(
             upper_probability / lower_probability[np.newaxis, :],
             0.0,
             1.0,
-        )
-        correlated_microfields = (
-            atmosphere.hydrogen_lte_state is not None
-            and atmosphere.hydrogen_lte_state.microfield_model == "qmhd"
-        )
-        upper_charged_probability = (
-            charged_particle_hydrogen_occupation_probability(
-                atmosphere.electron_density[np.newaxis, :],
-                effective_level[:, np.newaxis],
-                (
-                    atmosphere.temperature[np.newaxis, :]
-                    if correlated_microfields
-                    else None
-                ),
-            )
-        )
-        lower_charged_probability = (
-            charged_particle_hydrogen_occupation_probability(
-                atmosphere.electron_density,
-                float(lower_level),
-                atmosphere.temperature if correlated_microfields else None,
-            )
-        )
-        charged_survival = np.clip(
-            upper_charged_probability
-            / lower_charged_probability[np.newaxis, :],
-            0.0,
-            1.0,
-        )
-        full_dissolved_fraction = 1.0 - total_survival
-        neutral_dissolved_fraction = np.clip(
-            charged_survival - total_survival,
-            0.0,
-            1.0,
-        )
-        dissolved_fraction = np.where(
-            (selected < charged_red_limit)[:, np.newaxis],
-            full_dissolved_fraction,
-            neutral_dissolved_fraction,
         )
         frequency = LIGHT_SPEED / (selected[:, np.newaxis] * 1.0e-8)
         stimulated_emission = -np.expm1(

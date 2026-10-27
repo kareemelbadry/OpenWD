@@ -298,9 +298,11 @@ opacity and emissivity removed. Molecular bands (C₂) and the Lyman-α far wing
 count as lines. Bound-free, free-free, collision-induced absorption,
 electron/Rayleigh scattering and the dissolved-level (occupation-probability)
 pseudo-continuum are kept, as in TLUSTY/SYNSPEC, so the Balmer and other
-series edges are smoothed rather than sharp. On TLUSTY 208's own LTE DA model
-(10,000 K, log g 8) this continuum agrees with the SYNSPEC 54 continuum to a
-few per cent. H I Rayleigh scattering includes its resonance
+series edges are smoothed rather than sharp. OpenWD keeps the full dissolved
+fraction up to the first series member; SYNSPEC stops at the transition to
+`i + 3` (H-gamma for the Balmer series). On TLUSTY 208's own LTE DA model
+(10,000 K, log g 8) this continuum agrees with the SYNSPEC 54 continuum within
+3 per cent, and lies up to 1.7 per cent below it between H-gamma and H-beta. H I Rayleigh scattering includes its resonance
 enhancement redward of Lyman α, so the hydrogen continuum dips near
 1220–1260 Å. DAH continua keep the magnetic bound-free and cyclotron opacity.
 `run.spectrum.continuum_flux_lambda` holds the same array, and

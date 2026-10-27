@@ -565,16 +565,14 @@ def _dissolved_rwa_extinction(
     below each substate's own threshold ``T`` a photon of energy ``E`` maps
     to the fictitious level ``n*^2 = 1/(T - E)``; the threshold cross
     section, continued as ``(T/E)^3``, is multiplied by the full dissolved
-    fraction ``1 - w(n*)/w(n)`` for ``n* > n + 3`` and by its neutral part for
-    ``n + 1 < n* <= n + 3`` (Lyman: only above the zero-field 925-A
-    equivalent).  At zero field every threshold is ``1/n^2`` and the result is
+    fraction ``1 - w(n*)/w(n)`` for ``n* > n + 1`` (Lyman: only above the
+    zero-field 925-A equivalent).  At zero field every threshold is ``1/n^2`` and the result is
     identical to the ordinary pseudo-continuum.
     """
 
     from .constants import LIGHT_SPEED as _c
     from .eos import (
         HM_NEUTRAL_HYDROGEN_RADIUS_SCALE,
-        charged_particle_hydrogen_occupation_probability,
         hydrogen_occupation_probability,
     )
 
@@ -597,20 +595,7 @@ def _dissolved_rwa_extinction(
         correlated_microfields=correlated,
     )
     lower = levels.occupation_probability[:, principal - 1]  # type: ignore[attr-defined]
-    total_survival = np.clip(upper / lower[np.newaxis, :], 0.0, 1.0)
-    upper_charged = charged_particle_hydrogen_occupation_probability(
-        atmosphere.electron_density[np.newaxis, :],
-        grid[:, np.newaxis],
-        atmosphere.temperature[np.newaxis, :] if correlated else None,
-    )
-    lower_charged = charged_particle_hydrogen_occupation_probability(
-        atmosphere.electron_density,
-        float(principal),
-        atmosphere.temperature if correlated else None,
-    )
-    charged_survival = np.clip(upper_charged / lower_charged[np.newaxis, :], 0.0, 1.0)
-    full_dissolved = 1.0 - total_survival
-    neutral_dissolved = np.clip(charged_survival - total_survival, 0.0, 1.0)
+    full_dissolved = 1.0 - np.clip(upper / lower[np.newaxis, :], 0.0, 1.0)
     log_grid = np.log(grid)
     result = np.zeros((photon_energy.size, atmosphere.n_depth), dtype=np.float64)
     for threshold in np.unique(state_threshold):
@@ -632,11 +617,7 @@ def _dissolved_rwa_extinction(
         def sample(table: FloatArray) -> FloatArray:
             return (1.0 - fraction) * table[position] + fraction * table[position + 1]
 
-        local = np.where(
-            (np.exp(effective) > principal + 3.0)[:, np.newaxis],
-            sample(full_dissolved),
-            sample(neutral_dissolved),
-        )
+        local = sample(full_dissolved)
         continuation = (threshold / photon_energy[selected]) ** 3
         result[selected] += continuation[:, np.newaxis] * local * weight[np.newaxis, :]
     return result

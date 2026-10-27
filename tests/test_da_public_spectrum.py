@@ -10,6 +10,7 @@ cold-start equilibrium certificates; separate tests cover those questions.
 
 import json
 from pathlib import Path
+import sys
 import warnings
 
 import numpy as np
@@ -19,8 +20,16 @@ from wd_spectra._compat import trapezoid
 from wd_spectra.constants import STEFAN_BOLTZMANN
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
+from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 DEFAULT_CONTROLS = Path(__file__).parent / "data/da_cubic_regressions"
+# Reviewed 2026-10-27 full hydrogen dissolved fraction; the cubic controls
+# above stay the structure inputs and are recovered under the legacy scope.
+APPROVED_HYDROGEN_DISSOLUTION = (
+    Path(__file__).parent / "data/approved_regressions/hydrogen_dissolution_2026_10_27/fixed"
+)
 SPECTRUM_RTOL = 1e-3  # 0.1% in significant flux, one common numerical budget.
 LINE_ATOL = 1e-3  # 0.1 percentage point of local continuum, including dark cores.
 WINDOWS = ((6250, 6900), (4700, 5025), (4250, 4450), (4020, 4180))
@@ -67,7 +76,10 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     path = DEFAULT_CONTROLS / (case + ".npz")
     with np.load(path) as saved:
         cfg = DAConfig(**json.loads(str(saved["config_json"])))
-        wave, expected = saved["wavelength"], saved["original_surface_flux"]
+        wave, original = saved["wavelength"], saved["original_surface_flux"]
+    with np.load(APPROVED_HYDROGEN_DISSOLUTION / ("public-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = approved["surface_flux"]
     molecular = cfg.effective_temperature <= 12000
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
@@ -85,6 +97,10 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
         result = compute_da(cfg, wave, initial_atmosphere=state, relax_atmosphere=False)
     assert result.spectrum.metadata['transfer_discretization'] == 'formal-pchip'
     assert_spectrum_preserved(wave, result.spectrum.surface_flux_lambda, expected)
+    with previous_hydrogen_dissolution_cutoff(), warnings.catch_warnings():
+        warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
+        previous = compute_da(cfg, wave, initial_atmosphere=state, relax_atmosphere=False)
+    assert_spectrum_preserved(wave, previous.spectrum.surface_flux_lambda, original)
     # Independent stellar-flux guard for these two broad, warm-DA controls.
     # No fitted scale enters the calculation or this check. This does not
     # claim universal bolometric accuracy for arbitrary requested bandpasses.
