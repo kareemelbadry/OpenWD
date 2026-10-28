@@ -2,6 +2,7 @@
 
 import json
 import sys
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 import numpy as np
@@ -12,7 +13,9 @@ from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceW
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
 from uv_atomic_control_legacy import legacy_uv_atomic_controls
 from independent_kurucz_control_legacy import previous_kurucz_defaults
+from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
 from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 pytestmark = pytest.mark.spectral
 CONTROLS = Path(__file__).parent / "data/daz_regressions"
@@ -29,9 +32,12 @@ APPROVED_SI_KURUCZ = (
 APPROVED_INDEPENDENT_KURUCZ = (
     Path(__file__).parent / "data/approved_regressions/independent_kurucz_2026_10_14/fixed"
 )
-APPROVED_HYDROGEN_DISSOLUTION = (
-    Path(__file__).parent / "data/approved_regressions/hydrogen_dissolution_2026_10_27/fixed"
+# Reviewed 2026-10-27 hydrogen neutral defaults (radius x0.5, Ali--Griem at
+# every temperature); see that directory's manifest.
+APPROVED_MONTREAL_H_RADIUS = (
+    Path(__file__).parent / "data/approved_regressions/montreal_h_radius_2026_10_27/daz"
 )
+MONTREAL_H_RADIUS_CASES = frozenset({"g149_28"})
 
 
 @pytest.mark.parametrize("case", ["g149_28", "galex1931"])
@@ -40,12 +46,18 @@ def test_daz_paper_spectrum(case, monkeypatch):
     with np.load(path) as saved:
         config = DAZConfig(**json.loads(str(saved["config_json"])))
         wave = saved["wavelength"]
-    with np.load(APPROVED_HYDROGEN_DISSOLUTION / ("daz-" + case + ".npz")) as approved:
+    montreal = case in MONTREAL_H_RADIUS_CASES
+    with np.load(APPROVED_INDEPENDENT_KURUCZ / ("daz-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = independent_kurucz_flux = approved["surface_flux"]
+    if montreal:
+        with np.load(APPROVED_MONTREAL_H_RADIUS / ("daz-" + case + ".npz")) as approved:
+            np.testing.assert_array_equal(wave, approved["wavelength"])
+            expected = approved["surface_flux"]
+    main_expected = expected
+    with np.load(COMBINED / "fixed" / ("daz-" + case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])
         expected = approved["surface_flux"]
-    with np.load(APPROVED_INDEPENDENT_KURUCZ / ("daz-" + case + ".npz")) as independent_control:
-        np.testing.assert_array_equal(wave, independent_control["wavelength"])
-        independent_flux = independent_control["surface_flux"]
     with np.load(APPROVED_KURUCZ_STARK / ("daz-" + case + ".npz")) as stark_control:
         np.testing.assert_array_equal(wave, stark_control["wavelength"])
         stark_flux = stark_control["surface_flux"]
@@ -84,17 +96,37 @@ def test_daz_paper_spectrum(case, monkeypatch):
     np.testing.assert_allclose(
         actual[significant], expected[significant], rtol=1e-3, atol=0
     )
-    with previous_hydrogen_dissolution_cutoff():
-        # The full hydrogen dissolved fraction is the only change since the
-        # independent-Kurucz control, and every older control predates it.
-        with pytest.warns(AtmosphereConvergenceWarning):
-            independent = compute_daz(config, wave, initial_atmosphere=atmosphere,
-                                      relax_atmosphere=False)
-        independent_significant = wave * independent_flux > 0.01 * np.max(wave * independent_flux)
-        np.testing.assert_allclose(
-            independent.spectrum.surface_flux_lambda[independent_significant],
-            independent_flux[independent_significant], rtol=1e-3, atol=0,
-        )
+    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+        main_previous = compute_daz(config, wave, initial_atmosphere=atmosphere,
+                                    relax_atmosphere=False)
+    main_significant = wave * main_expected > 0.01 * np.max(wave * main_expected)
+    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda[main_significant],
+                               main_expected[main_significant], rtol=1e-3, atol=0)
+    # Every earlier control predates the 2026-10-27 hydrogen neutral defaults:
+    # reload the structure EOS under the previous defaults and recover the
+    # immediately preceding control before the older chain.
+    with previous_hydrogen_dissolution_cutoff(), (previous_hydrogen_neutral_defaults() if montreal else nullcontext()):
+        if montreal:
+            atmosphere = load_atmosphere_checkpoint(
+                path,
+                config.effective_temperature,
+                config.logg,
+                "hydrogen",
+                include_molecules=molecules,
+                include_negative_hydrogen=molecules,
+                trihydrogen_ion_partition_model="neale-tennyson-1995",
+            )
+            with pytest.warns(AtmosphereConvergenceWarning):
+                previous_defaults = compute_daz(
+                    config, wave, initial_atmosphere=atmosphere, relax_atmosphere=False
+                )
+            kurucz_significant = wave * independent_kurucz_flux > 0.01 * np.max(
+                wave * independent_kurucz_flux
+            )
+            np.testing.assert_allclose(
+                previous_defaults.spectrum.surface_flux_lambda[kurucz_significant],
+                independent_kurucz_flux[kurucz_significant], rtol=1e-3, atol=0,
+            )
         with previous_kurucz_defaults(), pytest.warns(AtmosphereConvergenceWarning):
             predecessor = compute_daz(config, wave, initial_atmosphere=atmosphere,
                                       relax_atmosphere=False)
