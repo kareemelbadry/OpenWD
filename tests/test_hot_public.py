@@ -91,8 +91,12 @@ def test_public_hot_adapter_returns_saveable_spectrum(public_data,monkeypatch,tm
     np.testing.assert_array_equal(result.spectrum.wavelength_angstrom,wave)
     assert np.all(np.isfinite(result.spectrum.surface_flux_lambda))
     assert np.all(result.spectrum.surface_flux_lambda>0)
+    continuum=result.spectrum.continuum_flux_lambda
+    assert np.all(np.isfinite(continuum)) and np.all(continuum>0)
+    assert 'pseudo-continuum' in result.spectrum.metadata['continuum_flux']
     output=tmp_path/'saved'
     save_model_result(result,output)
+    np.testing.assert_allclose(np.loadtxt(output/'spectrum.txt')[:,2],continuum,rtol=1e-15)
     saved=json.loads((output/'metadata.json').read_text())
     for key,value in expected.items():assert saved['spectrum_metadata'][key]==value
     assert saved['model_metadata']['ccc_maximum_level']==8

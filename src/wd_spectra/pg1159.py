@@ -2802,11 +2802,13 @@ class PG1159NLTEModel:
         atmosphere: Atmosphere,
         wavelength_angstrom: FloatArray,
         state: Any,
+        *,
+        lines: bool = True,
     ) -> NLTETransferCoefficients:
         if not isinstance(state, PG1159NLTEState):
             raise TypeError("PG1159NLTEModel requires a PG1159NLTEState")
         base = self.helium_model.transfer_coefficients(
-            atmosphere, wavelength_angstrom, state.helium_state
+            atmosphere, wavelength_angstrom, state.helium_state, lines=lines,
         )
         ion_departure = _ion_departures_with_explicit_stage_closure(
             state.light_metal_state,
@@ -2835,7 +2837,10 @@ class PG1159NLTEModel:
             wavelength_angstrom[:, np.newaxis],
             atmosphere.temperature[np.newaxis, :],
         )
-        if ion_departure is None:
+        if not lines:
+            metal_line_absorption = np.zeros_like(planck)
+            metal_line_emissivity = np.zeros_like(planck)
+        elif ion_departure is None:
             metal_line_absorption = metal_line_mass_absorption_coefficient(
                 atmosphere,
                 wavelength_angstrom,

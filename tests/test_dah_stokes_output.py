@@ -168,6 +168,10 @@ def test_real_transfer_signed_cancellation_and_legacy_I(atmosphere,field,wave,pr
     assert np.max(abs(folded.surface_flux_v_lambda/polarized.surface_flux_lambda)) > 1e-8
     p = np.stack([polarized.surface_flux_q_lambda,polarized.surface_flux_u_lambda,polarized.surface_flux_v_lambda])
     assert np.all(np.linalg.norm(p,axis=0) <= polarized.surface_flux_lambda)
+    # The Balmer-free continuum keeps the magnetic continuum in both outputs.
+    np.testing.assert_array_equal(polarized.continuum_flux_lambda,legacy.continuum_flux_lambda)
+    assert np.all(polarized.continuum_flux_lambda > 0)
+    assert np.any(polarized.continuum_flux_lambda != polarized.surface_flux_lambda)
 
 
 def test_isotropic_directions_cancel_all_polarization(atmosphere):

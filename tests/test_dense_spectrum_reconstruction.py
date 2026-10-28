@@ -48,6 +48,7 @@ def test_dense_synthesis_accepts_the_saved_roundoff_row(monkeypatch):
         surface_flux_lambda: np.ndarray
         metadata: dict
         bolometric_flux: float = 0.
+        continuum_flux_lambda: np.ndarray = None
 
     @dataclass
     class Result:
@@ -63,7 +64,7 @@ def test_dense_synthesis_accepts_the_saved_roundoff_row(monkeypatch):
     result = Result(atmosphere, Spectrum(np.array([102.03570935337449]),
                                        np.zeros(1), {}), {})
     monkeypatch.setattr(synthesis, 'pure_helium_opacities',
-                        lambda atmosphere, wave: (arrays['absorption'], arrays['scattering']))
+                        lambda atmosphere, wave, **options: (arrays['absorption'], arrays['scattering']))
     monkeypatch.setattr(synthesis, 'optical_depth_from_mass_opacity',
                         lambda mass, extinction: arrays['tau'])
     monkeypatch.setattr(synthesis, 'planck_lambda_angstrom',
@@ -71,6 +72,7 @@ def test_dense_synthesis_accepts_the_saved_roundoff_row(monkeypatch):
     output = synthesis.direct_result(result, angles, mass_conservative=True)
     assert np.all(np.isfinite(output.spectrum.surface_flux_lambda))
     assert np.all(output.spectrum.surface_flux_lambda >= 0)
+    assert np.all(np.isfinite(output.spectrum.continuum_flux_lambda))
     assert output.spectrum.metadata['experimental_positive_intensity_reconstruction'] is True
     assert output.spectrum.metadata['experimental_spectrum_radiation_scale_source_error'] < 1e-10
     np.testing.assert_array_equal(output.atmosphere.temperature, atmosphere.temperature)

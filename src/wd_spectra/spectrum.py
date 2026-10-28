@@ -35,11 +35,19 @@ FloatArray = NDArray[np.float64]
 
 @dataclass(frozen=True)
 class Spectrum:
-    """Rest-frame surface flux density on a vacuum-wavelength grid."""
+    """Rest-frame surface flux density on a vacuum-wavelength grid.
+
+    ``continuum_flux_lambda``, when present, is the emergent flux of the same
+    converged structure (temperatures, populations) with every bound-bound
+    opacity and emissivity removed. Dissolved-level (occupation-probability)
+    absorption below each edge stays in the continuum, as in TLUSTY;
+    ``metadata["continuum_flux"]`` states exactly which terms it keeps.
+    """
 
     wavelength_angstrom: FloatArray
     surface_flux_lambda: FloatArray
     metadata: dict[str, object]
+    continuum_flux_lambda: FloatArray | None = None
 
     @property
     def bolometric_flux(self) -> float:
@@ -56,7 +64,7 @@ class Spectrum:
         return (self.bolometric_flux / STEFAN_BOLTZMANN) ** 0.25
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class StokesSpectrum(Spectrum):
     """Surface IQUV fluxes in one observer basis, in the same units as I.
 
@@ -70,6 +78,22 @@ class StokesSpectrum(Spectrum):
     surface_flux_q_lambda: FloatArray
     surface_flux_u_lambda: FloatArray
     surface_flux_v_lambda: FloatArray
+
+    # Python 3.9 dataclasses cannot place these required fields after the
+    # inherited optional continuum, so the positional order is kept by hand.
+    def __init__(self, wavelength_angstrom, surface_flux_lambda, metadata,
+                 surface_flux_q_lambda, surface_flux_u_lambda,
+                 surface_flux_v_lambda, continuum_flux_lambda=None):
+        for name, value in (
+            ("wavelength_angstrom", wavelength_angstrom),
+            ("surface_flux_lambda", surface_flux_lambda),
+            ("metadata", metadata),
+            ("continuum_flux_lambda", continuum_flux_lambda),
+            ("surface_flux_q_lambda", surface_flux_q_lambda),
+            ("surface_flux_u_lambda", surface_flux_u_lambda),
+            ("surface_flux_v_lambda", surface_flux_v_lambda),
+        ):
+            object.__setattr__(self, name, value)
 
 
 def planck_lambda_angstrom(wavelength_angstrom: ArrayLike, temperature: ArrayLike) -> FloatArray:
@@ -164,6 +188,65 @@ def _depth_refined_transfer_inputs(
         np.ascontiguousarray(log_interpolate(scattering)),
         fine_emission,
     )
+
+
+def _continuum_flux(
+    atmosphere,
+    wavelength,
+    absorption,
+    scattering,
+    *,
+    n_angle,
+    backend,
+    discretization,
+    depth_refinement,
+    emergent_ray_mu=None,
+):
+    """Emergent flux of the true continuum on the same converged structure.
+
+    Bound-bound opacity and emissivity are both absent, so the thermal source
+    is Planck and only the coherent continuum scattering is re-solved, with the
+    same transfer discretization and depth refinement as the full spectrum.
+    """
+
+    from .opacity import optical_depth_from_mass_opacity
+
+    column_mass = atmosphere.column_mass
+    planck = np.ascontiguousarray(
+        planck_lambda_angstrom(
+            wavelength[:, np.newaxis], atmosphere.temperature[np.newaxis, :]
+        )
+    )
+    absorption = np.ascontiguousarray(absorption)
+    scattering = np.ascontiguousarray(
+        np.broadcast_to(scattering, absorption.shape)
+    )
+    if depth_refinement > 1:
+        column_mass, absorption, scattering, planck = _depth_refined_transfer_inputs(
+            atmosphere.column_mass, atmosphere.temperature, wavelength,
+            absorption, scattering, planck, int(depth_refinement),
+        )
+    optical_depth = optical_depth_from_mass_opacity(column_mass, absorption + scattering)
+    source, coupled, _ = solve_spectrum_source(
+        optical_depth, planck, absorption, scattering,
+        wavelength=wavelength, n_angle=n_angle,
+        column_mass=(column_mass if discretization == "column-mass" else None),
+        discretization=(
+            "optical-depth" if discretization == "feautrier-optical-depth"
+            else discretization
+        ),
+    )
+    if discretization == "formal-pchip":
+        from ._monotone_formal import CubicFormal
+
+        return CubicFormal(optical_depth, n_angle).field(source)[1]
+    if discretization == "formal-linear":
+        if emergent_ray_mu is None:
+            return emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
+        from .radiative_transfer import emergent_specific_intensity
+
+        return PI * emergent_specific_intensity(optical_depth, source, emergent_ray_mu)
+    return coupled.interface_flux[:, 0]
 
 
 def _ca_ii_crd_emission_source(
@@ -486,12 +569,16 @@ def synthesize_balmer_spectrum(
     # Balmer/Paschen continua even when a formal spectrum intentionally omits
     # explicit Lyman lines.  Keeping it inside ``include_lyman`` made optical-
     # only magnetic spectra lose their Balmer pseudo-continuum.
+    true_continuum = continuum_absorption
     if include_series_pseudocontinuum:
-        line_opacity += (
+        pseudocontinuum = (
             hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
                 atmosphere, wavelength
             )
         )
+        line_opacity += pseudocontinuum
+        # Dissolved-level absorption is continuum opacity, as in TLUSTY.
+        true_continuum = continuum_absorption + pseudocontinuum
     absorption = line_opacity + continuum_absorption
     metal_line_scattering = np.zeros_like(absorption)
     ca_ii_probabilities = None
@@ -507,7 +594,7 @@ def synthesize_balmer_spectrum(
         )
 
         if metal_photoionization_database is not None:
-            absorption += metal_bound_free_mass_absorption_coefficient(
+            metal_bound_free = metal_bound_free_mass_absorption_coefficient(
                 atmosphere,
                 wavelength,
                 metal_database,
@@ -519,6 +606,8 @@ def synthesize_balmer_spectrum(
                     else metal_topbase_photoionization_database.ion_stages
                 ),
             )
+            absorption += metal_bound_free
+            true_continuum = true_continuum + metal_bound_free
         if metal_topbase_photoionization_database is not None:
             from .d6 import (
                 topbase_bound_free_mass_absorption_coefficient,
@@ -532,12 +621,14 @@ def synthesize_balmer_spectrum(
                 "occupation_weighted_populations": metal_state.metal_level_dissolution,
             }
 
-            absorption += topbase_bound_free_mass_absorption_coefficient(
+            topbase_bound_free = topbase_bound_free_mass_absorption_coefficient(
                 atmosphere,
                 wavelength,
                 metal_state,
                 metal_topbase_photoionization_database,
             )
+            absorption += topbase_bound_free
+            true_continuum = true_continuum + topbase_bound_free
 
         metal_lines = metal_line_mass_absorption_coefficient(
             atmosphere,
@@ -614,6 +705,7 @@ def synthesize_balmer_spectrum(
                         * ca_ii_extinction
                     )
                     absorption -= metal_line_scattering
+    continuum_scattering = scattering
     scattering = scattering + metal_line_scattering
     h2_kappa = h2_weighted = None
     if h2_line_data is not None:
@@ -729,6 +821,13 @@ def synthesize_balmer_spectrum(
             optical_depth, source, emergent_ray_mu
         )
         flux_convention = "pi times line-of-sight I_lambda"
+    continuum_flux = _continuum_flux(
+        atmosphere, wavelength, true_continuum, continuum_scattering,
+        n_angle=n_angle, backend=backend,
+        discretization=transfer_discretization,
+        depth_refinement=int(transfer_depth_refinement),
+        emergent_ray_mu=emergent_ray_mu,
+    )
     line_series = ["Halpha-H22"]
     if include_lyman:
         line_series.insert(0, "Lyalpha-Ly21")
@@ -739,9 +838,24 @@ def synthesize_balmer_spectrum(
     return Spectrum(
         wavelength_angstrom=wavelength,
         surface_flux_lambda=flux,
+        continuum_flux_lambda=continuum_flux,
         metadata={
             "wavelength_medium": "vacuum",
             "flux_convention": flux_convention,
+            "continuum_flux": (
+                continuum_description
+                + (
+                    "; dissolved-level pseudo-continuum"
+                    if include_series_pseudocontinuum else ""
+                )
+                + (
+                    "; metal bound-free"
+                    if metal_photoionization_database is not None
+                    or metal_topbase_photoionization_database is not None
+                    else ""
+                )
+                + "; all H, metal and H2 lines removed"
+            ),
             "flux_unit": "erg s^-1 cm^-2 Angstrom^-1",
             "transfer": (
                 "LTE absorption plus coherent-isotropic continuum/line scattering"
@@ -1142,6 +1256,8 @@ def synthesize_helium_spectrum(
         helium_minus_correction=dense_helium_minus,
         helium_minus_prescription=helium_minus_prescription,
     )
+    # Includes the He I/He II dissolved-level pseudo-continuum, as in TLUSTY.
+    true_continuum = absorption.copy()
     if include_lines:
         absorption += helium_i_line_mass_absorption_coefficient(
             atmosphere, wavelength, stark_table,
@@ -1175,7 +1291,7 @@ def synthesize_helium_spectrum(
         )
 
         if metal_photoionization_database is not None:
-            absorption += metal_bound_free_mass_absorption_coefficient(
+            metal_bound_free = metal_bound_free_mass_absorption_coefficient(
                 atmosphere,
                 wavelength,
                 metal_database,
@@ -1187,6 +1303,8 @@ def synthesize_helium_spectrum(
                     else metal_topbase_photoionization_database.ion_stages
                 ),
             )
+            absorption += metal_bound_free
+            true_continuum += metal_bound_free
         if metal_topbase_photoionization_database is not None:
             from .d6 import (
                 topbase_bound_free_mass_absorption_coefficient,
@@ -1200,12 +1318,14 @@ def synthesize_helium_spectrum(
                 "occupation_weighted_populations": metal_state.metal_level_dissolution,
             }
 
-            absorption += topbase_bound_free_mass_absorption_coefficient(
+            topbase_bound_free = topbase_bound_free_mass_absorption_coefficient(
                 atmosphere,
                 wavelength,
                 metal_state,
                 metal_topbase_photoionization_database,
             )
+            absorption += topbase_bound_free
+            true_continuum += topbase_bound_free
 
         metal_lines = metal_line_mass_absorption_coefficient(
             atmosphere,
@@ -1321,14 +1441,24 @@ def synthesize_helium_spectrum(
     if atmosphere.hydrogen_lte_state is not None:
         hydrogen_opacity = (hydrogen_continuum_mass_absorption_coefficient
             if molecular_h_he is None else molecular_h_he.hydrogen_opacity)
-        absorption += hydrogen_opacity(
+        hydrogen_continuum = hydrogen_opacity(
             atmosphere,
             wavelength,
             include_electron_scattering=False,
             include_rayleigh_scattering=False,
             include_molecular_absorption=False,
-            **({} if molecular_h_he is None else dict(unified_allard_table=unified_allard_table)),
+            **({} if molecular_h_he is None else dict(
+                unified_allard_table=unified_allard_table,
+                include_neutral_lyman_wing=False,
+            )),
         )
+        absorption += hydrogen_continuum
+        true_continuum += hydrogen_continuum
+        if molecular_h_he is not None:
+            # The H-H/H-H2 Lyman-alpha far wing is line opacity.
+            absorption += molecular_h_he.neutral_lyman_wing_opacity(
+                atmosphere, wavelength, unified_allard_table=unified_allard_table
+            )
         if include_trace_hydrogen_lines:
             absorption += balmer_mass_absorption_coefficient(
                 atmosphere,
@@ -1356,20 +1486,22 @@ def synthesize_helium_spectrum(
             absorption += paschen_mass_absorption_coefficient(atmosphere, wavelength)
             absorption += brackett_mass_absorption_coefficient(atmosphere, wavelength)
             if include_hydrogen_series_pseudocontinuum:
-                absorption += (
+                hydrogen_pseudocontinuum = (
                     hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
                         atmosphere, wavelength
                     )
                 )
-    scattering = (
+                absorption += hydrogen_pseudocontinuum
+                true_continuum += hydrogen_pseudocontinuum
+    continuum_scattering = (
         electron_scattering_mass_coefficient(atmosphere)[np.newaxis, :]
         + helium_rayleigh_scattering_mass_coefficient(atmosphere, wavelength)
-        + metal_line_scattering
     )
     if atmosphere.hydrogen_lte_state is not None:
-        scattering += hydrogen_rayleigh_scattering_mass_coefficient(
-            atmosphere, wavelength
+        continuum_scattering = continuum_scattering + (
+            hydrogen_rayleigh_scattering_mass_coefficient(atmosphere, wavelength)
         )
+    scattering = continuum_scattering + metal_line_scattering
     total = absorption + scattering
     optical_depth = optical_depth_from_mass_opacity(atmosphere.column_mass, total)
     planck = np.ascontiguousarray(
@@ -1412,11 +1544,30 @@ def synthesize_helium_spectrum(
         flux = CubicFormal(optical_depth, n_angle).field(source)[1]
     else:
         flux = coupled.interface_flux[:, 0]
+    continuum_flux = _continuum_flux(
+        atmosphere, wavelength, true_continuum, continuum_scattering,
+        n_angle=n_angle, backend=backend,
+        discretization=transfer_discretization,
+        depth_refinement=int(transfer_depth_refinement),
+    )
     return Spectrum(
         wavelength_angstrom=wavelength,
         surface_flux_lambda=flux,
+        continuum_flux_lambda=continuum_flux,
         metadata={
             **transfer_metadata,
+            "continuum_flux": (
+                "He continuum"
+                + ("; H I/H-minus/molecular continuum"
+                   if atmosphere.hydrogen_lte_state is not None else "")
+                + ("; metal bound-free"
+                   if metal_photoionization_database is not None
+                   or metal_topbase_photoionization_database is not None
+                   else "")
+                + "; dissolved-level pseudo-continuum; coherent electron/Rayleigh "
+                "scattering; all He, H and metal lines, C2 bands and the "
+                "Lyman-alpha far wing removed"
+            ),
             "wavelength_medium": "vacuum",
             "flux_convention": "surface F_lambda",
             "flux_unit": "erg s^-1 cm^-2 Angstrom^-1",
@@ -1626,5 +1777,6 @@ def synthesize_hydrogen_helium_spectrum(
     return Spectrum(
         wavelength_angstrom=spectrum.wavelength_angstrom,
         surface_flux_lambda=spectrum.surface_flux_lambda,
+        continuum_flux_lambda=spectrum.continuum_flux_lambda,
         metadata=metadata,
     )

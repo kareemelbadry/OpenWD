@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
 from uv_atomic_control_legacy import legacy_uv_atomic_controls
 from independent_kurucz_control_legacy import previous_kurucz_defaults
 from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
+from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 pytestmark = pytest.mark.spectral
 CONTROLS = Path(__file__).parent / "data/daz_regressions"
@@ -52,6 +54,10 @@ def test_daz_paper_spectrum(case, monkeypatch):
         with np.load(APPROVED_MONTREAL_H_RADIUS / ("daz-" + case + ".npz")) as approved:
             np.testing.assert_array_equal(wave, approved["wavelength"])
             expected = approved["surface_flux"]
+    main_expected = expected
+    with np.load(COMBINED / "fixed" / ("daz-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = approved["surface_flux"]
     with np.load(APPROVED_KURUCZ_STARK / ("daz-" + case + ".npz")) as stark_control:
         np.testing.assert_array_equal(wave, stark_control["wavelength"])
         stark_flux = stark_control["surface_flux"]
@@ -90,10 +96,16 @@ def test_daz_paper_spectrum(case, monkeypatch):
     np.testing.assert_allclose(
         actual[significant], expected[significant], rtol=1e-3, atol=0
     )
+    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+        main_previous = compute_daz(config, wave, initial_atmosphere=atmosphere,
+                                    relax_atmosphere=False)
+    main_significant = wave * main_expected > 0.01 * np.max(wave * main_expected)
+    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda[main_significant],
+                               main_expected[main_significant], rtol=1e-3, atol=0)
     # Every earlier control predates the 2026-10-27 hydrogen neutral defaults:
     # reload the structure EOS under the previous defaults and recover the
     # immediately preceding control before the older chain.
-    with previous_hydrogen_neutral_defaults() if montreal else nullcontext():
+    with previous_hydrogen_dissolution_cutoff(), (previous_hydrogen_neutral_defaults() if montreal else nullcontext()):
         if montreal:
             atmosphere = load_atmosphere_checkpoint(
                 path,

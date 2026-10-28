@@ -36,6 +36,16 @@ def direct_result(result,n_angle,*,mass_conservative=False):
     error=float(np.max(wave[:,None]*abs(closure))/np.max(wave[:,None]*source))
     if error>1e-10:
         raise RuntimeError('coupled experimental synthesis failed its source-equation check')
+    # Line-free continuum with the same declared transfer law.
+    continuum_absorption,continuum_scattering=pure_helium_opacities(atmosphere,wave,lines=False)
+    continuum_depths=optical_depth_from_mass_opacity(atmosphere.column_mass,
+        continuum_absorption+continuum_scattering)
+    if mass_conservative:
+        _,continuum_field=mass_field(continuum_depths,planck,continuum_absorption,continuum_scattering,
+            column_mass=atmosphere.column_mass,n_angle=n_angle,reconstruct_intensity=True)
+    else:
+        _,continuum_field=cancellation_safe_field(continuum_depths,planck,continuum_absorption,
+            continuum_scattering,n_angle=n_angle)
     method='mass-coupled-feautrier' if mass_conservative else 'coupled-feautrier'
     metadata=dict(experimental_spectrum_transfer=f'{method}-{n_angle}',
         experimental_positive_intensity_reconstruction=mass_conservative,
@@ -43,7 +53,10 @@ def direct_result(result,n_angle,*,mass_conservative=False):
         experimental_spectrum_radiation_scale_source_error=error,
         experimental_ordinary_four_sweep_bolometric_flux=result.spectrum.bolometric_flux)
     spectrum=replace(result.spectrum,surface_flux_lambda=field.interface_flux[:,0],
+        continuum_flux_lambda=continuum_field.interface_flux[:,0],
         metadata={**result.spectrum.metadata,**metadata,'n_angle':int(n_angle),
+            'continuum_flux':'He continuum with the dissolved-level pseudo-continuum, He Rayleigh '
+                'and electron scattering with the same transfer; all lines removed',
             'scattering_source_solver':'direct coupled mass-volume Feautrier' if mass_conservative else 'direct coupled cancellation-safe Feautrier',
             'scattering_source_iterations':1,'scattering_source_converged':True})
     return replace(result,spectrum=spectrum,

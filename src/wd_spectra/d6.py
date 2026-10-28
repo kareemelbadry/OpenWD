@@ -77,7 +77,7 @@ from .metals import (
 )
 from .opacity import electron_scattering_mass_coefficient, optical_depth_from_mass_opacity
 from .radiative_transfer import Backend, emergent_flux
-from .spectrum import Spectrum, planck_lambda_angstrom
+from .spectrum import Spectrum, _continuum_flux, planck_lambda_angstrom
 
 
 
@@ -3163,11 +3163,39 @@ def synthesize_d6_spectrum(
     flux = emergent_flux(
         optical_depth, np.ascontiguousarray(source), n_angle=n_angle, backend=backend
     )
+    continuum_absorption, continuum_scattering = _metal_opacity(
+        atmosphere,
+        wavelength,
+        atomic_database,
+        state,
+        photoionization_database,
+        minimum_oscillator_strength=minimum_metal_oscillator_strength,
+        maximum_lines=maximum_metal_lines,
+        line_transition_keys=keys,
+        include_lines=False,
+        microturbulent_velocity_kms=microturbulent_velocity_kms,
+        include_rydberg_dissolution=include_rydberg_dissolution,
+        include_metal_series_pseudocontinuum=include_metal_series_pseudocontinuum,
+        metal_series_pseudocontinuum_elements=elements,
+        rydberg_correlated_microfields=rydberg_correlated_microfields,
+        topbase_photoionization_database=topbase_photoionization_database,
+        **line_options,
+    )
+    continuum_flux = _continuum_flux(
+        atmosphere, wavelength, continuum_absorption, continuum_scattering,
+        n_angle=n_angle, backend=backend, discretization="formal-linear",
+        depth_refinement=1,
+    )
     return Spectrum(
         wavelength,
         flux,
         {
             **transfer_metadata,
+            "continuum_flux": (
+                "metal bound-free and free-free, negative-ion continua, "
+                "metal series pseudo-continuum, electron scattering; all "
+                "lines removed"
+            ),
             "transfer_discretization": "formal-linear",
             "wavelength_medium": "vacuum",
             "flux_convention": "surface F_lambda",
@@ -3219,4 +3247,5 @@ def synthesize_d6_spectrum(
                 str(key): value for key, value in line_options.items()
             },
         },
+        continuum_flux,
     )

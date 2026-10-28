@@ -161,6 +161,12 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
     status = warn_if_atmosphere_not_converged(atmosphere, kind)
     coefficients = model.transfer_coefficients(atmosphere, wave, result.population_state)
     _, field, closure = transfer_field(atmosphere, coefficients, n_angle=resolution.n_angle)
+    # Same NLTE populations without any bound-bound terms.
+    _, continuum_field, _ = transfer_field(
+        atmosphere,
+        model.transfer_coefficients(atmosphere, wave, result.population_state,
+                                    lines=False),
+        n_angle=resolution.n_angle, check_source=False)
     collision_metadata = {
         'ccc_maximum_level': model.collision_data.maximum_level,
         'hydrogen_collision_closure': None if not mixed else
@@ -168,11 +174,14 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
         'helium_ii_collision_model': model.hydrogenic_collision_model,
     }
     spectrum = Spectrum(wave, field.interface_flux[:, 0], {
+        'continuum_flux': ('NLTE H/He bound-free and free-free with the converged '
+                           'populations, dissolved-level pseudo-continuum, electron '
+                           'scattering; all lines removed'),
         'flux_unit': 'erg s^-1 cm^-2 Angstrom^-1',
         'flux_convention': 'surface F_lambda', 'wavelength_medium': 'vacuum',
         'composition': kind, 'line_formation': 'restricted H/He NLTE',
         'transfer': 'column-mass Feautrier', 'source_closure_residual': closure,
-        'nlte_charge_feedback': False})
+        'nlte_charge_feedback': False}, continuum_field.interface_flux[:, 0])
     return ModelResult(kind, atmosphere, spectrum, config, {
         **collision_metadata,
         'preset': f'{kind}-restricted-NLTE-v1', 'experimental': True,

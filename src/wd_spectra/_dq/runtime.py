@@ -211,14 +211,18 @@ def run_cold(config, output, *, data=None, wavelength=None):
                 raise RuntimeError('DQ atmosphere failed its physical certificate')
             material.check_budget()
             np.savez_compressed(output/'structure-grid.npz', wavelength=material.saved_structure_grid)
-            structural = material.spectrum(atmosphere, material.saved_structure_grid, 3)
+            structural = material.spectrum(atmosphere, material.saved_structure_grid, 3,
+                                           continuum=False)
             report['structure_spectrum_flux_ratio'] = float(structural.bolometric_flux/
                 (STEFAN_BOLTZMANN*config.effective_temperature**4))
             report['status'] = 'structure_converged'
             save_model_result(ModelResult('DQ', atmosphere, structural, config,
                               {'spectral_qualification': False}), output/'structure')
             record()
-            fine = material.spectrum(atmosphere, independent_grid(), 3)
+            # The fine grid is also the default output, so it carries the
+            # continuum unless a separate output grid was requested.
+            fine = material.spectrum(atmosphere, independent_grid(), 3,
+                                     continuum=wavelength is None)
             path = output/'independent-spectrum.npz'
             np.savez_compressed(path, wavelength=fine.wavelength_angstrom,
                                 flux=fine.surface_flux_lambda)

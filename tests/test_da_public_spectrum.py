@@ -22,6 +22,8 @@ from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceW
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
 from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
+from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 DEFAULT_CONTROLS = Path(__file__).parent / "data/da_cubic_regressions"
@@ -82,6 +84,10 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
         with np.load(MONTREAL / (case + ".npz")) as approved:
             np.testing.assert_array_equal(wave, approved["wavelength"])
             expected = approved["surface_flux"]
+    main_expected = expected
+    with np.load(COMBINED / "fixed" / ("public-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = approved["surface_flux"]
     molecular = cfg.effective_temperature <= 12000
 
     def synthesize():
@@ -101,10 +107,12 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
         result = synthesize()
-        if case in MONTREAL_CASES:
-            with previous_hydrogen_neutral_defaults():
-                previous = synthesize()
-            assert_spectrum_preserved(wave, previous.spectrum.surface_flux_lambda, original)
+        with previous_hydrogen_dissolution_cutoff():
+            main_previous = synthesize()
+        assert_spectrum_preserved(wave, main_previous.spectrum.surface_flux_lambda, main_expected)
+        with previous_hydrogen_neutral_defaults(), previous_hydrogen_dissolution_cutoff():
+            previous = synthesize()
+        assert_spectrum_preserved(wave, previous.spectrum.surface_flux_lambda, original)
     assert result.spectrum.metadata['transfer_discretization'] == 'formal-pchip'
     assert_spectrum_preserved(wave, result.spectrum.surface_flux_lambda, expected)
     # Independent stellar-flux guard for these two broad, warm-DA controls.

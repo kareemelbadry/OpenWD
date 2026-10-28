@@ -387,9 +387,10 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         return replace(result,metadata={**result.metadata,
             'dq_maximum_discrete_radiative_conservation_error':maximum_conservation_error})
 
-    def spectrum(self,atmosphere,wavelength,n_angle,*,include_c2=True):
+    def spectrum(self,atmosphere,wavelength,n_angle,*,include_c2=True,continuum=True):
         state=self.chemistry(atmosphere)[0];wave=np.asarray(wavelength)
         flux=np.empty_like(wave);closure=0.;conservation=0.
+        continuum_flux=np.empty_like(wave) if continuum else None
         for first in range(0,len(wave),1000):
             w=wave[first:first+1000]
             a=self.absorption(state,w,include_c2=include_c2);s=self.scattering(state,w)
@@ -397,10 +398,18 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
             index=refractive_index(state,w) if self.refraction_enabled else np.ones_like(a)
             result=fv_solve(state.column_mass,a,s,b,index,n_angle=self.ray_angles)
             flux[first:first+len(w)]=result['flux'][:,0]
+            if continuum:
+                # Same refractive transfer without atomic lines or C2 bands.
+                continuum_flux[first:first+len(w)]=fv_solve(state.column_mass,
+                    self.continuum_absorption(state,w),s,b,index,n_angle=self.ray_angles)['flux'][:,0]
             closure=max(closure,result['maximum_source_error'])
             conservation=max(conservation,result['maximum_conservation_error'])
             print(f'DQ refractive synthesis: {first+len(w)}/{len(wave)} wavelengths',flush=True)
         if np.any(~np.isfinite(flux)) or np.any(flux<=0):raise RuntimeError('Invalid refractive emergent spectrum')
         return Spectrum(wave,flux,dict(refraction=self.refraction_enabled,
             transfer_discretization='conservative-invariant-ray-mass-cells',opacity_scale=1.,
-            independent_radiation_scaled_source_error=closure,maximum_cell_conservation_error=conservation))
+            independent_radiation_scaled_source_error=closure,maximum_cell_conservation_error=conservation,
+            continuum_flux=('He continuum (dense He-minus correction, dissolved-level '
+                'pseudo-continuum) and carbon bound-free, electron and refractive Rayleigh '
+                'scattering; all atomic lines and C2 bands removed') if continuum else 'not computed'),
+            continuum_flux)

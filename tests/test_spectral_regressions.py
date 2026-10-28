@@ -36,6 +36,8 @@ from cool_dz_release_control_legacy import (
 
 from metal_population_control_legacy import previous_metal_opacity_populations
 from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
+from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 
@@ -125,6 +127,9 @@ CRII_CASES = frozenset({"dz-pg1225", "dz-j0738"})
 MONTREAL_H_RADIUS_CASES = frozenset(
     {"da-3000", "da-4000", "da-5000", "da-20000", "dab-20000", "dz-pg1225", "dz-j0738"}
 )
+COMBINED_HYDROGEN_CASES = frozenset(
+    {"da-20000", "dab-9000", "dab-20000", "dz-pg1225", "dz-j0738"}
+)
 pytestmark = pytest.mark.spectral
 CASES = [
     "da-3000",
@@ -164,6 +169,9 @@ def test_checked_scattering_preserves_broad_spectral_controls(case, monkeypatch)
     previous_directory = approved_directory
     if case in MONTREAL_H_RADIUS_CASES:
         approved_directory = APPROVED_MONTREAL_H_RADIUS
+    main_directory = approved_directory
+    if case in COMBINED_HYDROGEN_CASES:
+        approved_directory = COMBINED / "fixed"
     with np.load(approved_directory / (case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])
         expected = approved["surface_flux"]
@@ -207,11 +215,21 @@ def test_checked_scattering_preserves_broad_spectral_controls(case, monkeypatch)
         )
         assert abs(change) < 1e-5
 
-    # Every earlier control predates the 2026-10-27 hydrogen neutral defaults:
+    if case in COMBINED_HYDROGEN_CASES:
+        with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+            main_previous = {
+                "DA": compute_da, "DB": compute_db, "DAB": compute_dab, "DZ": compute_dz,
+            }[kind](config, wave, initial_atmosphere=atmosphere, relax_atmosphere=False)
+        with np.load(main_directory / (case + ".npz")) as control:
+            main_expected = control["surface_flux"]
+        np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_expected,
+                                   rtol=2e-6, atol=1e-12 * np.max(main_expected))
+
+    # Every earlier control predates both 2026-10-27 hydrogen changes:
     # reload the structure EOS under the previous defaults, recover the
     # immediately preceding control, then keep each older check intact.
     montreal = case in MONTREAL_H_RADIUS_CASES
-    with previous_hydrogen_neutral_defaults() if montreal else nullcontext():
+    with previous_hydrogen_dissolution_cutoff(), (previous_hydrogen_neutral_defaults() if montreal else nullcontext()):
         if montreal:
             atmosphere = load_atmosphere_checkpoint(
                 path,

@@ -269,8 +269,10 @@ def atomic_dense_experiment(runner, model, *, least_squares_merit=False, opacity
             experimental_temperature=a.temperature, experimental_pressure=a.gas_pressure,
             experimental_density=a.mass_density, experimental_electron_density=a.electron_density,
             experimental_column_mass=a.column_mass, experimental_tau=a.rosseland_optical_depth,**extra)
-        np.savetxt(path/'experimental-spectrum.txt', np.column_stack((
-            result.spectrum.wavelength_angstrom, result.spectrum.surface_flux_lambda)), header=model.physics)
+        columns = [result.spectrum.wavelength_angstrom, result.spectrum.surface_flux_lambda]
+        if result.spectrum.continuum_flux_lambda is not None:
+            columns.append(result.spectrum.continuum_flux_lambda)
+        np.savetxt(path/'experimental-spectrum.txt', np.column_stack(columns), header=model.physics)
         (path/'experimental-metadata.json').write_text(json.dumps(dict(
             effective_temperature=a.effective_temperature, logg=a.logg,
             physics=model.physics, interaction_table_sha256=model.sha256,

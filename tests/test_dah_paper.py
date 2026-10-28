@@ -17,6 +17,8 @@ from wd_spectra.models.common import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
 from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
+from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 DATA = Path(__file__).parent / "data/dah_paper"
 TARGETS = json.loads((DATA / "manifest.json").read_text())["targets"]
@@ -72,13 +74,21 @@ def test_paper_prescription_reproduces_frozen_paper_spectrum(key, monkeypatch):
     config = paper_config(key)
     path = DATA / TARGETS[key]["reference_file"]
     with np.load(MONTREAL / "dah_paper" / f"{key}.npz") as approved:
-        wave, approved_flux = approved["wavelength"], approved["surface_flux"]
+        wave, main_flux = approved["wavelength"], approved["surface_flux"]
+    with np.load(COMBINED / "fixed" / f"dah-paper-{key}.npz") as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        approved_flux = approved["surface_flux"]
     with pytest.warns(AtmosphereConvergenceWarning):
         result = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
                              relax_atmosphere=False)
     np.testing.assert_allclose(result.spectrum.surface_flux_lambda, approved_flux,
                                rtol=2e-8, atol=0.)
-    with previous_hydrogen_neutral_defaults(), np.load(path) as reference:
+    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+        main_previous = compute_dah(
+            config, wave, initial_atmosphere=frozen_atmosphere(key, config), relax_atmosphere=False)
+    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_flux,
+                               rtol=2e-8, atol=0.)
+    with previous_hydrogen_neutral_defaults(), previous_hydrogen_dissolution_cutoff(), np.load(path) as reference:
         with pytest.warns(AtmosphereConvergenceWarning):
             paper = compute_dah(config, reference["wavelength"],
                                 initial_atmosphere=frozen_atmosphere(key, config),
@@ -104,7 +114,10 @@ def test_public_default_reproduces_approved_rwa_spectrum(key, monkeypatch):
     monkeypatch.setattr(dah, "radiative_equilibrium_hydrogen_atmosphere", forbidden)
     config = default_config(key)
     with np.load(MONTREAL / "dah_default" / f"{key}.npz") as reference:
-        wave, expected = reference["wavelength"], reference["surface_flux"]
+        wave, main_flux = reference["wavelength"], reference["surface_flux"]
+    with np.load(COMBINED / "fixed" / f"dah-default-{key}.npz") as reference:
+        np.testing.assert_array_equal(wave, reference["wavelength"])
+        expected = reference["surface_flux"]
     with pytest.warns(AtmosphereConvergenceWarning):
         result = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
                              relax_atmosphere=False)
@@ -112,7 +125,12 @@ def test_public_default_reproduces_approved_rwa_spectrum(key, monkeypatch):
     with np.load(APPROVED / "fixed" / f"{key}.npz") as reference:
         np.testing.assert_array_equal(wave, reference["wavelength"])
         rwa_flux = reference["surface_flux"]
-    with previous_hydrogen_neutral_defaults(), pytest.warns(AtmosphereConvergenceWarning):
+    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+        main_previous = compute_dah(
+            config, wave, initial_atmosphere=frozen_atmosphere(key, config), relax_atmosphere=False)
+    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_flux,
+                               rtol=2e-8, atol=0.)
+    with previous_hydrogen_neutral_defaults(), previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
         previous = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
                                relax_atmosphere=False)
     np.testing.assert_allclose(previous.spectrum.surface_flux_lambda, rwa_flux, rtol=2e-8, atol=0.)
@@ -139,7 +157,7 @@ def test_dah_public_default_cold_start(key):
     config = default_config(key)
     # Only the final wavelength grid and approved spectrum are read. The saved
     # atmosphere arrays never enter this calculation.
-    with np.load(MONTREAL / "dah_default" / f"{key}.npz") as reference:
+    with np.load(COMBINED / "fixed" / f"dah-default-{key}.npz") as reference:
         wave, expected = reference["wavelength"], reference["surface_flux"]
 
     def progress(iteration, atmosphere, status):

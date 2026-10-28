@@ -328,8 +328,8 @@ supported by all comparison objects and remains off by default.
 
 Set `return_stokes=True` together with full transfer. A built-in dipole also requires
 `disk_field_bins=None`; drift-based compression is unsupported for polarization.
-The existing intensity calculation and two-column `spectrum.txt` remain the
-default when the option is off.
+The existing intensity calculation and `spectrum.txt` (wavelength, flux,
+continuum) remain the default when the option is off.
 
 Polarized output inherits the selected physics. `DAHConfig` uses RWA
 photoionization, the magnetic EOS and centered-motion populations above 1 MG;

@@ -59,6 +59,8 @@ class ModelRun:
         from ..spectrum import StokesSpectrum
 
         values = np.loadtxt(self.spectrum_path)
+        # The optional third column is the line-free continuum flux.
+        continuum = values[:, 2] if values.shape[1] == 3 else None
         metadata = dict(
             flux_convention="surface F_lambda",
             wavelength_medium="vacuum",
@@ -74,13 +76,14 @@ class ModelRun:
                 path = self.output_directory / "stokes.txt"
                 stokes = np.loadtxt(path)
                 if (stokes.shape != (values.shape[0], 5) or not np.all(np.isfinite(stokes))
-                        or not np.array_equal(stokes[:, :2], values)):
+                        or not np.array_equal(stokes[:, :2], values[:, :2])):
                     raise ValueError("stokes.txt must match the saved intensity grid and flux")
                 metadata.update(record["spectrum_metadata"])
                 metadata["stokes_source_path"] = str(path)
                 return StokesSpectrum(values[:, 0], values[:, 1], metadata,
-                                      stokes[:, 2], stokes[:, 3], stokes[:, 4])
-        return Spectrum(values[:, 0], values[:, 1], metadata)
+                                      stokes[:, 2], stokes[:, 3], stokes[:, 4],
+                                      continuum)
+        return Spectrum(values[:, 0], values[:, 1], metadata, continuum)
 
 
 def _cool_commands(config, selection, directory):
@@ -316,14 +319,15 @@ def run_model(
         if (
             spectrum_values.ndim != 2
             or spectrum_values.shape[0] < 2
-            or spectrum_values.shape[1] != 2
+            or spectrum_values.shape[1] not in (2, 3)
             or not np.all(np.isfinite(spectrum_values))
             or np.any(spectrum_values[:, 0] <= 0)
             or np.any(np.diff(spectrum_values[:, 0]) <= 0)
-            or np.any(spectrum_values[:, 1] < 0)
+            or np.any(spectrum_values[:, 1:] < 0)
         ):
             raise ValueError(
-                "Worker did not produce a finite, ordered, nonnegative two-column spectrum"
+                "Worker did not produce a finite, ordered, nonnegative spectrum "
+                "(wavelength, flux and optional continuum columns)"
             )
         manifest.update(
             status="completed",

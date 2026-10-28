@@ -292,6 +292,11 @@ def compute_pg1159(
         atmosphere, state = formal_equations.material(formal_equations.initial_state())
     c = formal_model.transfer_coefficients(atmosphere, wave, state)
     _, radiation, closure = transfer_field(atmosphere, c, n_angle=structure_angles)
+    # Same NLTE populations without any bound-bound terms.
+    _, continuum_radiation, _ = transfer_field(
+        atmosphere,
+        formal_model.transfer_coefficients(atmosphere, wave, state, lines=False),
+        n_angle=structure_angles, check_source=False)
     spectrum = Spectrum(
         wave,
         radiation.interface_flux[:, 0],
@@ -302,7 +307,13 @@ def compute_pg1159(
             "composition": "PG1159",
             "line_formation": "He/C/O term-resolved NLTE with trace ion-stage NLTE",
             "source_closure_residual": closure,
+            "continuum_flux": (
+                "NLTE He and metal bound-free/free-free with the converged "
+                "populations, dissolved-level pseudo-continuum, electron "
+                "scattering; all lines removed"
+            ),
         },
+        continuum_radiation.interface_flux[:, 0],
     )
     qualified_status = status if state.converged and closure < 1e-6 else "unconverged"
     if qualified_status != "converged":
