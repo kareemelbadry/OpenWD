@@ -123,7 +123,11 @@ their cold starts. Without the label, numerical changes leave the cheap
 are never called successful qualification. A successful PR check explicitly
 reports its J1637 warm-regression coverage; it is not a full-suite cold-start
 qualification. Prose and ordinary unit-test edits
-do not require cold starts. Unknown paths and shared numerical/data/checker
+do not require cold starts. The two descriptive fields in the RE J0317-853
+provenance JSON are compared against their merge-base contents: edits to those
+strings also skip cold starts, while numerical fields, checksums, additions,
+deletions and malformed JSON do not. The CI selection planner itself is covered
+by ordinary policy tests. Unknown paths and shared numerical/data/checker
 changes conservatively require the full suite.
 
 Maintainers can also run **protected model canaries → Run workflow** for the

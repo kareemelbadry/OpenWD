@@ -32,6 +32,7 @@ policy = module("validation_policy")
         "tests/test_documentation.py",
         "tests/test_metals.py",
         "examples/generate_spectrum.ipynb",
+        "tools/validation_policy.py",
     ],
 )
 def test_non_numerical_changes_do_not_trigger_cold_models(path):

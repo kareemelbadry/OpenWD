@@ -6,13 +6,66 @@ from pathlib import PurePosixPath
 import subprocess
 
 
-def requires_full(paths):
+# These fields describe an observation; no numerical consumer reads them.
+# Do not exempt the whole JSON file, its checksum, or its numerical fields.
+_DESCRIPTIVE_JSON_FIELDS = {
+    "src/wd_spectra/data/validation/dah/re-j0317-853-vi.json": {
+        "sigma", "v_over_i_level",
+    },
+}
+
+
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def descriptive_json_change(path, before, after):
+    """Fail closed unless only known description strings differ."""
+    fields = _DESCRIPTIVE_JSON_FIELDS.get(path)
+    if fields is None or before is None or after is None:
+        return False
+    try:
+        old, new = (
+            json.loads(blob, object_pairs_hook=_unique_object,
+                       parse_constant=_invalid_constant)
+            for blob in (before, after)
+        )
+        if not isinstance(old, dict) or not isinstance(new, dict) or old.keys() != new.keys():
+            return False
+        if any(not isinstance(obj.get(key), str) for obj in (old, new) for key in fields):
+            return False
+        # Canonical JSON retains numeric types (1 differs from 1.0, and true
+        # differs from 1) while ignoring whitespace and object-key ordering.
+        other = [json.dumps({k: v for k, v in obj.items() if k not in fields},
+                            sort_keys=True, allow_nan=False) for obj in (old, new)]
+        return other[0] == other[1]
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        return False
+
+
+def requires_full(paths, *, contents=None):
     for path in paths:
         p = PurePosixPath(path)
         if path in {"README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", ".gitignore"}:
             continue
         if p.parts[0] == "docs":
             continue
+        # The selection planner is tested by the ordinary CI policy tests;
+        # changing it does not change a model equation or numerical checker.
+        if path == "tools/validation_policy.py":
+            continue
+        if contents is not None and path in contents:
+            if descriptive_json_change(path, *contents[path]):
+                continue
         if (
             p.parts[0] == "tests"
             and p.suffix == ".py"
@@ -41,13 +94,13 @@ def requires_full(paths):
     return False
 
 
-def plan(event_name, event, paths):
+def plan(event_name, event, paths, *, contents=None):
     if event_name in {"workflow_dispatch", "schedule"}:
         return True, True
     if event_name != "pull_request":
         raise ValueError(f"unsupported qualification event: {event_name}")
     pr = event["pull_request"]
-    required = requires_full(paths)
+    required = requires_full(paths, contents=contents)
     requested = not pr["draft"] and any(
         label["name"] == "full-validation" for label in pr["labels"]
     )
@@ -59,32 +112,42 @@ def selected_cold_cases(event_name, cases):
     return [case for case in cases if event_name != "pull_request" or case != "d6-j1637"]
 
 
+def changed_inputs(base, head):
+    """Read the same merge-base diff for names and raw provenance blobs."""
+    merge_base = subprocess.check_output(["git", "merge-base", base, head]).decode().strip()
+    paths = subprocess.check_output(
+        ["git", "diff", "--no-renames", "--name-only", "-z", merge_base, head]
+    ).decode().strip("\0").split("\0")
+    paths = [path for path in paths if path]
+
+    def blob(ref, path):
+        try:
+            return subprocess.check_output(
+                ["git", "cat-file", "blob", ref + ":" + path],
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            return None
+
+    contents = {
+        path: (blob(merge_base, path), blob(head, path))
+        for path in paths if path in _DESCRIPTIVE_JSON_FIELDS
+    }
+    return paths, contents
+
+
 def main():
     from pathlib import Path
 
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     paths = []
+    contents = {}
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
         pr = event["pull_request"]
         # Include both old and new names for renames. Failure must not certify
         # an empty diff. Never interpolate PR-controlled strings into a shell.
-        paths = (
-            subprocess.check_output(
-                [
-                    "git",
-                    "diff",
-                    "--no-renames",
-                    "--name-only",
-                    "-z",
-                    pr["base"]["sha"] + "..." + pr["head"]["sha"],
-                ],
-            )
-            .decode()
-            .strip("\0")
-            .split("\0")
-        )
-        paths = [path for path in paths if path]
-    required, requested = plan(os.environ["GITHUB_EVENT_NAME"], event, paths)
+        paths, contents = changed_inputs(pr["base"]["sha"], pr["head"]["sha"])
+    required, requested = plan(os.environ["GITHUB_EVENT_NAME"], event, paths, contents=contents)
     from validate import COLD
 
     # PRs use J1637's bounded warm regression. Scheduled/manual runs retain
