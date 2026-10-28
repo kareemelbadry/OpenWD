@@ -22,6 +22,8 @@ def test_combined_controls_cover_every_dissolution_case():
     assert len(MANIFEST["cases"]) == 25
     assert MANIFEST["combined_pr52_head"] == "a10c59f6c0a110a140d143b1ec51f0ce7852c9e7"
     assert MANIFEST["combined_main"] == "175d5cbdf57a418944c7b9e5bd9b6c7812b43e41"
+    identity = hashlib.sha256(json.dumps(MANIFEST["source_sha256"], sort_keys=True).encode()).hexdigest()
+    assert identity == MANIFEST["source_identity_sha256"]
 
 
 @pytest.mark.parametrize("name", sorted(PREVIOUS["cases"]))
