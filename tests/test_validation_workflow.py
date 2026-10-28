@@ -33,6 +33,7 @@ sharder = module("ci_shard")
         "tests/test_documentation.py",
         "tests/test_metals.py",
         "examples/generate_spectrum.ipynb",
+        "tools/validation_policy.py",
     ],
 )
 def test_non_numerical_changes_do_not_trigger_cold_models(path):
@@ -332,10 +333,11 @@ def test_shard_discovery_matches_pytest_collection():
 def test_prose_only_prs_skip_fixed_spectra_but_other_events_do_not(tmp_path, monkeypatch):
     outputs = tmp_path / "outputs"
     monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
-    monkeypatch.setattr(policy, "changed_paths", lambda event: ["docs/limitations.md"])
-    policy.spectra_main("pull_request", {})
-    monkeypatch.setattr(policy, "changed_paths", lambda event: ["src/wd_spectra/opacity.py"])
-    policy.spectra_main("pull_request", {})
+    event = {"pull_request": {"base": {"sha": "b"}, "head": {"sha": "h"}}}
+    monkeypatch.setattr(policy, "changed_inputs", lambda base, head: (["docs/limitations.md"], {}))
+    policy.spectra_main("pull_request", event)
+    monkeypatch.setattr(policy, "changed_inputs", lambda base, head: (["src/wd_spectra/opacity.py"], {}))
+    policy.spectra_main("pull_request", event)
     for event in ("push", "workflow_dispatch"):
         policy.spectra_main(event, {})
     assert outputs.read_text().split() == [
