@@ -41,9 +41,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.requested == 'true'
     runs-on: ubuntu-latest
-    # Fast (~49 min) plus spectra (>41 min) exhausted one shared 90-minute
-    # budget on a hosted runner. Each complete tier gets its own worker.
-    timeout-minutes: 90
+    # Each complete tier gets its own worker. Spectra took ~80 minutes before
+    # the combined hydrogen controls added another retained legacy replay.
+    timeout-minutes: ${{ matrix.tier == 'spectra' && 150 || 90 }}
     strategy:
       fail-fast: false
       matrix:

@@ -133,8 +133,11 @@ automatic expensive merge-push rerun. The cold matrix runs one star per job,
 after cheap preflight checks, and retains logs/results even on failure.
 
 Preflight runs the complete fast and fixed-spectrum tiers on separate workers,
-each with a 90-minute job budget and its own diagnostic artifact. Both must
-pass before any protected cold model or J1637 warm regression starts. A failed,
+with 90 minutes for fast checks and 150 minutes for spectra, each retaining its
+own diagnostic artifact. The spectral budget includes the retained historical
+hydrogen replays; the preceding suite already took about 80 minutes on a hosted
+runner. Both tiers must pass before any protected cold model or J1637 warm
+regression starts. A failed,
 cancelled or skipped tier cannot qualify the candidate. This avoids putting
 both suites under one sequential job limit; their case selections, test
 resolutions and numerical acceptance checks are unchanged.
