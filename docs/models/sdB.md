@@ -5,8 +5,8 @@
 OpenWD includes a module for hot subdwarf B stars: lower-gravity
 hydrogen–helium atmospheres with optional trace metals. It uses an LTE H/He
 temperature structure, followed by NLTE populations and line formation on that
-fixed structure. The command-line drivers are included in the repository; there is
-currently no `SdBConfig` or sdB selection through `run_model`.
+fixed structure. The H/He model is available through `run_model` with
+`SdBConfig`; trace metals are added with a research command-line driver.
 
 The development grid spans 20,000–40,000 K, log g = 5.0–6.2 and
 log10 N(He)/N(H) = −4 to −1 at 40 depths. The paper also compares an
@@ -74,6 +74,29 @@ H/He temperature structure. This hybrid method differs from the fully coupled
 at sdB densities.
 
 ## Run an example
+
+The H/He hybrid model (steps 1 and 2 above) is a public cold-start workflow:
+
+```python
+from wd_spectra import SdBConfig, run_model
+
+run = run_model(
+    SdBConfig(effective_temperature=23200, logg=5.20, log_helium_to_hydrogen=-2.27),
+    "results/sdb/hd4539",
+)
+spectrum = run.spectrum  # wavelength, surface flux and line-free continuum
+print("Converged:", run.convergence_verified)
+```
+
+`log_helium_to_hydrogen` is log10 N(He)/N(H). The defaults follow the paper
+models: 16 explicit H I levels, the 14-term He I atom (`helium_i_atom="24"`
+selects the 24-term atom) and MALI. The default output grid is 3000–9200 Å at
+0.05 Å. `spectrum.txt` holds wavelength, surface flux and continuum flux; the
+continuum is the emergent flux with every line removed, using the same NLTE
+populations. `run.convergence_verified` requires both a certified LTE structure
+and converged NLTE populations. Metals are not included.
+
+### Command-line drivers, including trace metals
 
 From a repository checkout, install the package and optional observation tools:
 
