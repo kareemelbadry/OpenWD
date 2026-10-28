@@ -193,7 +193,7 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
         validate_sdb_config(config)
         return PhysicsSelection(
             "sdb", "Hybrid sdB: LTE H/He structure with NLTE H/He populations",
-            {"nlte_charge_feedback": False, "metals": False}, False, True)
+            {"nlte_charge_feedback": False, "metals": False}, False, False)
     if isinstance(config, PG1159Config):
         validate_pg1159_config(config)
         return PhysicsSelection("pg1159", "Bulk He/C/O NLTE with shared trust-region solver",

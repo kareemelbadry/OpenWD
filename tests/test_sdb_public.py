@@ -5,6 +5,8 @@ by a three-level hydrogen fixture, so these check the adapter contract, not a
 converged sdB model.
 """
 import json
+import hashlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -36,6 +38,7 @@ def test_run_model_dispatches_sdb_and_saves_the_continuum(public_data, gray_stru
     config = SdBConfig(effective_temperature=28000., logg=5.6, log_helium_to_hydrogen=-2.0,
                        hydrogen_levels=3, population_maximum_iterations=2)
     assert select_physics(config, data=public_data).workflow == 'sdb'
+    assert not select_physics(config, data=public_data).experimental
     wave = np.linspace(4000., 7000., 31)
     with pytest.warns(AtmosphereConvergenceWarning):
         run = run_model(config, tmp_path / 'run', data=public_data, wavelength=wave)
@@ -51,6 +54,7 @@ def test_run_model_dispatches_sdb_and_saves_the_continuum(public_data, gray_stru
     saved = json.loads((run.output_directory / 'metadata.json').read_text())
     assert saved['spectral_type'] == 'sdB'
     assert saved['model_metadata']['metals'] is False
+    assert saved['model_metadata']['experimental'] is False
     assert saved['model_metadata']['structure_convergence_status'] == 'converged'
     assert 'pseudo-continuum' in saved['spectrum_metadata']['continuum_flux']
     # The line-free continuum differs from the flux at the Balmer lines.
@@ -70,3 +74,17 @@ def test_invalid_sdb_configuration_fails_before_any_model(change):
 def test_sdb_public_models_are_cold_starts():
     with pytest.raises(ValueError, match='cold start'):
         compute_sdb(SdBConfig(), initial_atmosphere=object())
+
+
+def test_hd4539_control_retains_the_independent_driver_provenance():
+    directory = Path(__file__).parent / 'data/sdb_regressions'
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    assert hashlib.sha256((directory / 'hd4539-hhe.npz').read_bytes()).hexdigest() == manifest['control_sha256']
+    assert hashlib.sha256((directory / 'hd4539-fixed-state.npz').read_bytes()).hexdigest() == manifest['fixed_state_sha256']
+    assert manifest['lte_convergence_status'] == 'converged'
+    assert manifest['nlte_populations_converged'] is True
+    assert manifest['nlte_population_change'] < 1e-4
+    assert manifest['absolute_flux_rtol'] == 1e-3
+    assert manifest['hydrogen_levels'] == 16 and manifest['helium_i_atom'] == '14'
+    assert manifest['helium_conservation_row'] == 'dominant'
+    assert manifest['accelerated_lambda'] is True

@@ -148,6 +148,20 @@ co-adds are separate inputs; they are not needed to compute a synthetic spectrum
 
 ## Validation and limitations
 
+The protected `cold --case sdb-hd4539` check runs the public default from
+stellar parameters, with no stored atmosphere or populations. It requires a
+certified LTE structure and converged NLTE populations, then compares the
+absolute 3000–9200 Å spectrum with the separately executed research-driver
+recipe to 0.1%, without normalization. The spectrum-only control and its
+provenance are in `tests/data/sdb_regressions`; neither supplies a solver
+starting state. This check covers the metal-free HD 4539 example, not the
+whole sdB grid or the separate trace-metal driver.
+
+The separate `spectra --case sdb-hd4539` check holds the saved research state
+fixed and checks line transfer to a relative tolerance of 10⁻⁷, with both
+structure and population iterations forbidden. That state is used only by
+the fixed-spectrum check; the cold test reads only the spectrum control.
+
 The 12-point H/He development grid converged at 40 depths in 9–21 minutes per
 model on one core; one further unpreconditioned update changed the populations
 by at most 9 × 10⁻⁵. A typical-metal grid on those hosts converged in 35–73

@@ -50,6 +50,8 @@ def test_non_numerical_changes_do_not_trigger_cold_models(path):
         "tests/test_dq_spectral_regression.py",
         "tests/test_dq_release.py",
         "tests/test_hot_cold_canary.py",
+        "tests/test_sdb_cold_canary.py",
+        "tests/test_sdb_spectral_regression.py",
         "tests/test_released_family_canaries.py",
         "tests/test_d6_regression.py",
         "tests/d6_regression_support.py",
@@ -94,8 +96,17 @@ def test_dq_fixed_spectrum_and_true_cold_are_separate_tiers():
 
 def test_every_released_family_has_a_cold_case():
     assert {case.split("-")[0] for case in runner.COLD} >= {
-        "da", "daz", "db", "dab", "dz", "dq", "do", "dao", "pg1159", "d6", "dah"
+        "da", "daz", "db", "dab", "dz", "dq", "do", "dao", "pg1159", "d6", "dah", "sdb"
     }
+
+
+def test_sdb_fixed_spectrum_and_cold_start_are_separate_checks():
+    assert runner.commands('cold', ['sdb-hd4539'])['sdb-hd4539'][-1] == (
+        'tests/test_sdb_cold_canary.py::test_hd4539_public_cold_start_and_research_spectrum'
+    )
+    assert runner.commands('spectra', ['sdb-hd4539'])['sdb-hd4539'][-1] == (
+        'tests/test_sdb_spectral_regression.py::test_hd4539_fixed_spectrum_matches_research_driver'
+    )
 
 
 @pytest.mark.parametrize("variable", ["OPENWD_DATA", "OPENWD_DQ_DATA"])
@@ -339,4 +350,14 @@ def test_spectral_history_helpers_invalidate_validation_reuse(tmp_path, name):
     helper.write_text('previous = 1\n')
     before = runner.numerical_identity(tmp_path)['sha256']
     helper.write_text('previous = 2\n')
+    assert runner.numerical_identity(tmp_path)['sha256'] != before
+
+
+@pytest.mark.parametrize('name', ['test_sdb_cold_canary.py', 'test_sdb_spectral_regression.py'])
+def test_sdb_numerical_checkers_invalidate_validation_reuse(tmp_path, name):
+    checker = tmp_path / 'tests' / name
+    checker.parent.mkdir()
+    checker.write_text('previous = 1\n')
+    before = runner.numerical_identity(tmp_path)['sha256']
+    checker.write_text('previous = 2\n')
     assert runner.numerical_identity(tmp_path)['sha256'] != before

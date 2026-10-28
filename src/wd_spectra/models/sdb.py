@@ -151,7 +151,7 @@ def compute_sdb(config=SdBConfig(), wavelength=None, *, data=None, initial_atmos
                            'dissolved-level pseudo-continuum, electron scattering; all lines removed'),
     }, continuum)
     return ModelResult('sdB', atmosphere, spectrum, config, {
-        'preset': 'sdB-hybrid-LTE-structure-NLTE-HHe-v1', 'experimental': True,
+        'preset': 'sdB-hybrid-LTE-structure-NLTE-HHe-v1', 'experimental': False,
         'cold_start': True, 'metals': False,
         'structure_preset': 'public DAB (LTE, metal-free)',
         'structure_convergence_status': structure_status,

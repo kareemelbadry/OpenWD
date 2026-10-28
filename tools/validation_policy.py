@@ -78,6 +78,8 @@ def requires_full(paths, *, contents=None):
                 "test_dq_spectral_regression.py",
                 "test_dq_release.py",
                 "test_hot_cold_canary.py",
+                "test_sdb_cold_canary.py",
+                "test_sdb_spectral_regression.py",
                 "test_released_family_canaries.py",
                 "test_dah_paper.py",
                 "test_radiative_da_convergence.py",
