@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import PurePosixPath
 import subprocess
+import sys
 
 
 def requires_full(paths):
@@ -27,6 +28,7 @@ def requires_full(paths):
                 "test_hot_cold_canary.py",
                 "test_released_family_canaries.py",
                 "test_dah_paper.py",
+                "test_dah_disk_quadrature.py",
                 "test_radiative_da_convergence.py",
                 "test_d6_regression.py",
                 "d6_regression_support.py",
@@ -59,31 +61,46 @@ def selected_cold_cases(event_name, cases):
     return [case for case in cases if event_name != "pull_request" or case != "d6-j1637"]
 
 
+def changed_paths(event):
+    pr = event["pull_request"]
+    # Include both old and new names for renames. Failure must not certify
+    # an empty diff. Never interpolate PR-controlled strings into a shell.
+    paths = (
+        subprocess.check_output(
+            [
+                "git",
+                "diff",
+                "--no-renames",
+                "--name-only",
+                "-z",
+                pr["base"]["sha"] + "..." + pr["head"]["sha"],
+            ],
+        )
+        .decode()
+        .strip("\0")
+        .split("\0")
+    )
+    return [path for path in paths if path]
+
+
+def spectra_main(event_name, event):
+    """Fixed spectra are skipped only for PRs with no numerical inputs changed."""
+    paths = changed_paths(event) if event_name == "pull_request" else []
+    required = event_name != "pull_request" or requires_full(paths)
+    print(json.dumps(dict(spectra=required, changed=paths)))
+    with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+        stream.write(f"spectra={str(required).lower()}\n")
+
+
 def main():
     from pathlib import Path
 
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    if sys.argv[1:] == ["spectra"]:
+        return spectra_main(os.environ["GITHUB_EVENT_NAME"], event)
     paths = []
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
-        pr = event["pull_request"]
-        # Include both old and new names for renames. Failure must not certify
-        # an empty diff. Never interpolate PR-controlled strings into a shell.
-        paths = (
-            subprocess.check_output(
-                [
-                    "git",
-                    "diff",
-                    "--no-renames",
-                    "--name-only",
-                    "-z",
-                    pr["base"]["sha"] + "..." + pr["head"]["sha"],
-                ],
-            )
-            .decode()
-            .strip("\0")
-            .split("\0")
-        )
-        paths = [path for path in paths if path]
+        paths = changed_paths(event)
     required, requested = plan(os.environ["GITHUB_EVENT_NAME"], event, paths)
     from validate import COLD
 
