@@ -123,7 +123,11 @@ their cold starts. Without the label, numerical changes leave the cheap
 are never called successful qualification. A successful PR check explicitly
 reports its J1637 warm-regression coverage; it is not a full-suite cold-start
 qualification. Prose and ordinary unit-test edits
-do not require cold starts. Unknown paths and shared numerical/data/checker
+do not require cold starts. The two descriptive fields in the RE J0317-853
+provenance JSON are compared against their merge-base contents: edits to those
+strings also skip cold starts, while numerical fields, checksums, additions,
+deletions and malformed JSON do not. The CI selection planner itself is covered
+by ordinary policy tests. Unknown paths and shared numerical/data/checker
 changes conservatively require the full suite.
 
 Maintainers can also run **protected model canaries → Run workflow** for the
@@ -133,8 +137,11 @@ automatic expensive merge-push rerun. The cold matrix runs one star per job,
 after cheap preflight checks, and retains logs/results even on failure.
 
 Preflight runs the complete fast and fixed-spectrum tiers on separate workers,
-each with a 90-minute job budget and its own diagnostic artifact. Both must
-pass before any protected cold model or J1637 warm regression starts. A failed,
+with 90 minutes for fast checks and 150 minutes for spectra, each retaining its
+own diagnostic artifact. The spectral budget includes the retained historical
+hydrogen replays; the preceding suite already took about 80 minutes on a hosted
+runner. Both tiers must pass before any protected cold model or J1637 warm
+regression starts. A failed,
 cancelled or skipped tier cannot qualify the candidate. This avoids putting
 both suites under one sequential job limit; their case selections, test
 resolutions and numerical acceptance checks are unchanged.

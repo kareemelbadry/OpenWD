@@ -35,7 +35,9 @@ from cool_dz_release_control_legacy import (
 )
 
 from metal_population_control_legacy import previous_metal_opacity_populations
+from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
 from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
+from hydrogen_integration_control_support import COMBINED
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 
@@ -104,9 +106,10 @@ APPROVED_METAL_POPULATIONS = (
     Path(__file__).parent
     / "data/approved_regressions/metal_populations_2026_10_24/fixed"
 )
-APPROVED_HYDROGEN_DISSOLUTION = (
+
+APPROVED_MONTREAL_H_RADIUS = (
     Path(__file__).parent
-    / "data/approved_regressions/hydrogen_dissolution_2026_10_27/fixed"
+    / "data/approved_regressions/montreal_h_radius_2026_10_27/fixed"
 )
 
 
@@ -119,8 +122,12 @@ def _legacy_metal_only_microfield_moment(metal_state):
     return result
 DENSITY_EDGE_CASES = frozenset({"da-4000", "da-5000", "dab-9000"})
 CRII_CASES = frozenset({"dz-pg1225", "dz-j0738"})
-# Cases whose hydrogen pseudo-continuum changed with the full dissolved fraction.
-HYDROGEN_DISSOLUTION_CASES = frozenset(
+# Reviewed 2026-10-27 hydrogen neutral defaults (radius x0.5, Ali--Griem at
+# every temperature); see that directory's manifest.
+MONTREAL_H_RADIUS_CASES = frozenset(
+    {"da-3000", "da-4000", "da-5000", "da-20000", "dab-20000", "dz-pg1225", "dz-j0738"}
+)
+COMBINED_HYDROGEN_CASES = frozenset(
     {"da-20000", "dab-9000", "dab-20000", "dz-pg1225", "dz-j0738"}
 )
 pytestmark = pytest.mark.spectral
@@ -160,8 +167,11 @@ def test_checked_scattering_preserves_broad_spectral_controls(case, monkeypatch)
         # all prior controls and tolerances remain independently checked below.
         approved_directory = APPROVED_METAL_POPULATIONS
     previous_directory = approved_directory
-    if case in HYDROGEN_DISSOLUTION_CASES:
-        approved_directory = APPROVED_HYDROGEN_DISSOLUTION
+    if case in MONTREAL_H_RADIUS_CASES:
+        approved_directory = APPROVED_MONTREAL_H_RADIUS
+    main_directory = approved_directory
+    if case in COMBINED_HYDROGEN_CASES:
+        approved_directory = COMBINED / "fixed"
     with np.load(approved_directory / (case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])
         expected = approved["surface_flux"]
@@ -205,21 +215,45 @@ def test_checked_scattering_preserves_broad_spectral_controls(case, monkeypatch)
         )
         assert abs(change) < 1e-5
 
-    if case not in HYDROGEN_DISSOLUTION_CASES:
-        dissolution_scope = nullcontext()
-    else:
-        # The full hydrogen dissolved fraction is the newest change; recover the
-        # previous control first, then keep every older check under that scope.
-        dissolution_scope = previous_hydrogen_dissolution_cutoff()
-    with dissolution_scope:
-        if case in HYDROGEN_DISSOLUTION_CASES:
+    if case in COMBINED_HYDROGEN_CASES:
+        with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
+            main_previous = {
+                "DA": compute_da, "DB": compute_db, "DAB": compute_dab, "DZ": compute_dz,
+            }[kind](config, wave, initial_atmosphere=atmosphere, relax_atmosphere=False)
+        with np.load(main_directory / (case + ".npz")) as control:
+            main_expected = control["surface_flux"]
+        np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_expected,
+                                   rtol=2e-6, atol=1e-12 * np.max(main_expected))
+
+    # Every earlier control predates both 2026-10-27 hydrogen changes:
+    # reload the structure EOS under the previous defaults, recover the
+    # immediately preceding control, then keep each older check intact.
+    montreal = case in MONTREAL_H_RADIUS_CASES
+    with previous_hydrogen_dissolution_cutoff(), (previous_hydrogen_neutral_defaults() if montreal else nullcontext()):
+        if montreal:
+            atmosphere = load_atmosphere_checkpoint(
+                path,
+                config.effective_temperature,
+                config.logg,
+                {"DA": "hydrogen", "DB": "helium", "DAB": "mixed", "DZ": "helium"}[kind],
+                include_molecules=molecular,
+                include_negative_hydrogen=molecular,
+                log_hydrogen_to_helium=getattr(config, "log_hydrogen_to_helium", None),
+                trihydrogen_ion_partition_model="neale-tennyson-1995" if kind == "DA" else None,
+            )
             with pytest.warns(AtmosphereConvergenceWarning):
-                prior = {"DA": compute_da, "DB": compute_db, "DAB": compute_dab, "DZ": compute_dz}[kind](config, wave, initial_atmosphere=atmosphere,
-                                  relax_atmosphere=False)
+                previous_defaults = {
+                    "DA": compute_da,
+                    "DB": compute_db,
+                    "DAB": compute_dab,
+                    "DZ": compute_dz,
+                }[kind](config, wave, initial_atmosphere=atmosphere, relax_atmosphere=False)
             with np.load(previous_directory / (case + ".npz")) as control:
-                prior_flux = control["surface_flux"]
-            np.testing.assert_allclose(prior.spectrum.surface_flux_lambda, prior_flux,
-                                       rtol=2e-6, atol=1e-12 * np.max(prior_flux))
+                previous_defaults_flux = control["surface_flux"]
+            np.testing.assert_allclose(
+                previous_defaults.spectrum.surface_flux_lambda, previous_defaults_flux,
+                rtol=2e-6, atol=1e-12 * np.max(previous_defaults_flux),
+            )
         if case in CRII_CASES:
             with previous_metal_opacity_populations(), pytest.warns(AtmosphereConvergenceWarning):
                 release = compute_dz(config, wave, initial_atmosphere=atmosphere,

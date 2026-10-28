@@ -396,6 +396,31 @@ This differs from the native-local conversion above, which also changes U
 before rotating its local reference axis. Labels such as “right circular”
 are insufficient without specifying the viewing direction and convention.
 
+`wd_spectra.validation.magnetic_da.score_dah_circular_polarization` compares
+an observed V/I with a returned `StokesSpectrum`; `observed_convention`
+(`"optical"` or `"iau"`) is required. It returns `chi2_v` (unscaled model),
+`v_scale` (a negative value can indicate a sign error, a value away from one a
+level error) and `shift_angstrom` (misplaced features). The first two use the
+unshifted model. Alignment uses the actual vacuum wavelengths and inverse
+variance weights, fitting a scale and constant offset only to locate the
+features. Its default search is ±100 Å; set `max_shift_angstrom` to change
+that range. The observed pixels used for alignment must have model and
+instrumental-profile coverage at every trial shift. Flat profiles, ambiguous
+fits, insufficient overlap and optima at the search boundary give `NaN` for
+the shift; zero model V also gives `NaN` for `v_scale`. Widen the search when
+appropriate rather than interpreting a boundary optimum as a measured shift.
+No pass/fail threshold is imposed.
+
+The bundled
+`src/wd_spectra/data/validation/dah/re-j0317-853-vi.npz` is one ESO FORS2
+rotation phase of RE J0317-853 at the cyclotron maximum, stored in the optical
+convention (negative near 5700 Å); its JSON records the source, resolution and
+a level factor of 1.654 relative to the reduction. Both V/I and its reported
+sigma were divided by this factor to match older observations; part of the
+level discrepancy remains unexplained. This is a diagnostic comparison data
+set, and cannot independently validate the model's absolute V/I amplitude.
+These scores do not change the `polarimetry_validated=False` qualification.
+
 A controlled regression fixes the physical polarity using an isolated
 Gaussian Hβ normal triplet at 0.5 MG and a Milne–Eddington source increasing
 inward. A longitudinal field toward the observer gives positive optical V
@@ -455,6 +480,10 @@ The supplied map replaces the configuration's built-in uniform/dipole
 geometry controls, including `magnetic_field_megagauss` and `disk_field_bins`.
 Its maximum field selects the atomic regime, and its projected-area mean
 modulus controls convection and the optional mean-field magnetic structure.
+A cell with zero field (a null point of a multipole map) takes the unsplit
+zero-field lines and continuum, also when the map's maximum selects H2db.
+With the magnetic EOS enabled, its ionization and level populations are
+recomputed at zero field, including on a shared mean-field magnetic structure.
 Temperature, gravity, quality and the opacity/EOS choices still come from
 `DAHConfig`. `sky_position_angle_deg` additionally rotates the supplied
 azimuths; `disk_component_drift_angstrom` is rejected for custom maps.

@@ -32,6 +32,7 @@ policy = module("validation_policy")
         "tests/test_documentation.py",
         "tests/test_metals.py",
         "examples/generate_spectrum.ipynb",
+        "tools/validation_policy.py",
     ],
 )
 def test_non_numerical_changes_do_not_trigger_cold_models(path):
@@ -328,6 +329,7 @@ def test_protected_node_ids_still_collect_without_running_atmospheres():
 
 
 @pytest.mark.parametrize('name', [
+    'montreal_h_radius_control_legacy.py',
     'metal_population_control_legacy.py', 'cool_dz_release_control_legacy.py',
     'independent_kurucz_control_legacy.py', 'uv_atomic_control_legacy.py',
 ])

@@ -194,6 +194,37 @@ def test_hydrogen_full_dissolution_invalidates_previous_family_requests(
     assert not atmosphere_matches_model_request(checkpoint, requested)
 
 
+@pytest.mark.parametrize("family", ["DA", "DAB", "DAO", "DAH", "DZ", "DAZ"])
+@pytest.mark.parametrize("removed_revision", [
+    "hydrogen-full-dissolution-2026-10-27",
+    "montreal-h-radius-ali-griem-2026-10-27",
+])
+def test_combined_hydrogen_request_rejects_each_single_change_checkpoint(
+    family, removed_revision, monkeypatch, tmp_path
+):
+    from wd_spectra.models import common
+
+    data = ModelData(tmp_path)
+    config = {"effective_temperature": 10000.0, "logg": 8.0}
+    requested = model_request_fingerprint(family, config, data)
+    for token in ("hydrogen-full-dissolution-2026-10-27",
+                  "montreal-h-radius-ali-griem-2026-10-27"):
+        assert token in requested["physics_revision"]
+    with monkeypatch.context() as historical:
+        previous_revision = common._MODEL_FAMILY_PHYSICS_REVISIONS[family].replace(
+            ":" + removed_revision, ""
+        )
+        historical.setitem(common._MODEL_FAMILY_PHYSICS_REVISIONS, family, previous_revision)
+        previous = model_request_fingerprint(family, config, data)
+    assert previous["code_sha256"] == requested["code_sha256"]
+    assert previous["data_sha256"] == requested["data_sha256"]
+    checkpoint = atmosphere_with_model_request_fingerprint(
+        _atmosphere(_certified_metadata()), previous,
+    )
+    assert atmosphere_matches_model_request(checkpoint, previous)
+    assert not atmosphere_matches_model_request(checkpoint, requested)
+
+
 @pytest.mark.parametrize("family,previous_revision", [
     ("DAB", "hydrogen-stark-density-floor-2026-10-05"),
     ("DZ", "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12"),
