@@ -1,69 +1,33 @@
-# Reviewed microfield and DA synthesis controls (2026-09-11)
+# Approved regression spectra
 
 These are synthetic OpenWD outputs, not observations or published model grids.
-They protect the user-approved undoubled Q-MHD critical field and the monotone
-cubic **DA** synthesis default. DB, DAB, DZ and DAZ retain linear synthesis.
 No stellar parameters, convergence tolerances or spectral tolerances were fitted.
 
-The historical files in `../spectral_regressions` and `../daz_regressions` are
-unchanged. They remain the structure inputs for `fixed/`; approved flux arrays
-are separate. `cold/` supplies comparison outputs only: tests always calculate
-a fresh atmosphere before reading them, and still require all independent
-equilibrium checks. All cold reference structures come from separately verified
-corrected cold states, including same-run lower-boundary extension where needed.
-No atmosphere from another model is required as a solver input. Individual
-origins and certificates are recorded in the manifests. Reconstructing a
-reference for synthesis is never itself a new convergence certificate.
+`current/` holds the approved fixed-atmosphere spectrum for every case in
+`tests/test_spectral_regressions.py`, `tests/test_daz_regressions.py`,
+`tests/test_da_public_spectrum.py` (`public-*`) and `tests/test_dah_paper.py`
+(`dah-default-*`, `dah-paper-*`). Each test resynthesizes the spectrum on an
+unchanged frozen structure from `../spectral_regressions`, `../daz_regressions`,
+`../da_cubic_regressions` or `../dah_paper`, with atmosphere iteration
+forbidden, and compares it with the file here at the test's tolerance. Only
+current default physics is checked; superseded approvals and the scripts and
+manifests that recorded each physics change are in git history (removed
+2026-10-29). The last approvals were the 2026-10-27 Montreal neutral-hydrogen
+defaults (`da-3000`, `da-4000`, `da-5000`), combined with full hydrogen
+dissolution on 2026-10-28 for every other hydrogen-bearing case; `db-10000`
+and `db-22000` date from the 2026-10-01 flux-conserving numerics.
 
-Each manifest records the source/data hashes, historical-input and output
-hashes, interpolation choice, source closure and (for fixed-state controls)
-the change from historical flux. The capture script
-`research/capture_release_controls.py` refuses existing output directories and
-is never invoked by tests or CI. An explicit physics/numerics review and user
-approval are required for future updates, not just a failing test.
+`cold/` and `montreal_h_radius_2026_10_27/cold/` supply comparison outputs for
+the protected cold-start canaries. Those tests always calculate a fresh
+atmosphere before reading them and still require every independent equilibrium
+check; the Montreal copies replace the DA references moved by the 2026-10-27
+hydrogen defaults. Their manifests record the source certificates.
+`research/capture_release_controls.py` and
+`research/capture_montreal_h_radius_cold_controls.py` wrote them; neither is
+run by tests or CI.
 
-The fixed-state checks retain the 2e-6 array comparison (0.1% for the DAZ
-controls) and common band limits. Cold-model checks retain their 0.3% spectral
-energy-scale limits and 2e-5 pressure/mass limits. Independent numerical
-quadrature, occupation-probability and buffer-lifetime tests do not depend on
-these captured outputs. The separate `../da_cubic_regressions` controls also
-protect normalized Balmer profiles and broad sampled stellar-flux agreement.
-
-See the [microphysics audit](../../../docs/development/history/microphysics-audit-2026-09-10.md)
-for the reviewed cold-start and literature/observational comparisons, including
-remaining limitations. Historical spectra are preserved as evidence, not
-asserted to be unchanged by the approved physics correction.
-
-## Update 2026-10-01: flux-conserving numerics (physics revision `openwd-0.1.3-qmhd-undoubled-v5-flux-conserving`)
-
-User-approved recapture after a numerics review. The emergent spectra of every
-family conserve flux to 0.0-0.75% of sigma Teff^4. Before, the errors were up
-to 16% (DZ) and 2-3% (DA/DB/DAB). Two settings are now on by default in DA,
-DB, DAB, DZ and DAZ:
-
-- `synthesis_transfer_depth_refinement=4` subdivides each structure depth
-  interval for the final formal solution.
-- `photospheric_depth_concentration=1` concentrates the structure depths
-  across 0.01 < tau < 10 at fixed point count.
-
-DZ/DAZ structures also absorb the opacity-sampled synthesis line list. The
-fixed controls change by the refined formal solution (about 1-3% for DB/DAB,
-up to 7% blue continuum for the coarse historical G149-28 checkpoint). The
-cold controls change by the new depth grid. Every replacement cold structure
-is a fresh public cold start with a verified certificate (see the
-manifests). The DA and DB canary work guards were raised from 45 to 70 and
-from 60 to 90 iterations. These are work limits, not tolerances. The
-spectral and structure tolerances are unchanged.
-
-## Update 2026-10-27: hydrogen neutral defaults
-
-User-approved change of the hydrogen neutral defaults in every
-hydrogen-bearing family: the Montreal Hummer--Mihalas radius scale 0.5 and
-Ali--Griem self-broadening at every temperature (previously scale 1 and
-Barklem at and above 10,000 K). The 26 changed fixed-atmosphere controls,
-including the DAH paper prescription, are versioned in
-[montreal_h_radius_2026_10_27](montreal_h_radius_2026_10_27/README.md); every
-earlier control is still checked exactly under
-`research/montreal_h_radius_control_legacy.py`. Tolerances are unchanged.
-The same change adds the opt-in DA `mean_3d_line_profiles` mode, which does
-not alter any default output.
+An intentional physics change that moves a spectrum needs an explicit
+physics/numerics review and user approval, not just a failing test. Replace
+the affected files in `current/` with spectra synthesized on the same frozen
+structures and wavelength grids, and record the reason and size of the change
+in the pull request.

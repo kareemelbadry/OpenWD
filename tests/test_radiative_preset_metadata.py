@@ -30,6 +30,8 @@ def test_radiative_preset_returns_result_after_synthesis(monkeypatch, family, al
         return spectrum
 
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (None, None))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
     monkeypatch.setattr(
         stellar, "_allard_lyman_profiles_for_effective_temperature",
         lambda *args, **kwargs: None,

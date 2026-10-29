@@ -40,7 +40,7 @@ Initial spectrum changes for DA 4000 K, DA 5000 K, and DAB 9000 K against the pr
 ### Approved reference update — 2026-10-05
 
 The user approved separate, versioned corrected references for the three
-density-edge cases. Their [reference record](../../tests/data/approved_regressions/stark_density_floor_2026_10_05/README.md)
+density-edge cases. Their reference record (removed 2026-10-29; see git history)
 documents the physical correction and provenance. Previous fixed controls,
 historical atmospheres, cold controls, and every tolerance are preserved.
 The updated local checks passed: 1575 ordinary component tests (1 skipped,

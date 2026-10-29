@@ -94,9 +94,8 @@ make these source changes pass. Earlier spectra retain their original versions.
 
 ## Comparison with the released PR #38 code
 
-These results were captured on October 24, 2026. The
-[capture manifest](../../tests/data/approved_regressions/metal_populations_2026_10_24/manifest.json)
-records reference commit `9d3d302f67b91aa621184dd0c28837525f154129` and
+These results were captured on October 24, 2026. The capture manifest
+(removed 2026-10-29; see git history) records reference commit `9d3d302f67b91aa621184dd0c28837525f154129` and
 per-file source hashes for the capture, as well as the input and output hashes.
 
 With the same saved atmospheres, configurations and wavelength samples:
@@ -109,10 +108,9 @@ With the same saved atmospheres, configurations and wavelength samples:
 Component reversions isolate nearly all of each difference to TOPbase lower
 populations. Restoring all previous population expressions recovers every
 stored PR #38 flux sample exactly on the capture runtime. The separately
-versioned [controls](../../tests/data/approved_regressions/metal_populations_2026_10_24/README.md)
-retain all structures and tolerances and include hashes, runtime and component
-attribution. Historical spectra continue to run under their original population
-convention; the previous references remain unchanged.
+versioned controls (since superseded; see git history) retained all
+structures and tolerances and recorded hashes, runtime and component
+attribution.
 
 All four J1637 fixed spectra available at that revision passed unchanged.
 Its public default uses ideal metal partitions; the new nonideal TOPbase

@@ -111,8 +111,8 @@ def commands(tier, cases=()):
             ]
         elif tier == "spectra" and case.startswith("dah-"):
             tasks[case] = pytest + [
-                f"tests/test_dah_paper.py::test_paper_prescription_reproduces_frozen_paper_spectrum[{case[4:]}]",
-                f"tests/test_dah_paper.py::test_public_default_reproduces_approved_rwa_spectrum[{case[4:]}]",
+                f"tests/test_dah_paper.py::test_paper_prescription_spectrum_has_not_changed[{case[4:]}]",
+                f"tests/test_dah_paper.py::test_public_default_spectrum_has_not_changed[{case[4:]}]",
             ]
         elif tier == "spectra" and case == "dq-j1235":
             tasks[case] = pytest + [
@@ -194,13 +194,6 @@ def numerical_identity(root=ROOT):
         "research/validate_public_cold_start.py",
         "research/validate_daz_cold_start.py",
         "research/check_saved_bolometric_spectrum.py",
-        "research/metal_population_control_legacy.py",
-        "research/montreal_h_radius_control_legacy.py",
-        "research/hydrogen_dissolution_control_legacy.py",
-        "research/hydrogen_integration_control_support.py",
-        "research/cool_dz_release_control_legacy.py",
-        "research/independent_kurucz_control_legacy.py",
-        "research/uv_atomic_control_legacy.py",
         "tests/test_protected_model_canaries.py",
         "tests/test_spectral_regressions.py",
         "tests/test_daz_regressions.py",

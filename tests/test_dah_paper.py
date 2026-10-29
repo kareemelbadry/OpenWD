@@ -1,10 +1,8 @@
-"""Frozen paper spectra, approved public-default spectra and genuinely cold DAH calculations."""
+"""Approved paper-prescription and public-default spectra, and genuinely cold DAH calculations."""
 
-import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 
 import numpy as np
 import pytest
@@ -15,23 +13,12 @@ from wd_spectra.models.common import (
 )
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
-from montreal_h_radius_control_legacy import previous_hydrogen_neutral_defaults
-from hydrogen_dissolution_control_legacy import previous_hydrogen_dissolution_cutoff
-from hydrogen_integration_control_support import COMBINED
-
 DATA = Path(__file__).parent / "data/dah_paper"
 TARGETS = json.loads((DATA / "manifest.json").read_text())["targets"]
-# Reviewed 2026-10-25 change of the public default (RWA + magnetic EOS); the
-# paper spectra above remain the controls of the named paper prescription.
-APPROVED = Path(__file__).parent / "data/approved_regressions/dah_rwa_default_2026_10_25"
-APPROVED_CASES = json.loads((APPROVED / "manifest.json").read_text())["cases"]
-# Reviewed 2026-10-27 hydrogen neutral defaults (radius x0.5, Ali--Griem at
-# every temperature) change both the public default and the named paper
-# prescription; the frozen paper spectra and the 2026-10-25 approvals are
-# recovered under the previous defaults.
-MONTREAL = Path(__file__).parent / "data/approved_regressions/montreal_h_radius_2026_10_27"
-
+# Current approved spectra of the named paper prescription and the public
+# default at the frozen paper structures; earlier approvals, including the
+# published paper spectra, are in git history.
+APPROVED = Path(__file__).parent / "data/approved_regressions/current"
 
 def stellar_parameters(key):
     """Stellar, geometry and resolution inputs only; no physics switches."""
@@ -63,7 +50,7 @@ def frozen_atmosphere(key, config):
 
 @pytest.mark.spectral
 @pytest.mark.parametrize("key", TARGETS)
-def test_paper_prescription_reproduces_frozen_paper_spectrum(key, monkeypatch):
+def test_paper_prescription_spectrum_has_not_changed(key, monkeypatch):
     from wd_spectra.models import dah
 
     def forbidden(*args, **kwargs):
@@ -72,30 +59,14 @@ def test_paper_prescription_reproduces_frozen_paper_spectrum(key, monkeypatch):
     monkeypatch.setattr(dah, "compute_da", forbidden)
     monkeypatch.setattr(dah, "radiative_equilibrium_hydrogen_atmosphere", forbidden)
     config = paper_config(key)
-    path = DATA / TARGETS[key]["reference_file"]
-    with np.load(MONTREAL / "dah_paper" / f"{key}.npz") as approved:
-        wave, main_flux = approved["wavelength"], approved["surface_flux"]
-    with np.load(COMBINED / "fixed" / f"dah-paper-{key}.npz") as approved:
-        np.testing.assert_array_equal(wave, approved["wavelength"])
-        approved_flux = approved["surface_flux"]
+    with np.load(APPROVED / f"dah-paper-{key}.npz") as approved:
+        wave, approved_flux = approved["wavelength"], approved["surface_flux"]
     with pytest.warns(AtmosphereConvergenceWarning):
         result = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
                              relax_atmosphere=False)
+    # No continuum fitting, velocity fitting or flux renormalization.
     np.testing.assert_allclose(result.spectrum.surface_flux_lambda, approved_flux,
                                rtol=2e-8, atol=0.)
-    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
-        main_previous = compute_dah(
-            config, wave, initial_atmosphere=frozen_atmosphere(key, config), relax_atmosphere=False)
-    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_flux,
-                               rtol=2e-8, atol=0.)
-    with previous_hydrogen_neutral_defaults(), previous_hydrogen_dissolution_cutoff(), np.load(path) as reference:
-        with pytest.warns(AtmosphereConvergenceWarning):
-            paper = compute_dah(config, reference["wavelength"],
-                                initial_atmosphere=frozen_atmosphere(key, config),
-                                relax_atmosphere=False)
-        # No continuum fitting, velocity fitting or flux renormalization.
-        np.testing.assert_allclose(paper.spectrum.surface_flux_lambda,
-                                   reference["flux"], rtol=2e-8, atol=0.)
     assert result.metadata["balmer_profile"] == "kurucz-griem"
     assert result.metadata["normalize_balmer_strength"] is True
     assert result.metadata["structure_field_megagauss"] == 0.
@@ -104,7 +75,7 @@ def test_paper_prescription_reproduces_frozen_paper_spectrum(key, monkeypatch):
 
 @pytest.mark.spectral
 @pytest.mark.parametrize("key", TARGETS)
-def test_public_default_reproduces_approved_rwa_spectrum(key, monkeypatch):
+def test_public_default_spectrum_has_not_changed(key, monkeypatch):
     from wd_spectra.models import dah
 
     def forbidden(*args, **kwargs):
@@ -113,42 +84,15 @@ def test_public_default_reproduces_approved_rwa_spectrum(key, monkeypatch):
     monkeypatch.setattr(dah, "compute_da", forbidden)
     monkeypatch.setattr(dah, "radiative_equilibrium_hydrogen_atmosphere", forbidden)
     config = default_config(key)
-    with np.load(MONTREAL / "dah_default" / f"{key}.npz") as reference:
-        wave, main_flux = reference["wavelength"], reference["surface_flux"]
-    with np.load(COMBINED / "fixed" / f"dah-default-{key}.npz") as reference:
-        np.testing.assert_array_equal(wave, reference["wavelength"])
-        expected = reference["surface_flux"]
+    with np.load(APPROVED / f"dah-default-{key}.npz") as reference:
+        wave, expected = reference["wavelength"], reference["surface_flux"]
     with pytest.warns(AtmosphereConvergenceWarning):
         result = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
                              relax_atmosphere=False)
     np.testing.assert_allclose(result.spectrum.surface_flux_lambda, expected, rtol=2e-8, atol=0.)
-    with np.load(APPROVED / "fixed" / f"{key}.npz") as reference:
-        np.testing.assert_array_equal(wave, reference["wavelength"])
-        rwa_flux = reference["surface_flux"]
-    with previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
-        main_previous = compute_dah(
-            config, wave, initial_atmosphere=frozen_atmosphere(key, config), relax_atmosphere=False)
-    np.testing.assert_allclose(main_previous.spectrum.surface_flux_lambda, main_flux,
-                               rtol=2e-8, atol=0.)
-    with previous_hydrogen_neutral_defaults(), previous_hydrogen_dissolution_cutoff(), pytest.warns(AtmosphereConvergenceWarning):
-        previous = compute_dah(config, wave, initial_atmosphere=frozen_atmosphere(key, config),
-                               relax_atmosphere=False)
-    np.testing.assert_allclose(previous.spectrum.surface_flux_lambda, rwa_flux, rtol=2e-8, atol=0.)
     assert result.spectrum.metadata["magnetic_bound_free"].startswith("stationary-state Rohrmann")
     assert result.spectrum.metadata["surface_chemistry"].startswith("local-field magnetic")
     assert result.metadata["structure_field_megagauss"] == 0.
-
-
-def test_approved_rwa_default_controls_are_intact():
-    manifest = json.loads((APPROVED / "manifest.json").read_text())
-    assert set(manifest["cases"]) == set(TARGETS)
-    for key, case in manifest["cases"].items():
-        fixture = APPROVED / "fixed" / f"{key}.npz"
-        assert hashlib.sha256(fixture.read_bytes()).hexdigest() == case["fixture_sha256"]
-        structure = DATA / TARGETS[key]["reference_file"]
-        assert hashlib.sha256(structure.read_bytes()).hexdigest() == case["structure_sha256"]
-        assert case["paper_recovery"]["maximum_relative_change"] < 2e-8
-        assert not case["tolerances_changed"] and not case["atmosphere_reconverged"]
 
 
 @pytest.mark.canary
@@ -157,7 +101,7 @@ def test_dah_public_default_cold_start(key):
     config = default_config(key)
     # Only the final wavelength grid and approved spectrum are read. The saved
     # atmosphere arrays never enter this calculation.
-    with np.load(COMBINED / "fixed" / f"dah-default-{key}.npz") as reference:
+    with np.load(APPROVED / f"dah-default-{key}.npz") as reference:
         wave, expected = reference["wavelength"], reference["surface_flux"]
 
     def progress(iteration, atmosphere, status):

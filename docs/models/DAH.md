@@ -223,10 +223,11 @@ and the Hardy et al. comparison data. J1007 uses SDSS plate 5328, MJD 55982,
 fiber 66; its spectrum is not velocity shifted or dereddened. J1034 uses
 the previously photometrically recalibrated observation.
 
-The model spectra in the figure are the approved default controls in
-[tests/data/approved_regressions/dah_rwa_default_2026_10_25](../../tests/data/approved_regressions/dah_rwa_default_2026_10_25/README.md);
-the earlier paper-prescription spectra remain immutable controls in
-[tests/data/dah_paper](../../tests/data/dah_paper/README.md). Fixed-state tests
+The model spectra in the figure were the approved default controls of
+2026-10-25 (since superseded; see git history). The current approved
+default and paper-prescription spectra on the frozen
+[tests/data/dah_paper](../../tests/data/dah_paper/README.md) atmospheres are in
+[tests/data/approved_regressions/current](../../tests/data/approved_regressions/README.md). Fixed-state tests
 exercise both with atmosphere iteration forbidden. Separate cold-start canaries
 for J1007 and J1254 create new structures and require all five equilibrium
 gates as well as absolute-flux agreement with the approved default spectra.
@@ -274,9 +275,9 @@ paper = paper_dah_config(
 )
 ```
 
-The frozen paper spectra in `tests/data/dah_paper` test this preset; the
-approved default spectra on the same atmospheres are in
-`tests/data/approved_regressions/dah_rwa_default_2026_10_25`.
+The approved spectra of this preset and of the public default, on the frozen
+`tests/data/dah_paper` atmospheres, are in
+`tests/data/approved_regressions/current`.
 
 ## Other physics options
 

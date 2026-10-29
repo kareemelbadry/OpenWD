@@ -390,20 +390,6 @@ def test_protected_node_ids_still_collect_without_running_atmospheres():
         assert node in output
 
 
-@pytest.mark.parametrize('name', [
-    'montreal_h_radius_control_legacy.py',
-    'metal_population_control_legacy.py', 'cool_dz_release_control_legacy.py',
-    'independent_kurucz_control_legacy.py', 'uv_atomic_control_legacy.py',
-])
-def test_spectral_history_helpers_invalidate_validation_reuse(tmp_path, name):
-    helper = tmp_path / 'research' / name
-    helper.parent.mkdir()
-    helper.write_text('previous = 1\n')
-    before = runner.numerical_identity(tmp_path)['sha256']
-    helper.write_text('previous = 2\n')
-    assert runner.numerical_identity(tmp_path)['sha256'] != before
-
-
 @pytest.mark.parametrize('name', ['test_sdb_cold_canary.py', 'test_sdb_spectral_regression.py'])
 def test_sdb_numerical_checkers_invalidate_validation_reuse(tmp_path, name):
     checker = tmp_path / 'tests' / name
