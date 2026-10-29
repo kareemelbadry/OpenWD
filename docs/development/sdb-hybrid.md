@@ -1,141 +1,93 @@
 # Hot-subdwarf (sdB) H/He models
 
-The sdB module uses command-line drivers to calculate an LTE H/He structure
-and NLTE populations and line formation on that structure. The
-[sdB model guide](../models/sdB.md) includes the paper figure and commands for
-a fresh calculation. Metals are not included in the default structure.
-Hot sdOs (above about 40 kK) are out of scope for now.
+[Contributor guide](README.md) · [sdB model guide](../models/sdB.md)
+
+The [sdB model guide](../models/sdB.md) tells users how to compute a model
+and shows the validation figure. This note describes the solver options and
+the research drivers for developers.
 
 ## Method
 
-The sdB models follow the hybrid LTE/NLTE recipe used for B-type stars and
-sdBs (Przybilla et al. 2006; Irrgang et al. 2018): an LTE line-blanketed
-structure, then NLTE populations and line formation on that fixed structure.
+The sdB models use the hybrid LTE/NLTE method for B stars and sdBs
+(Przybilla et al. 2006; Irrgang et al. 2018):
 
-1. **LTE H/He structure.** `research/sdb_lte_hhe.py` runs the public DAB preset
-   (`compute_dab`) at fixed Teff, log g and He/H. The preset has no gravity
-   limits. Its line physics (Tremblay & Bergeron 2009 Balmer profiles, the
-   Tremblay 2026 He I tables, and the He II tables) is the same as in the NLTE step.
-2. **NLTE H/He populations on the fixed structure.**
-   `research/sdb_hybrid_nlte.py` rebuilds the LTE (T, P) structure in the
-   restricted hot H/He atom (`HotNLTEModel`). It solves the fixed-temperature
-   statistical equilibrium with the formal-solution radiation field and
-   synthesizes the spectrum. It also writes the same synthesis with J = B
-   populations (`spectrum-lte.npz`), which isolates the NLTE effect.
+1. **LTE H/He structure.** A public DAB cold start (`compute_dab`, LTE, no
+   metals) at the requested Teff, log g and He/H.
+2. **NLTE H/He populations.** The restricted hot H/He atom (`HotNLTEModel`)
+   solves the statistical equilibrium on that fixed temperature and
+   gas-pressure structure, with the formal-solution radiation field.
+3. **Spectrum.** The emergent spectrum uses the NLTE populations.
 
-The self-consistent DO/DAO temperature + NLTE solver
-(`solve_hot_nlte_atmosphere`) is not used. At sdB densities its full-NLTE
-stage is nearly singular in the outer layers (trace He III and weakly
-determined optically thin temperatures) and does not converge.
+`SdBConfig` and `compute_sdb` (in `src/wd_spectra/models/sdb.py`) implement
+this method. `run_model` accepts `SdBConfig`. The research drivers
+`research/sdb_lte_hhe.py` and `research/sdb_hybrid_nlte.py` contain the same
+recipe. `sdb_hybrid_nlte.py` also writes the same synthesis with LTE
+populations (`spectrum-lte.npz`) to isolate the NLTE effect.
 
-## Opt-in solver options added for sdBs (defaults unchanged)
+The self-consistent DO/DAO solver (`solve_hot_nlte_atmosphere`) is not used.
+At sdB densities, its full-NLTE stage is nearly singular in the outer layers
+and does not converge.
+
+## Solver options for sdBs
+
+`compute_sdb` sets these options. Their defaults elsewhere do not change.
 
 - `HotNLTEModel.solve_populations(..., accelerated_lambda=True)`: multilevel
-  accelerated lambda iteration (`_hot_mali.py`). Line rates are preconditioned
-  with the profile-weighted diagonal Lambda* times the line's share of the
-  extinction, in the Rybicki & Hummer (1991) form. The fixed point is unchanged.
-  Without it, the fixed-point iteration falsely converges through the
-  optically thick H/He transitions: in a 30 kK test atom it was 56% from the
-  solution after 3000 iterations, while its per-iteration change was still
-  small. With MALI the grid below converges in 45-308 iterations.
-- `HotNLTEModel.helium_conservation_row="dominant"` (solver argument
-  `conservation_row`): particle conservation replaces the equation of the
-  most populous helium state instead of the He III equation. In cool sdB
-  surface layers (He III/He ~ 1e-18), replacing the He III equation either
-  makes the system singular to roundoff or silently returns wrong
-  populations. At J = B, a gray 16 kK atmosphere gave departures off by up
-  to 20%. The sdB driver uses `dominant`.
-- `HotNLTEModel.helium_i_atom`: the coupled helium solver takes a He I
-  model atom (`helium_i_atom.py`). The default is the TLUSTY 14-term atom,
-  with bit-identical results (`research/helium_atom_refactor_harness.py`, 140
-  arrays). `read_tlusty_helium_i_atom` loads TLUSTY's 24-term `he1.dat`, which
-  resolves every LS term through n = 4. Its first 19 terms use the COLLHE
-  collision fits term by term and the l-resolved OP photoionization fits.
-  For sdB optical He I lines it changes core depths by at most 0.3% at 30 kK
-  and by 0.5-1.5% in a few lines at 23 kK, so the 14-term atom remains the
-  sdB default.
+  accelerated lambda iteration (`_hot_mali.py`) in the Rybicki & Hummer
+  (1991) form. It changes the path, not the solution. Without it, the
+  fixed-point iteration through the optically thick H/He lines seems to
+  converge but stays far from the solution.
+- `HotNLTEModel.helium_conservation_row="dominant"` (default `"last"`):
+  particle conservation replaces the equation of the most populous helium
+  state, not the He III equation. In cool sdB surface layers
+  (He III/He ~ 10⁻¹⁸), the He III equation makes the system singular to
+  roundoff.
+- `SdBConfig.helium_i_atom`: `"14"` (default) is the TLUSTY 14-term He I atom.
+  `"24"` loads the TLUSTY 24-term atom with `read_tlusty_helium_i_atom`. For
+  sdB optical He I lines, the 24-term atom changes the core depths by at most
+  1.5%.
 
-Also fixed in the shared coupled helium solver: He III is no longer recovered
-by subtraction from the total. That subtraction lost all precision for a trace
-ion. Particle conservation is now enforced by a common, conservation-checked
-rescaling.
+The coupled helium solver enforces particle conservation by a common
+rescaling. It does not compute He III as the remainder of the total.
 
-## Validation
+## Trace metals (research driver)
 
-- **HD 4539** (Schneider et al. 2018: 23,200 K, log g 5.20, log He/H -2.27;
-  parameters fixed, not fitted), compared with co-added ESO X-shooter UVB/VIS
-  spectra (`research/sdb_coadd_xshooter.py`,
-  `research/sdb_compare_hd4539.py`). LTE H/He already fits the Balmer lines
-  and most He I lines. NLTE halves the He I 5876/6678 core residuals (rms
-  0.035 -> 0.018), the known NLTE strengthening of these lines.
-- **Robustness grid** (`research/sdb_grid_check.sh`,
-  `research/sdb_grid_report.py`, `research/sdb_grid_plot_spectra.py`):
-  12 points at 20-40 kK, log g 5.0-6.2 and log He/H -4 to -1, all at 40 depths.
-  - Every LTE structure and NLTE population solve converged; each model took
-    9-21 min on one core.
-  - One unpreconditioned update changes the converged populations by
-    <= 9e-5 (`research/sdb_fixed_point_check.py`).
-  - The trends are physical: He I peaks near 25 kK; He II 4686 appears at
-    30 kK and reaches about 20% depth at 40 kK; Balmer wings broaden with
-    gravity; the He-poor and He-rich spectra behave as expected.
-  - NLTE effects grow with Teff: He I 5876 is 20-30% deeper than LTE at
-    20-30 kK and about 2x deeper at 40 kK. Balmer cores are substantially
-    deeper than LTE at 35-40 kK.
-
-## Metals (trace NLTE on the fixed hybrid host)
-
-`research/sdb_trace_metals.py` adds metals to a finished hybrid model with the
-hot-DA/DAO fixed-host solver (`solve_hot_trace_metals`). The H/He structure and
+`research/sdb_trace_metals.py` adds metals to a finished hybrid model with
+the fixed-host solver `solve_hot_trace_metals` (see
+[hot DA/DAO trace metals](hot-daz-trace-metals.md)). The H/He structure and
 populations stay fixed.
 
-- **NLTE elements: C, N, O, Si, S.** Stout atoms sized to reach the standard
-  sdB optical lines. C II uses 200 levels for the 5133-45 quartets and Si III
-  uses 62 for 4813-29. Collisions come from bundled CHIANTI data for C II-IV and
-  O III, and from the built-in approximation elsewhere. MALI preconditioning
-  is on.
-- **LTE line opacity in the fixed background: Fe, Mg, Al**
-  (`--lte-abundance`). Compact Fe III/IV atoms contain only forbidden 3d^n
-  lines. The optical Fe III 4s-4p lines need a 410-level Fe III atom
-  (60 s per iteration), so iron follows the hybrid (ADS) convention of LTE
-  metals.
-- **`mali_overlap_velocity` / `mali_overlap_mode`** (new opt-in options of
-  `solve_hot_trace_metals`, default off). For each pair of lines of different
-  elements within this velocity, a line keeps its MALI operator only at
-  depths where its share of the line-centre extinction exceeds the other's by
-  10x (`mode="subordinate"`, fixed at the first preconditioned iteration);
-  comparable lines both lose it. S III 702.78/702.82 on O III 702.84 made the
-  30 kK, log g 5.3 model flip-flop; withholding the operator from every
-  overlapping line (`mode="exclude"`) fixed that but left saturated lines such
-  as N III 685.8 (next to a weak Si line) on the slow ordinary iteration, so
-  LS IV-14 116 stalled at a defect of 1.2e-3. The driver uses 15 km/s and
-  `subordinate`: both cases converge (LS IV-14 116 in 41 iterations). The
-  fixed point is unchanged.
+- NLTE elements: C, N, O, Si and S. The Stout atoms reach the standard sdB
+  optical lines. C II and O III use bundled CHIANTI collision data.
+- LTE line opacity in the fixed background: Fe, Mg and Al (`--lte-abundance`).
+  The optical Fe III 4s–4p lines need a 410-level atom, which is too slow
+  for NLTE.
+- The driver uses `mali_overlap_velocity=15` (km/s) and
+  `mali_overlap_mode="subordinate"`. Without these settings, overlapping lines
+  of different elements (S III 702.78/702.82 Å on O III 702.84 Å) make the
+  iteration oscillate.
 
-Validation, at fixed published parameters with no abundances fitted:
+At fixed published parameters, without abundance fits, the metal lines of
+HD 4539 (C II) and Feige 38 (N II, O II, Si III 4813–4829 Å, Fe III 4164 Å)
+match the observed depths within 0.01–0.02. Si III 4552–4575 Å, S III and
+Si IV are too weak in Feige 38.
 
-- **HD 4539** (Geier 2013 C): the C II 3920/4267/6578/6583 depths match to
-  within 0.02.
-- **Feige 38** (Schneider 2018 parameters, Geier 2013 abundances): N II, O II,
-  Si III 4813-29 and Fe III 4164 lines match to within 0.01-0.02 in depth.
-  Si III 4552-75 and S III reach about 75% and Si IV about 55% of the observed
-  depth. C III is weak there, partly blended and partly in a pixel gap.
-- **Typical-metal grid** (`research/sdb_metal_grid.sh`,
-  `research/sdb_grid_plot_spectra.py --models metals`). The abundances are
-  the Geier (2013) sample medians. All 12 hosts converge from LTE metal
-  populations in 35-73 iterations (6-10 min).
-- **Blanketing check** (`research/sdb_blanketing_check.py`, LTE DA vs DAZ). At
-  Feige 38, metal opacity heats the structure by 1.6-2.4% at fixed column
-  mass. Rerunning on that structure changes metal-line depths by <= 0.01,
-  except Si IV, which strengthens toward the observed value. Blanketing
-  therefore stays opt-in.
+## Research scripts
 
-## Limitations and next steps
+| Script | Purpose |
+| --- | --- |
+| `research/sdb_grid_check.sh`, `sdb_grid_report.py`, `sdb_grid_plot_spectra.py` | 12-point H/He grid at 20–40 kK, log g 5.0–6.2, log He/H -4 to -1 |
+| `research/sdb_metal_grid.sh` | The same grid with typical metal abundances |
+| `research/sdb_fixed_point_check.py` | One unpreconditioned update on a converged model |
+| `research/sdb_blanketing_check.py` | Effect of metal opacity on the structure (LTE DA against DAZ) |
+| `research/sdb_coadd_xshooter.py`, `sdb_compare_hd4539.py` | HD 4539 X-shooter comparison |
 
-- Metals are not in the default structure. A blanketed structure (LTE DAZ
-  T(m) with the H/He EOS) is a manual, helium-poor-only option, not yet
-  checked at the grid corners.
+## Limitations
+
+- The structure contains no metals. At Feige 38, metal opacity heats the
+  structure by 1.6–2.4% at fixed column mass. The metal-line depths change by
+  at most 0.01, except Si IV.
 - In both He I atoms, n = 5 is a superlevel coupled to n = 4 by
-  Van Regemorter-type closures.
-- Radiation pressure is not included in the hydrostatics. It is negligible
-  for typical sdBs but is needed for hot sdOs.
-- Developed at 40 depths. Production-depth (80) timing is still to be measured.
+  Van Regemorter-type rates.
+- The hydrostatic equation does not include radiation pressure. This is
+  necessary for hot sdOs (above about 40 kK), which are out of scope.

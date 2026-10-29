@@ -44,6 +44,10 @@ OBSERVATION = "0.30"
 OPENWD = "#d95f02"
 ISM_SHADE = "#9ecae1"
 ISM_HALF_WIDTH_KMS = 20.0
+# Font sizes (matplotlib points) for 8.5/7.5/6.5 pt on the page: the 8.0 in figure
+# is printed at 0.95\textwidth = 6.77 in.
+PRINT_SCALE = 8.0 / 6.77
+AXIS_LABEL_SIZE, TICK_SIZE, SECONDARY_SIZE = 8.5 * PRINT_SCALE, 7.5 * PRINT_SCALE, 6.5 * PRINT_SCALE
 DATA = {
     "FUSE": ("hlsp_wd-linelist_fuse_spec_g191-b2b_fuv_v1_coadd-spec.fits",
              "hlsp_wd-linelist_fuse_spec_g191-b2b_fuv_v1_linelist.txt", 20000.0),
@@ -147,24 +151,24 @@ def make_figure(model_directory, output_path, panels=PANELS):
             for center in centers:
                 axis.plot((center, center), (1.08, 1.15), color="0.25", lw=0.6)
             offset = {"left": -0.04, "right": 0.04, "center": 0.0}[alignment]
-            axis.text(position + offset, 1.17, text, ha=alignment, va="bottom", fontsize=7.5, color="0.15")
+            axis.text(position + offset, 1.17, text, ha=alignment, va="bottom", fontsize=SECONDARY_SIZE, color="0.15")
         axis.set_xlim(lower, upper)
         axis.set_ylim(0.15, 1.32)
         axis.set_yticks((0.4, 0.7, 1.0))
         axis.tick_params(axis="both", which="both", direction="in", top=True, right=True,
-                         labelsize=9, length=4)
+                         labelsize=TICK_SIZE, length=4)
         axis.text(0.012, 0.06, instrument, transform=axis.transAxes, ha="left", va="bottom",
-                  fontsize=8.5, color="0.25", zorder=5)
-    axes[0].set_title(r"G191$-$B2B   $T_{\rm eff} = 52500\,$K, $\log g = 7.53$, He/H $= 10^{-5}$;"
-                      " C, N, O, Al, Si, P, S, Fe, Ni (Preval et al. 2013)", fontsize=9.5, loc="left")
+                  fontsize=SECONDARY_SIZE, color="0.25", zorder=5)
+    axes[0].set_title(r"G191$-$B2B   $T_{\rm eff} = 52500\,$K, $\log g = 7.53$, $\mathrm{He/H} = 10^{-5}$;"
+                      " C, N, O, Al, Si, P, S, Fe, Ni", fontsize=TICK_SIZE, loc="left")
     axes[-1].legend(
-        handles=(Line2D([], [], color=OBSERVATION, lw=0.8, label="Observation"),
+        handles=(Line2D([], [], color=OBSERVATION, lw=0.8, label="Observed"),
                  Line2D([], [], color=OPENWD, lw=0.8, label="OpenWD"),
                  Patch(facecolor=ISM_SHADE, alpha=0.45, lw=0, label="ISM absorption")),
-        loc="lower right", frameon=False, fontsize=8.5, ncol=3, handlelength=2.0, columnspacing=1.2,
+        loc="lower right", frameon=False, fontsize=TICK_SIZE, ncol=3, handlelength=2.0, columnspacing=1.2,
     )
-    axes[-1].set_xlabel(r"vacuum rest wavelength [$\mathrm{\AA}$]", fontsize=11)
-    figure.supylabel("normalized flux", fontsize=11, x=0.015)
+    axes[-1].set_xlabel(r"Wavelength ($\mathrm{\AA}$)", fontsize=AXIS_LABEL_SIZE)
+    figure.supylabel("Normalized flux", fontsize=AXIS_LABEL_SIZE, x=0.015)
     figure.subplots_adjust(left=0.105, right=0.965, bottom=0.07, top=0.955)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path, dpi=300)

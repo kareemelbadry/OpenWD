@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -166,3 +167,26 @@ def test_actual_qualification_gate_accepts_only_a_non_numerical_unrequested_plan
         assert "No numerical inputs changed" in result.stdout
     else:
         assert "Add the full-validation PR label" in result.stdout
+
+
+def test_prose_and_plot_scripts_skip_models_but_package_and_research_code_do_not():
+    assert not policy.requires_full(["AGENTS.md", "benchmarks/README.md", "examples/data/README.md",
+                                     "research/plot_sdb_paper_comparison.py",
+                                     "research/cool_dz_paper/plot_figure.py"])
+    for path in ("src/wd_spectra/data/notes.md", "research/compare_hot_daz_benchmark.py",
+                 "research/sdb_grid_plot_spectra.py", "research/plot_figure.json",
+                 "tools/plot_report.py"):
+        assert policy.requires_full([path]), path
+
+
+def test_only_research_plot_scripts_import_research_plot_scripts():
+    """The plot-script exemption holds only while no numerical code imports one."""
+    plots = {path.stem for path in (ROOT / "research").rglob("plot_*.py")}
+    pattern = re.compile(r"^\s*(?:from|import)\s+(?:[\w.]*\.)?(%s)\b" % "|".join(sorted(plots)),
+                         re.MULTILINE)
+    importers = [str(path.relative_to(ROOT)) for path in ROOT.rglob("*.py")
+                 if ".git" not in path.parts
+                 and not (path.parts[len(ROOT.parts)] == "research" and path.name.startswith("plot_"))
+                 and pattern.search(path.read_text(errors="replace"))]
+    assert importers == []
+    assert "plot_sdb_paper_comparison" in plots

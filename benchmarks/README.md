@@ -80,7 +80,7 @@ from the model timer and is kept as separate UTC clock evidence.
 
 These public-call observations supplement the contained component comparisons.
 They do not provide repeated full-model timing statistics or an isolated
-source-hunk attribution. See [qualification details](../docs/solver-cache-validation.md)
+source-hunk attribution. See [qualification details](../docs/development/history/solver-cache-2026-10-07.md)
 for the scope and frozen protocol identities.
 
 ## Native frequency-Voigt opacity benchmark
@@ -89,7 +89,7 @@ for the scope and frozen protocol identities.
 evaluation/assembly with the new native methods at a retained atmosphere.
 It requires a separate released checkout and archived atmosphere; it does
 not run a cold solve. See
-[native frequency-Voigt validation](../docs/native-frequency-voigt-validation.md#reproduction)
+[native frequency-Voigt validation](../docs/development/history/native-frequency-voigt-2026-10-07.md#reproduction)
 for commands, input sizes, numerical checks and timing limitations.
 
 ## Preconditioner handoff
@@ -102,7 +102,7 @@ diagnostics plus fixed narrow spectral comparisons. The driver wrapper only
 observes; the candidate uses the production option. Output paths must be fresh.
 
 The option is enabled by default. See
-[the handoff protocol and validation evidence](../docs/solver-preconditioner-handoff.md)
+[the handoff protocol and validation evidence](../docs/development/history/preconditioner-handoff-2026-10-09.md)
 for commands, broader-grid controls, standard DAZ and reduced-grid J1637
 public cold-start comparisons, DAH/DAB/cool DA/DB controls, additional named
 G29-38/GALEX J1931/J1235/GD 40 cold tests, timing confirmation

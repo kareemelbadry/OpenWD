@@ -7,31 +7,31 @@ calculations. Each panel has its own legend or before/after labels.
 
 ## Figure 1: hydrogen density boundary
 
-![Hydrogen density boundary](../assets/physics-boundary-fixes-2026-10-05/01_density_edge.png)
+![Hydrogen density boundary](../../assets/physics-boundary-fixes-2026-10-05/01_density_edge.png)
 
 Local Hα profile at 5000 K and electron density 10⁸ cm⁻³. The blue curve keeps the full profile at the lower density limit. The dotted curve shows a thermal Gaussian. The table interpolation remains an approximation. The fix prevents density scaling from artificially shrinking a profile that already includes thermal broadening.
 
 ## Figure 2: native Stark endpoint
 
-![Native Stark endpoint](../assets/physics-boundary-fixes-2026-10-05/02_native_endpoint.png)
+![Native Stark endpoint](../../assets/physics-boundary-fixes-2026-10-05/02_native_endpoint.png)
 
 An eight-point, nonuniform test grid is queried at its last point. The original code reads index 8, outside the shaded valid range. The fix uses index 7 and returns the expected value, 0.001. Bundled grids are uniform. Keeping reads inside the array prevents incorrect results and program crashes.
 
 ## Figure 3: invalid native line center
 
-![Invalid native line center](../assets/physics-boundary-fixes-2026-10-05/03_nan_line_center.png)
+![Invalid native line center](../../assets/physics-boundary-fixes-2026-10-05/03_nan_line_center.png)
 
 An invalid (`NaN`) line center makes the original code read index −1, before the buffer. The fix raises `ValueError` before interpolation. The shading marks the first valid indices of the 50-element buffer. Rejecting invalid input prevents unsafe memory reads.
 
 ## Figure 4: stored helium mean charge
 
-![Stored helium mean charge](../assets/physics-boundary-fixes-2026-10-05/04_helium_charge.png)
+![Stored helium mean charge](../../assets/physics-boundary-fixes-2026-10-05/04_helium_charge.png)
 
 For He/C/O mass fractions of 0.33/0.50/0.17, the stored mean-charge error falls from 56.4% to zero. Electron and ion populations stay unchanged. PG1159 later recalculates this quantity. Using the current helium count makes the reported average charge consistent with the current mixture.
 
 ## Figure 5: spectrum changes from the density repair
 
-![Fixed-atmosphere spectrum changes](../assets/physics-boundary-fixes-2026-10-05/07_fixed_spectrum_impact.png)
+![Fixed-atmosphere spectrum changes](../../assets/physics-boundary-fixes-2026-10-05/07_fixed_spectrum_impact.png)
 
 Initial spectrum changes for DA 4000 K, DA 5000 K, and DAB 9000 K against the previous references. Atmospheric structures are held fixed. The panels use different vertical scales. Optical relative changes stay below 5.2 × 10⁻⁹. The approved versioned references now pass all 21 fixed-spectrum checks. The density fix removes artificial line narrowing even where its effect on the optical spectrum is small.
 
@@ -40,7 +40,7 @@ Initial spectrum changes for DA 4000 K, DA 5000 K, and DAB 9000 K against the pr
 ### Approved reference update — 2026-10-05
 
 The user approved separate, versioned corrected references for the three
-density-edge cases. Their reference record (removed 2026-10-29; see git history)
+density-edge cases. Their [historical reference record](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/stark_density_floor_2026_10_05/README.md)
 documents the physical correction and provenance. Previous fixed controls,
 historical atmospheres, cold controls, and every tolerance are preserved.
 The updated local checks passed: 1575 ordinary component tests (1 skipped,
@@ -78,7 +78,7 @@ repaired default retains the three failed checks.
 Small changes to the optical spectra do not justify relaxing the failed
 thresholds. The density policy and changed reference spectra were reviewed
 before the user approved the versioned updates above. Full validation remains
-required under the [development policy](README.md).
+required under the [development policy](../README.md).
 
 ## Reproduce the regression checks
 

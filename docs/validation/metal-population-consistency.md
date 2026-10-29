@@ -1,153 +1,89 @@
 # Metal population consistency
 
-This record describes the October 24–26, 2026 population repair in
-[PR #37](https://github.com/kareemelbadry/OpenWD/pull/37), merged after the
-cool-DZ release in PR #38. The final PR head was
-`1297b7242d56ff748512e2b8d13819342d3167d7`; it merged on October 26, 2026
-(UTC) as `d5dd1bf33686868d6efd5cbcc54425d6b3c27ba8`.
-See [current development policy](../development/README.md#github-checks)
-for checks required of new changes.
+[Contributor guide](../development/README.md) · [DZ model guide](../models/DZ.md)
 
-This follow-up to the cool-DZ release (PR #38) makes the level populations
-used by opacity consistent with the partition functions that formed each
-ion abundance. It retains the released continuum tables, line profiles,
-ionization shifts and Rydberg-only neutral occupation prescription.
+The level populations that the metal opacity uses are consistent with the
+partition functions that give each ion abundance. This page describes the
+method and the tests.
 
 ## Ionization in a helium host
 
-Neutral-He excluded volume applies only to levels with mean radius at least
-`NEUTRAL_HARD_SPHERE_MINIMUM_LEVEL_RADIUS_CM`, as in PR #38. Low levels retain
-their neutral reservoir; charged occupation probabilities still apply. The
-Blouin dense-He ionization shift and the Saha partition ratio are unchanged.
-The original PR #37's compensating neutral ground-state ratio was needed by
-its all-level excluded-volume prescription. That prescription was superseded
-by PR #38, so the compensation is omitted here. Applying it to the released
-Rydberg-only partitions would add a spurious ground-state correction.
+The neutral-helium excluded volume applies only to levels with a mean radius
+of at least `NEUTRAL_HARD_SPHERE_MINIMUM_LEVEL_RADIUS_CM` (20.25 Bohr radii).
+Lower levels keep their full neutral population. Charged-perturber occupation
+probabilities apply to all levels. The dense-helium ionization shift of
+Blouin et al. and the Saha partition ratio are applied as usual.
 
-## Populations used by opacity
+## Populations for opacity
 
-The stored partition functions remain absolute sums. A native bound level's
-population uses the same statistical weight, Boltzmann factor and occupation
-factor as its contribution to that partition. Summing the levels included in
-the partition therefore recovers the ion abundance. The native 0.1-eV
-partition cutoff is unchanged. Autoionizing resonances retain their separate
-historical LTE approximation and are not included in this conservation claim.
+The stored partition functions are absolute sums. The population of a bound
+level uses the same statistical weight, Boltzmann factor and occupation
+probability as its term in the partition function. Thus, the sum of the
+level populations is the ion abundance. The partition cutoff is 0.1 eV.
+Autoionizing resonances use a separate LTE approximation and are not part of
+this sum.
 
-Ordinary lines, Verner ground terms, special Mg II/Ca I/Ca II/Na I profiles and the
-O I dissolved-series lower populations share this calculation. An optional
-profile-dissolution switch cannot disable the occupation factor needed to
-normalize the lower population. The trace and bulk state builders currently
-use different charged-perturber conventions; each consumer uses the one that
-formed its partition rather than silently substituting another density.
+These consumers share the calculation: ordinary lines, Verner ground terms,
+the special Mg II, Ca I, Ca II and Na I profiles, and the lower populations
+of the O I dissolved series. The trace and bulk state builders use different
+charged-perturber conventions. Each consumer uses the convention that formed
+its partition function.
 
-## External photoionization levels
+## TOPbase photoionization levels
 
-TOPbase source indices are not Stout indices. A uniquely identified native
-fine-structure level or complete LS term uses the corresponding native level
-populations. Each channel keeps its own opening energy; an excited-parent
-channel threshold is not the lower state's binding energy.
+TOPbase level indices are not Stout indices. A uniquely identified native
+fine-structure level or complete LS term uses the native level populations.
+Each channel keeps its own threshold energy.
 
-Some source entries are aggregate model levels without constituent identities.
-The default `effective-level` policy retains their supplied excitation and
-aggregate statistical weight, with hydrogenic survival calculated from the
-true lower binding energy and the existing shell-mean neutral radius. This
-is an explicit representative-level approximation. It does not recover the
-unknown constituents or guarantee that aggregate populations sum to the
-native partition function. The [TLUSTY guide, section
-8.1](https://tlusty.oca.eu/tlusty/Tlusty2002/pdf/tlguide200.pdf) distinguishes
-such model levels from constituent-resolved populations and describes the
-limited accuracy of hydrogenic occupation for complex ions.
+Some TOPbase entries are aggregate model levels without constituent
+identities. `TOPbasePhotoionizationDatabase.unmapped_population_policy`
+selects their treatment:
 
-`TOPbasePhotoionizationDatabase.unmapped_population_policy="strict"` rejects
-unresolved nonideal levels for audits. No channel is silently omitted. Model
-and spectrum metadata record the policy, section counts, and its limitation.
-Counts describe photoionization sections, not distinct states: several channels
-can share a lower state. The ideal-state source-model convention is unchanged.
+- `"effective-level"` (default): the level keeps its source excitation energy
+  and aggregate statistical weight. The hydrogenic survival probability uses
+  the true lower binding energy. This is an approximation. The aggregate
+  populations do not necessarily sum to the native partition function.
+- `"strict"`: unresolved levels cause an error. Use this setting for audits.
 
-## Repairs already released in PR #38
+No channel is omitted without a record. The model and spectrum metadata
+record the policy and the section counts. The
+[TLUSTY guide, section 8.1](https://tlusty.oca.eu/tlusty/Tlusty2002/pdf/tlguide200.pdf)
+discusses model levels and the accuracy of hydrogenic occupation for complex
+ions.
 
-The RAP absolute excitation/photon-grid repair and fixed Ca II source
-quadrature already ship in PR #38. This follow-up retains them without
-reapplying their numerical changes. In particular, RAP absolute photon
-support is not clipped at a representative binding. Such aggregate tables
-do not define one physical edge, so an explicit dissolved-pseudocontinuum
-request is rejected rather than assigned a guessed limit.
+RAP photoionization tables do not define a single edge. Thus, a request for a
+dissolved pseudocontinuum on such a table causes an error.
 
-The early PR #37 comparison figures predate the cool-DZ release and do not
-test the final population repair. The comparisons below instead use the
-released PR #38 code (`6e6645911dc85fb023d7a0fbcd51a52458196c02`) as their
-baseline, separating the population correction from the RAP/profile work.
+## Tests
 
-## What the tests establish
+- Ground-only Saha tests compute the reference independently.
+- Opacity tests hold the ion density fixed. This prevents cancellation
+  between ionization and opacity errors.
+- Other tests cover the dilute limit, the disabled correction, higher ion
+  stages, charge balance, included-level sums, ground terms, source-local
+  level IDs, excited-parent channels and the pseudocontinuum edge.
 
-Ground-only Saha tests evaluate the reference independently. Separate opacity
-tests hold ion density fixed, preventing cancellation between ionization and
-opacity errors. Further checks cover dilute and disabled-correction limits,
-higher ion stages, charge balance, native included-level sums, ground terms,
-source-local IDs, excited-parent channels and the pseudocontinuum edge.
+These tests check the implementation. They do not validate all cool-DZ
+atmospheres or the inferred abundances.
 
-These are implementation checks, not validation of all cool-DZ atmospheres or
-of inferred abundances. Saved-structure comparisons isolate opacity changes;
-new cold-start equilibrium and resolution checks remain distinct requirements.
-Frozen spectra and their acceptance tolerances must not be changed merely to
-make these source changes pass. Earlier spectra retain their original versions.
+## Effect on the spectra
 
-## Comparison with the released PR #38 code
-
-These results were captured on October 24, 2026. The capture manifest
-(removed 2026-10-29; see git history) records reference commit `9d3d302f67b91aa621184dd0c28837525f154129` and
-per-file source hashes for the capture, as well as the input and output hashes.
-
-With the same saved atmospheres, configurations and wavelength samples:
+The population method changes the fixed-atmosphere spectra by small amounts:
 
 | Star | Maximum relative flux change | Location | Integrated flux change |
 | --- | ---: | ---: | ---: |
-| PG1225 | 0.0049231% | 2659.76 A | +0.0002631% |
-| J0738 | 0.364745% | 1222 A | +0.0168186% |
+| PG 1225−079 | 0.0049% | 2659.76 Å | +0.0003% |
+| SDSS J0738+1835 | 0.36% | 1222 Å | +0.017% |
 
-Component reversions isolate nearly all of each difference to TOPbase lower
-populations. Restoring all previous population expressions recovers every
-stored PR #38 flux sample exactly on the capture runtime. The separately
-versioned controls (since superseded; see git history) retained all
-structures and tolerances and recorded hashes, runtime and component
-attribution.
-
-All four J1637 fixed spectra available at that revision passed unchanged.
-Its public default uses ideal metal partitions; the new nonideal TOPbase
-normalization is exercised by the nonideal material tests and the DZ
-comparisons. Both DAZ fixed-spectrum controls
-also pass. These are fixed-state implementation comparisons, without a fresh
-atmosphere or a claim of improved agreement with observations.
-
-The final PR subsequently passed all 36 reported GitHub checks. The
-[protected-model run](https://github.com/kareemelbadry/OpenWD/actions/runs/40201010842)
-completed on October 25, 2026 (UTC), with 24 cold-model jobs, four J1637
-warm-trajectory jobs and the qualification gate passing. This was the PR
-qualification required at that revision; it did not run J1637 from a cold
-start. The current policy includes five J1637 reference versions, but the
-historical four-spectrum and four-trajectory results above remain unchanged.
+Nearly all of each change comes from the TOPbase lower populations. The
+[historical controls](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/metal_populations_2026_10_24/README.md)
+and their [manifest](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/metal_populations_2026_10_24/manifest.json)
+record the structures, the hashes and the attribution.
 
 ## Population export
 
-The population state retains its actual `atomic_database` for matching
-external photoionization terms during a calculation. This is a runtime
-reference, not an extra set of population arrays. Common JSON and NPZ exports
-omit fields marked `serialize=False` in dataclass metadata. All physical
-population arrays and the existing code/data provenance remain in the output.
-
-Without this distinction, recursively exporting the population atom also
-expanded its line-selection caches. Each cached transition refers to its
-whole ion, including all that ion's transitions: the resulting output grows
-quadratically with the line list. One standard PG1159 selection has 25,532
-cached candidates and would expand to 79,474,430 transition records per
-exported atom. This occurs after the expensive solve, explaining why the
-failed CI runs reached the same final logged residuals as the successful
-predecessor before their runners were shut down.
-
-The regression tests forbid walking the runtime cache, check that both PG1159
-material states and their physical arrays still export without pickle, and
-verify that output size is independent of cache size. A diagnostic with the
-real PG1159 atom and a four-layer Planck state exported 2,877 arrays to a
-1.08-MB archive in about 0.08 seconds. This checks export behavior, not a new
-atmosphere-convergence certificate. No atmosphere, spectrum, tolerance or
-iteration limit is changed by this export repair.
+The population state keeps a reference to its `atomic_database`. JSON and
+NPZ exports omit dataclass fields marked `serialize=False`. Thus, the export
+does not include the line-selection caches of the atom. These caches refer
+to whole ions, so a recursive export grows quadratically with the line list.
+Tests check that the export size does not depend on the cache size.

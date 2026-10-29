@@ -1,32 +1,50 @@
 # Performance
 
-[Documentation home](../README.md) · [Development](README.md)
+[Documentation home](../README.md) · [Contributor guide](README.md)
 
-The optional C extension accelerates formal transfer, metal lines, helium
-profiles, and neutral-broadened hydrogen profiles without changing their
-numerical settings. Compiled hydrogen profiles use up to eight worker threads
-by default because atmospheric depths are independent.
+## C extension
 
-Set `OPENWD_NUM_THREADS` to a positive integer to control that hydrogen-profile
-work. When running independent models in parallel processes, use
-`OPENWD_NUM_THREADS=1` and consider `OMP_NUM_THREADS=1` and
-`OPENBLAS_NUM_THREADS=1` to avoid competing thread pools. Each model needs its
-own output directory.
+The optional C extension `wd_spectra._rt` accelerates these calculations:
 
-The D6 manifold path also compiles component deposition, impact-profile
-evaluation, and interpolation of the fine and coarse profile grids. Atomic
-manifolds, microfield sampling, dissolution, profile support, and FFT
-convolution retain the Python algorithm and settings. A bounded cache reuses
-microfield distributions only when all physical inputs match exactly. The
-NumPy profile implementation remains the fallback when the extension is
-unavailable; rebuild the extension after updating its C sources.
+- formal radiative transfer;
+- metal-line opacity;
+- helium line profiles;
+- hydrogen line profiles with neutral broadening;
+- D6 Stark-manifold profiles (bin deposition, impact profiles, the
+  frequency-space Voigt profile and grid interpolation).
 
-The shared Hooper microfield fit also reuses a single decaying exponential
-for both logistic branches, preserving their bitwise results and avoiding
-overflow in the unused branch.
+The extension uses the same numerical settings as the Python code. Without
+the extension, OpenWD uses the NumPy code. Check the extension with:
 
-From the repository root, the bundled data-independent benchmark exercises
-the dominant Balmer-opacity path:
+```bash
+python -c "from wd_spectra import compiled_backend_available; print(compiled_backend_available())"
+```
+
+The [contributor guide](README.md#c-extension) tells how to compile it.
+
+## Threads
+
+The compiled hydrogen profiles use worker threads, because the atmospheric
+depths are independent. The default number of threads is the smaller of 8 and
+the CPU count. It is never more than the number of depths.
+
+- Set `OPENWD_NUM_THREADS` to a positive integer to change the number of
+  threads.
+- To run independent models in parallel processes, set
+  `OPENWD_NUM_THREADS=1`, `OMP_NUM_THREADS=1` and `OPENBLAS_NUM_THREADS=1`.
+  This prevents competing thread pools.
+- Give each model its own output directory.
+
+`run_model` sets these three variables to 1 for the cool DB/DAB worker
+processes. `tools/validate.py` and CI also use one thread per process.
+
+## Benchmarks
+
+Run the benchmarks from the repository root. Timings depend on the machine
+and the model.
+
+The Balmer-opacity benchmark needs no model data. It prints a checksum with
+each timing:
 
 ```bash
 python benchmarks/benchmark_hot_paths.py
@@ -34,39 +52,22 @@ python benchmarks/benchmark_hot_paths.py --full
 OPENWD_NUM_THREADS=1 python benchmarks/benchmark_hot_paths.py --full
 ```
 
-With the bundled Mg atomic data and the compiled extension installed, compare
-the native manifold kernels against the independent NumPy implementation:
+The Stark-manifold benchmark compares the C kernels with the NumPy code. It
+needs the bundled Mg atomic data and the C extension:
 
 ```bash
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python benchmarks/benchmark_stark_profiles.py --repeat 7
 ```
 
-This benchmark warms both paths, alternates their execution order, and reports
-the median speedup and the largest profile difference relative to its peak.
-Its speedup is not the speedup of a full atmosphere calculation. Changes to
-D6 performance also need paired broad-spectrum and full structure-opacity
-timings, followed by cold-start convergence checks at unchanged tolerances.
+It reports the median speedup and the largest profile difference relative to
+the peak. This speedup is not the speedup of a full atmosphere calculation.
+The [benchmark README](../../benchmarks/README.md) describes the solver
+benchmarks.
 
-Paired D6 measurements on macOS arm64 (Python 3.9, NumPy 1.26.4,
-SciPy 1.11.1, one numerical-library thread), against commit `5dacf2b`, gave:
+## Rules for speed changes
 
-| Workload | Before | After | Speedup |
-| --- | ---: | ---: | ---: |
-| J1109 optical spectrum, 100,001 wavelengths | 119.77 s | 60.28 s | 1.99x |
-| J1637 structure opacity, 271,472 wavelengths | 295.88 s | 151.72 s | 1.95x |
-| J1637 reduced-grid cold atmosphere | 263.03 s | 166.94 s | 1.58x |
-
-The optical timings are medians of two paired trials; the other rows are
-single paired trials. Both opacity cases use 48 depths and 25,000 lines.
-The reduced-grid cold control uses 24 depths and 2,000 lines: both versions
-converge in 20 iterations and pass all five equilibrium checks, with a maximum
-fractional temperature difference of `6.08e-11`. The broad optical spectrum
-and structure opacity differ by at most `3.3e-10` relatively. These comparisons
-retain the same physics, line selection, grids, and convergence tolerances.
-A production-grid cold start has not been retimed; the roughly twofold
-opacity gain is not a measured twofold reduction of a full cold solve.
-
-The Balmer benchmark reports a checksum with its timing. Timings are
-diagnostic: runtime depends on machine and model. Lowering
-numerical resolution or relaxing convergence tolerances is not an equivalent
-speedup; numerical and spectral checks must still pass.
+- A speed change must not change the physics, the grids or the convergence
+  tolerances.
+- A lower numerical resolution or a looser tolerance is not a speedup.
+- Measure the full structure opacity and a broad spectrum, then run the
+  cold-start canaries at unchanged tolerances.

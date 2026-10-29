@@ -6,7 +6,7 @@ short component tests, fixed atmospheres and reduced Jacobian fixtures, plus
 one completed public DAZ cold-start pair and bounded standard D6 attempts.
 Those measurements did not include the native frequency-Voigt optimization;
 its separate evidence is documented in
-[native frequency-Voigt validation](native-frequency-voigt-validation.md).
+[native frequency-Voigt validation](native-frequency-voigt-2026-10-07.md).
 
 ## Changes
 
@@ -142,7 +142,7 @@ identity checks passed. The bounded runner's completion and process-group
 timeout paths were checked separately with a deliberately short-lived
 command and an expected timeout.
 
-See [benchmark instructions](../benchmarks/README.md) for reproducible
+See [benchmark instructions](../../../benchmarks/README.md) for reproducible
 contained comparisons. Complete D6/hot cold-start convergence, cross-platform
 performance and broader spectral qualification remain outside this commit's
 evidence. The completed DAZ pair qualifies its declared structure grid.

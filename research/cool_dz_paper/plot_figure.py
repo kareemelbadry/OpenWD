@@ -54,6 +54,11 @@ SDSS_RESOLVING_POWER = 1900.0
 DESI_RESOLVING_POWER = {"b": 2600.0, "r": 3650.0, "z": 4600.0}   # arm midpoints (DESI Collaboration 2022)
 INSTRUMENT_LABELS = {"xshooter": "VLT/X-shooter", "desi": "DESI DR1", "sdss": "SDSS"}
 plt.rcParams.update({"font.family": "DejaVu Sans", "mathtext.fontset": "dejavusans"})
+# Matplotlib sizes for an 8-in-wide figure printed at 0.95\textwidth (6.77 in, scale 0.846):
+# axis labels 8.5 pt, ticks/legend/star labels 7.5 pt, abundance lines 6.5 pt printed.
+AXIS_LABEL_SIZE, TICK_SIZE, LABEL_SIZE, SECONDARY_SIZE = 10.0, 8.9, 8.9, 7.7
+HEADER_OFFSET = 3.0                                    # points below the panel top
+SECONDARY_OFFSET = HEADER_OFFSET + 1.3 * LABEL_SIZE   # first abundance line
 
 
 def air_to_vacuum(w):
@@ -261,10 +266,10 @@ def panel(entry, model_dir, data_dir):
 
 def abundance_label(entry):
     if entry.get("label_calcium_only"):
-        return rf"$\log N(\mathrm{{Ca}})/N(\mathrm{{H}})={entry['abundances']['Ca']:.2f}$; others CI-chondritic"
+        return rf"$\log N(\mathrm{{Ca}})/N(\mathrm{{H}})={{{entry['abundances']['Ca']:.2f}}}$; others CI-chondritic"
     prefix = ""
     if entry["host"] == "He":
-        prefix = (rf"$\log N(\mathrm{{H}})/N(\mathrm{{He}})={entry['log_h']:.2f}$; " if entry["log_h"] is not None
+        prefix = (rf"$\log N(\mathrm{{H}})/N(\mathrm{{He}})={{{entry['log_h']:.2f}}}$; " if entry["log_h"] is not None
                   else "pure He; ")
     denominator = r"\mathrm{He}" if entry["host"] == "He" else r"\mathrm{H}"
     values = ", ".join(f"{element}={value:.2f}" for element, value in entry["abundances"].items())
@@ -292,20 +297,24 @@ def make_figure(models, data, output):
         axis.set_ylim(0.0, top)
         axis.set_yticks(np.arange(0.0, 0.8 * top, 0.5))           # keep tick labels clear of the panel joins
         axis.set_xlim(*WAVELENGTH_LIMITS)
-        axis.tick_params(axis="both", which="both", direction="in", top=True, right=True, labelsize=10, length=4)
-        axis.text(0.985, 0.965, rf"{entry['name']} ({INSTRUMENT_LABELS[entry['dataset']]})   "
-                  rf"$T_{{\rm eff}}={entry['teff']:.0f}\,$K, $\log g={entry['logg']:.2f}$",
-                  transform=axis.transAxes, ha="right", va="top", fontsize=11, zorder=5)
-        axis.text(0.985, 0.835, abundance_label(entry), transform=axis.transAxes, ha="right", va="top",
-                  fontsize=7.6, zorder=5)
+        axis.tick_params(axis="both", which="both", direction="in", top=True, right=True,
+                         labelsize=TICK_SIZE, length=4)
+        axis.annotate(rf"{entry['name']} ({INSTRUMENT_LABELS[entry['dataset']]})   "
+                      rf"$T_{{\rm eff}}={entry['teff']:.0f}\,$K, $\log g={entry['logg']:.2f}$",
+                      xy=(0.985, 1.0), xycoords="axes fraction", xytext=(0.0, -HEADER_OFFSET),
+                      textcoords="offset points", ha="right", va="top", fontsize=LABEL_SIZE, zorder=5)
+        axis.annotate(abundance_label(entry), xy=(0.985, 1.0), xycoords="axes fraction",
+                      xytext=(0.0, -SECONDARY_OFFSET), textcoords="offset points", ha="right", va="top",
+                      fontsize=SECONDARY_SIZE, linespacing=1.18, zorder=5)
         record[key] = {k: v for k, v in d.items() if k not in ("w", "obs", "model")}
         print(f"{key:7s} v={d['velocity_km_s']:+6.1f} km/s  rms(log, {BIN:.0f} A bins)={d['rms_log_ratio_binned']:.3f}")
-    axes[0].legend(handles=(Line2D([], [], color="0.30", lw=0.8, label="Observation"),
+    axes[0].legend(handles=(Line2D([], [], color="0.30", lw=0.8, label="Observed"),
                             Line2D([], [], color="#d95f02", lw=0.8, label="OpenWD")),
-                   loc="lower right", frameon=False, fontsize=10, ncol=2, handlelength=2.3, columnspacing=1.4)
-    axes[-1].set_xlabel(r"vacuum rest wavelength [$\mathrm{\AA}$]", fontsize=11)
-    figure.supylabel(r"relative $f_\lambda$", fontsize=11, x=0.015)
-    figure.subplots_adjust(left=0.085, right=0.975, bottom=0.065, top=0.995)
+                   loc="lower right", frameon=False, fontsize=TICK_SIZE, ncol=2, handlelength=2.3,
+                   columnspacing=1.4)
+    axes[-1].set_xlabel(r"Wavelength ($\mathrm{\AA}$)", fontsize=AXIS_LABEL_SIZE)
+    figure.supylabel(r"Relative $f_\lambda$", fontsize=AXIS_LABEL_SIZE, x=0.015)
+    figure.subplots_adjust(left=0.085, right=0.975, bottom=0.6 / figure.get_figheight(), top=0.995)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=300)
     figure.savefig(output.with_suffix(".png"), dpi=220)
