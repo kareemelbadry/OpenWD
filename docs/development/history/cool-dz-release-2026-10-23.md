@@ -73,8 +73,11 @@ validate extrapolation outside a table's physical domain.
 
 ## Frozen spectral controls
 
-The new DZ spectra are separately versioned in
-[the dated approval directory](../../../tests/data/approved_regressions/cool_dz_release_2026_10_23/manifest.json).
+At release, the new DZ spectra were separately versioned in
+[the dated approval manifest](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/cool_dz_release_2026_10_23/manifest.json).
+The dated archives and superseded replays described below are now retained in
+git history; see the [current regression controls](../../../tests/data/approved_regressions/README.md)
+for the maintained layout.
 Atmospheric inputs and wavelength grids remain fixed. Maximum single-sample
 relative changes are 21.33% for PG1225 and 55.28% for J0738, primarily in
 line/UV samples. Band-integrated changes are at most about 0.31% for PG1225;

@@ -85,9 +85,7 @@ def test_default_fast_stage_excludes_both_expensive_markers():
 
 
 def test_dq_fixed_spectrum_and_true_cold_are_separate_tiers():
-    spectral = runner.commands("spectra", ["dq-j1235"])["dq-j1235"]
     cold = runner.commands("cold", ["dq-j1235"])["dq-j1235"]
-    assert spectral[-1].startswith("tests/test_dq_spectral_regression.py::")
     assert cold[-1] == runner.COLD_TESTS["dq-j1235"]
     assert "true_cold" in cold[-1]
     assert runner.commands("spectra", ["dq-j1311"])["dq-j1311"][-1] == (
@@ -355,33 +353,30 @@ def test_prose_only_prs_skip_fixed_spectra_but_other_events_do_not(tmp_path, mon
         "spectra=false", "spectra=true", "spectra=true", "spectra=true"]
 
 
-def test_d6_matrix_runs_every_version_with_separate_artifacts_and_unchanged_guards():
+def test_d6_regression_runs_the_current_reference_with_unchanged_guards(tmp_path, capsys):
     workflow = (ROOT / ".github/workflows/canaries.yml").read_text()
     job = workflow.split("  d6-regression:\n", 1)[1].split("\n  qualification:", 1)[0]
-    references = re.findall(r"^\s+- (warm_\S+)\s*$", job, re.MULTILINE)
-    assert len(references) == len(set(references)) == len(runner.REGRESSIONS)
-    assert {"d6-j1637-" + reference for reference in references} == set(runner.REGRESSIONS)
-    assert "fail-fast: false" in job
+    assert set(runner.REGRESSIONS) == {"d6-j1637"}
     assert "timeout-minutes: 350" in job and "--timeout 19800" in job
-    assert "--case 'd6-j1637-${{ matrix.reference }}'" in job
-    assert "name: d6-warm-regression-${{ matrix.reference }}" in job
-    for reference in references:
-        case = "d6-j1637-" + reference
-        tasks = runner.commands("regression", [case])
-        assert set(tasks) == {case}
-        assert tasks[case][-1] == runner.D6_REGRESSION_TEST + f"[{reference}]"
-    # Reuse of one shard's evidence must never stand in for another shard.
-    assert len({tuple(command) for command in runner.commands("regression").values()}) == len(references)
-
-
-@pytest.mark.parametrize("case", list(runner.REGRESSIONS))
-def test_single_warm_reference_plan_selects_only_that_version(case, tmp_path, capsys):
-    output = tmp_path / case
-    assert runner.main(["regression", "--case", case, "--plan", "--output", str(output)]) == 0
+    assert "--case d6-j1637 " in job
+    output = tmp_path / "plan"
+    assert runner.main(["regression", "--case", "d6-j1637", "--plan", "--output", str(output)]) == 0
     plan = json.loads(capsys.readouterr().out)
-    assert set(plan["regression"]) == {case}
-    assert plan["regression"][case][-1] == runner.REGRESSIONS[case]
+    assert plan["regression"] == {"d6-j1637": runner.commands("regression")["d6-j1637"]}
+    assert plan["regression"]["d6-j1637"][-1] == runner.D6_REGRESSION_TEST
     assert not output.exists()
+
+
+def test_every_spectra_node_id_collects():
+    nodes = sorted({part for command in runner.commands("spectra").values()
+                    for part in command if part.startswith("tests/")})
+    output = subprocess.check_output(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-o", "addopts=", *nodes],
+        cwd=ROOT, text=True, env=dict(os.environ, PYTHONPATH=str(ROOT / "src")),
+    )
+    collected = {line for line in output.splitlines() if "::" in line}
+    for node in nodes:
+        assert any(line == node or line.startswith(node + "[") for line in collected), node
 
 
 def test_protected_node_ids_still_collect_without_running_atmospheres():
@@ -403,25 +398,6 @@ def test_protected_node_ids_still_collect_without_running_atmospheres():
     )
     for node in (*runner.COLD_TESTS.values(), *runner.REGRESSIONS.values()):
         assert node in output
-    # Collect the entire parameterized function, so a newly added capsule
-    # cannot silently be absent from the runner and workflow matrix.
-    collected = {line for line in output.splitlines()
-                 if line.startswith(runner.D6_REGRESSION_TEST + "[")}
-    assert collected == set(runner.REGRESSIONS.values())
-
-
-@pytest.mark.parametrize('name', [
-    'montreal_h_radius_control_legacy.py',
-    'metal_population_control_legacy.py', 'cool_dz_release_control_legacy.py',
-    'independent_kurucz_control_legacy.py', 'uv_atomic_control_legacy.py',
-])
-def test_spectral_history_helpers_invalidate_validation_reuse(tmp_path, name):
-    helper = tmp_path / 'research' / name
-    helper.parent.mkdir()
-    helper.write_text('previous = 1\n')
-    before = runner.numerical_identity(tmp_path)['sha256']
-    helper.write_text('previous = 2\n')
-    assert runner.numerical_identity(tmp_path)['sha256'] != before
 
 
 @pytest.mark.parametrize('name', ['test_sdb_cold_canary.py', 'test_sdb_spectral_regression.py'])

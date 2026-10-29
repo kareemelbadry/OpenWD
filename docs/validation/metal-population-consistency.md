@@ -76,8 +76,8 @@ The population method changes the fixed-atmosphere spectra by small amounts:
 | SDSS J0738+1835 | 0.36% | 1222 Å | +0.017% |
 
 Nearly all of each change comes from the TOPbase lower populations. The
-[controls](../../tests/data/approved_regressions/metal_populations_2026_10_24/README.md)
-and their [manifest](../../tests/data/approved_regressions/metal_populations_2026_10_24/manifest.json)
+[historical controls](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/metal_populations_2026_10_24/README.md)
+and their [manifest](https://github.com/kareemelbadry/OpenWD/blob/116ab827d134749ebbdcf4f4e66a4dcfd78cfe65/tests/data/approved_regressions/metal_populations_2026_10_24/manifest.json)
 record the structures, the hashes and the attribution.
 
 ## Population export

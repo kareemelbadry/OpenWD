@@ -103,8 +103,9 @@ See [tested points](../tested-temperature-ranges.md).
 
 ## Regression tests
 
-The fast test suite covers the chemistry, transfer and controller. The cold
-canary solves J1235 from scratch:
+The fast test suite covers the chemistry, transfer and controller. The fixed
+spectrum check, `python tools/validate.py spectra --case dq-j1311`, uses the
+current default physics. The cold canary solves J1235 from scratch:
 
 ```sh
 python tools/validate.py cold --case dq-j1235 --jobs 1 --timeout 28800 --output results/dq-cold-check

@@ -44,7 +44,7 @@ change at a time on the J1311 structure:
 ## Re-approval 2026-10-23 (cool-DZ release)
 
 Both flux arrays were recomputed on the unchanged stored structures and
-re-approved by the user (capture: `research/capture_cool_dz_release_controls.py`).
+re-approved by the user (capture script removed 2026-10-29; see git history).
 The previous hashes are recorded under `reapprovals` in each manifest. The
 change was bisected to one commit, 41a6cde: He-REOS.3 now interpolates its
 non-ideal part smoothly (C1) between isotherms. The previous linear-in-log T

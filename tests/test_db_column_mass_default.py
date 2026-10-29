@@ -13,6 +13,8 @@ def wired(monkeypatch):
     calls = {}
     atmosphere = gray_helium_atmosphere(9000.0, 7.0, n_depth=12)
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
 
     def solve(solver, *args, **kwargs):
         calls["structure"] = kwargs
@@ -91,6 +93,8 @@ def _staged_solver(monkeypatch, outcomes):
         })
 
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
     monkeypatch.setattr(stellar, "_db_helium_minus_share", lambda config, n_depth: 0.0)
     monkeypatch.setattr(stellar, "solve_with_screened_boundary", solve)
     monkeypatch.setattr(stellar, "synthesize_helium_spectrum", lambda atm, wave, **k: object())

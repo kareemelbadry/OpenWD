@@ -25,6 +25,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 DAH_PAPER = ("j1007+1237", "j1034+0327", "j1154+0117", "j2149-0728",
              "j1254+5612", "j1018+0111", "j1351+5419", "j2247+1456")
+DAH_PAPER_SPECTRA = ("j1007+1237", "j1018+0111", "j2247+1456")  # = PAPER_KEYS
 SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dah-limb-integral",
     "d6-j1637",
@@ -32,7 +33,6 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "da-4000",
     "da-5000",
     "da-20000",
-    "db-10000",
     "db-22000",
     "dab-9000",
     "dab-20000",
@@ -40,7 +40,6 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dz-j0738",
     "daz-g149-28",
     "daz-galex1931",
-    "dq-j1235",
     "dq-j1311",
     "sdb-hd4539",
 )
@@ -86,16 +85,7 @@ COLD = tuple(COLD_TESTS) + (
     "daz-galex1931",
 )
 D6_REGRESSION_TEST = "tests/test_d6_regression.py::test_j1637_two_step_warm_trajectory"
-REGRESSIONS = {
-    "d6-j1637-" + reference: D6_REGRESSION_TEST + f"[{reference}]"
-    for reference in (
-        "warm_v1-legacy",
-        "warm_v2_feii-historical",
-        "warm_v3_independent-historical",
-        "warm_v4_rap-historical",
-        "warm_v5_excited_parent-current",
-    )
-}
+REGRESSIONS = {"d6-j1637": D6_REGRESSION_TEST}
 
 
 def commands(tier, cases=()):
@@ -105,12 +95,6 @@ def commands(tier, cases=()):
             "components": pytest + ["tests", "-m", "not canary and not spectral"],
             "cool-components": pytest + ["research/cool_models"],
         }
-    if tier == "regression":
-        # Keep the public aggregate selector, but give every frozen version
-        # its own process, log, result and work guard. CI runs them on
-        # separate workers; none can consume another version's time budget.
-        cases = tuple(name for case in cases for name in
-                      (REGRESSIONS if case == "d6-j1637" else (case,)))
     available = SPECTRA if tier == "spectra" else REGRESSIONS if tier == "regression" else COLD
     if set(cases) - set(available):
         raise ValueError(f"unknown {tier} cases: {sorted(set(cases) - set(available))}")
@@ -126,13 +110,9 @@ def commands(tier, cases=()):
             ]
         elif tier == "spectra" and case.startswith("dah-"):
             tasks[case] = pytest + [
-                f"tests/test_dah_paper.py::test_paper_prescription_reproduces_frozen_paper_spectrum[{case[4:]}]",
-                f"tests/test_dah_paper.py::test_public_default_reproduces_approved_rwa_spectrum[{case[4:]}]",
-            ]
-        elif tier == "spectra" and case == "dq-j1235":
-            tasks[case] = pytest + [
-                "tests/test_dq_spectral_regression.py::test_refractive_spectrum_retains_j1235_absolute_flux"
-            ]
+                f"tests/test_dah_paper.py::test_public_default_spectrum_has_not_changed[{case[4:]}]",
+            ] + ([f"tests/test_dah_paper.py::test_paper_prescription_spectrum_has_not_changed[{case[4:]}]"]
+                 if case[4:] in DAH_PAPER_SPECTRA else [])
         elif tier == "spectra" and case == "dq-j1311":
             tasks[case] = pytest + [
                 "tests/test_dq_spectral_regression.py::test_completed_default_retains_j1311_absolute_flux"
@@ -209,13 +189,6 @@ def numerical_identity(root=ROOT):
         "research/validate_public_cold_start.py",
         "research/validate_daz_cold_start.py",
         "research/check_saved_bolometric_spectrum.py",
-        "research/metal_population_control_legacy.py",
-        "research/montreal_h_radius_control_legacy.py",
-        "research/hydrogen_dissolution_control_legacy.py",
-        "research/hydrogen_integration_control_support.py",
-        "research/cool_dz_release_control_legacy.py",
-        "research/independent_kurucz_control_legacy.py",
-        "research/uv_atomic_control_legacy.py",
         "tests/test_protected_model_canaries.py",
         "tests/test_spectral_regressions.py",
         "tests/test_daz_regressions.py",

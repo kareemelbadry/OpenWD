@@ -135,6 +135,12 @@ photometry. Agreement is good below about 100 MG and worse above.
 correction. Use this version to judge the continuum.
 [PDF](../assets/dah-paper-unscaled.pdf).
 
+Fixed-state checks compare the public default on all eight stars and the
+paper prescription on three representative stars with the
+[current regression controls](../../tests/data/approved_regressions/README.md).
+Separate J1007 and J1254 cold canaries calculate new atmospheres and require
+the equilibrium checks and absolute-flux agreement.
+
 ## Other physics options
 
 | Field | Default | Meaning |

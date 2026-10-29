@@ -83,7 +83,7 @@ source, data and compiled modules.
 | --- | --- | --- |
 | `fast` | `pytest tests -m 'not canary and not spectral'` and the cool-model component tests | After each change |
 | `spectra` | Fixed-atmosphere spectrum regressions for DA, DB, DAB, DAH, DZ, DAZ, DQ, D6 and sdB | After a change to opacity, line profiles or transfer |
-| `regression` | J1637 (D6) two-step warm trajectory for five frozen reference versions | After a change that affects D6 |
+| `regression` | J1637 (D6) two-step warm trajectory against the current frozen reference | After a change that affects D6 |
 | `cold` | Cold-start canaries: each protected model from parameters, with all convergence checks | For a final candidate |
 | `full` | `fast`, then `spectra`, then `cold`; stops at the first failed tier | Before a release |
 
@@ -112,7 +112,8 @@ python tools/validate.py full --jobs 2 --output results/validation-candidate
 ```
 
 The `SPECTRA`, `COLD` and `REGRESSIONS` lists in `tools/validate.py` give the
-case names. `regression --case d6-j1637` selects all five J1637 versions.
+case names. `regression --case d6-j1637` selects the current J1637 reference.
+Earlier reference versions and their replay scopes are retained in git history.
 
 The `molecular-dab-*` cold cases need two external tables: HITRAN
 `H2-He_2011.cia` and ExoMol `1H2__RACPPK.states.bz2`. Put them in the
@@ -131,7 +132,7 @@ gives the details.
 | Job | Contents |
 | --- | --- |
 | `unit-and-component` | Python 3.9 and 3.12, four shards each (`tools/ci_shard.py`). Each shard runs `pytest -m 'not canary and not spectral'` on its test files. The job first checks the dependencies, the import path and the C extension. |
-| `fixed-spectra` | Python 3.12, four lanes of `tools/validate.py spectra`. On a pull request, it runs only if numerical inputs changed. |
+| `fixed-spectra` | Python 3.12, two lanes of `tools/validate.py spectra`. On a pull request, it runs only if numerical inputs changed. |
 | `cool-workflow-components` | `pytest research/cool_models` on Python 3.9 and 3.12. |
 
 ### Protected model canaries
@@ -149,8 +150,8 @@ at 09:17 UTC, and on manual start (**Run workflow**).
 3. `cold-model` runs each cold case in its own job, with
    `tools/validate.py cold --timeout 19800`. On a pull request, the J1637
    warm regression replaces the J1637 cold start.
-4. `d6-regression` runs on pull requests only. It runs the five J1637
-   reference versions in separate jobs.
+4. `d6-regression` runs on pull requests only. It runs the current J1637
+   reference in one job.
 5. `qualification` is the summary check. It fails if a required run was not
    requested, or if a requested job failed. Select this check in branch
    protection.
@@ -158,7 +159,9 @@ at 09:17 UTC, and on manual start (**Run workflow**).
 `tools/validation_policy.py` does not require cold starts for changes only to
 these paths:
 
-- `docs/`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`;
+- `docs/`, Markdown files outside `src/`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`;
+- `research/**/plot_*.py` figure scripts (ordinary tests check that numerical
+  code does not import them);
 - `tools/validation_policy.py`;
 - test files in `tests/*.py`, except the canary and spectral test files that
   the policy lists;
@@ -185,25 +188,28 @@ cold start.
 ## Regression controls
 
 Frozen reference outputs are in `tests/data/`. The directory
-`tests/data/approved_regressions/` holds the controls for intentional physics
-changes. Its [README](../../tests/data/approved_regressions/README.md) and the
-README in each subdirectory record each change.
+`tests/data/approved_regressions/current/` holds current fixed-spectrum controls.
+Cold-start controls remain in their separate directories. The
+[regression README](../../tests/data/approved_regressions/README.md) describes
+the layout; superseded approvals and their manifests remain in git history.
 
 Rules:
 
 - Do not compute a reference inside a test.
 - Do not relax a tolerance or increase an iteration limit to make a test pass.
-- Do not change an existing control. Earlier controls stay in the tests.
+- Change a current control only after explicit physics review and approval.
+  Earlier controls remain available in git history.
 
 To approve an intentional physics change:
 
 1. Get a physics review and the approval of a maintainer.
 2. Write a capture script `research/capture_<topic>_controls.py`. The script
    must refuse an existing output directory. Tests and CI never run it.
-3. Save the new outputs in a new directory
-   `tests/data/approved_regressions/<topic>_<date>/`.
-4. Add a `README.md` and a `manifest.json` to that directory. The manifest
-   records the source, data, input and output hashes.
+3. Synthesize affected fixed-spectrum controls on the same frozen structures
+   and wavelength grids, then replace the affected files in
+   `tests/data/approved_regressions/current/`.
+4. Record the source, data, input and output hashes, the reason and the size
+   of the change in the pull request. Keep cold-control provenance manifests.
 5. If equations or physical data change, update `_MODEL_PHYSICS_REVISION` in
    `src/wd_spectra/models/common.py`.
 

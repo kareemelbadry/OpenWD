@@ -9,8 +9,7 @@ Physics added: levels above the first ionization limit that belong to a
 series on an excited parent term (for example O I 2p3(2D)4d) take classical
 electron widths and linear-Stark n-manifolds from their parent limit (they
 previously had no electron width), and the D6 atom gains the OP-normalized
-O I 2p3(2D)3p -> 4d, 5s 3Do multiplets. The v1-v4 controls recover the
-previous behaviour inside `research/excited_parent_series_legacy.py`.
+O I 2p3(2D)3p -> 4d, 5s 3Do multiplets.
 
 The fixed spectrum changes by at most 45.8% in narrow native line pixels
 (5488.0 A, an O I 3p'-5d' core now Stark-broadened) and by -0.507% in

@@ -333,6 +333,8 @@ def test_compute_db_warns_and_returns_an_unconverged_exploratory_result(
     captured = {}
     partial = _atmosphere({"radiative_equilibrium_converged": False})
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
 
     def fake_relaxation(*args, **kwargs):
         captured.update(kwargs)
@@ -366,6 +368,8 @@ def test_compute_db_exact_fingerprint_controls_direct_resume(monkeypatch, tmp_pa
     )
     captured = {}
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
 
     def fake_relaxation(*args, **kwargs):
         captured.update(kwargs)
