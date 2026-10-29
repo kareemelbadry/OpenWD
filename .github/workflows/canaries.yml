@@ -39,7 +39,10 @@ jobs:
   preflight:
     name: preflight (${{ matrix.tier }})
     needs: plan
-    if: needs.plan.outputs.requested == 'true'
+    # On PRs the tests workflow already runs both complete tiers on this same
+    # merge commit; repeating them here only delayed every cold start by
+    # 50-80 min. Scheduled and manual qualification still runs them first.
+    if: needs.plan.outputs.requested == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # Each complete tier gets its own worker. Spectra took ~80 minutes before
     # the combined hydrogen controls added another retained legacy replay.
@@ -66,6 +69,10 @@ jobs:
 
   cold-model:
     needs: [plan, preflight]
+    if: >-
+      !cancelled() && needs.plan.outputs.requested == 'true'
+      && (needs.preflight.result == 'success'
+          || (needs.preflight.result == 'skipped' && github.event_name == 'pull_request'))
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -109,8 +116,10 @@ jobs:
 
   d6-regression:
     name: J1637 warm trajectory regression (${{ matrix.reference }})
-    needs: preflight
-    if: github.event_name == 'pull_request'
+    needs: [plan, preflight]
+    if: >-
+      !cancelled() && github.event_name == 'pull_request'
+      && needs.plan.outputs.requested == 'true' && needs.preflight.result == 'skipped'
     runs-on: ubuntu-latest
     # Five sequential versions exceed the shared 330-minute command guard.
     # Give each unchanged two-step reference its own worker and work guard.
@@ -161,13 +170,13 @@ jobs:
         run: |
           test "$PLAN_RESULT" = success
           if [ "$REQUESTED" = true ]; then
-            test "$PREFLIGHT_RESULT" = success
             test "$COLD_RESULT" = success
             if [ "$EVENT_NAME" = pull_request ]; then
               test "$D6_RESULT" = success
-              echo "PR regression checks passed: J1637 used a bounded warm trajectory and fixed spectrum. Full-suite cold-start qualification was not performed."
-              echo "J1637: two-step warm trajectory and fixed spectrum. Other protected cases: cold starts. Full-suite cold-start qualification was not performed." >> "$GITHUB_STEP_SUMMARY"
+              echo "PR regression checks passed: J1637 used a bounded warm trajectory and fixed spectrum. Full-suite cold-start qualification was not performed. Unit and fixed-spectrum tiers are the tests workflow on this commit."
+              echo "J1637: two-step warm trajectory and fixed spectrum. Other protected cases: cold starts. Unit and fixed-spectrum tiers: tests workflow. Full-suite cold-start qualification was not performed." >> "$GITHUB_STEP_SUMMARY"
             else
+              test "$PREFLIGHT_RESULT" = success
               echo "All protected cold-start cases passed, including J1637."
               echo "All protected cold-start cases passed, including J1637." >> "$GITHUB_STEP_SUMMARY"
             fi

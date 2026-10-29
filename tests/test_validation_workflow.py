@@ -22,6 +22,7 @@ def module(name):
 
 runner = module("validate")
 policy = module("validation_policy")
+sharder = module("ci_shard")
 
 
 @pytest.mark.parametrize(
@@ -247,7 +248,8 @@ def test_workflow_preserves_full_cold_dispatch_and_has_no_duplicate_push_trigger
     assert 'test "$COLD_RESULT" = success' in workflow
     assert 'test "$D6_RESULT" = success' in workflow
     assert "Full-suite cold-start qualification was not performed" in workflow
-    assert "if: github.event_name == 'pull_request'" in workflow
+    warm = workflow.split("  d6-regression:\n", 1)[1].split("\n  qualification:", 1)[0]
+    assert "github.event_name == 'pull_request'" in warm
 
 
 def test_preflight_tiers_are_independent_and_both_gate_atmosphere_jobs():
@@ -269,8 +271,77 @@ def test_preflight_tiers_are_independent_and_both_gate_atmosphere_jobs():
     cold = workflow.split("  cold-model:\n", 1)[1].split("\n  d6-regression:", 1)[0]
     warm = workflow.split("  d6-regression:\n", 1)[1].split("\n  qualification:", 1)[0]
     assert "needs: [plan, preflight]" in cold
-    assert "needs: preflight" in warm
+    assert "needs: [plan, preflight]" in warm
     assert 'test "$PREFLIGHT_RESULT" = success' in workflow
+
+
+def test_pr_cold_starts_skip_preflight_only_because_tests_workflow_runs_both_tiers():
+    canaries = (ROOT / ".github/workflows/canaries.yml").read_text()
+    preflight = canaries.split("  preflight:\n", 1)[1].split("\n  cold-model:", 1)[0]
+    cold = canaries.split("  cold-model:\n", 1)[1].split("\n  d6-regression:", 1)[0]
+    assert "github.event_name != 'pull_request'" in preflight
+    # Scheduled and manual qualification may never start atmospheres before
+    # both cheap tiers pass.
+    assert "needs.preflight.result == 'success'" in cold
+    assert "needs.preflight.result == 'skipped' && github.event_name == 'pull_request'" in cold
+    tests = (ROOT / ".github/workflows/tests.yml").read_text()
+    assert "  pull_request:\n" in tests
+    unit = tests.split("  unit-and-component:\n", 1)[1].split("\n  fixed-spectra:", 1)[0]
+    spectra = tests.split("  fixed-spectra:\n", 1)[1].split("\n  cool-workflow-components:", 1)[0]
+    assert "python -m pytest -m 'not canary and not spectral'" in unit
+    assert 'python-version: "3.12"' in spectra
+    assert "python tools/validate.py spectra $cases" in spectra
+    assert "if: needs.changes.outputs.spectra == 'true'" in spectra
+    assert "python -m pytest research/cool_models" in tests
+
+
+@pytest.mark.parametrize("job,kind", [("unit-and-component", "tests"), ("fixed-spectra", "spectra")])
+def test_workflow_shards_cover_every_item_exactly_once(job, kind):
+    tests = (ROOT / ".github/workflows/tests.yml").read_text()
+    block = re.split(r"\n  (?=\S)", tests.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
+    matrix = re.search(r"(?:shard|lane): \[([0-9, ]+)\]", block)[1]
+    indices = [int(value) for value in matrix.split(",")]
+    count = len(indices)
+    assert indices == list(range(1, count + 1))
+    assert f"python tools/ci_shard.py {kind} ${{{{ matrix." in block and f" {count})" in block
+    items = sharder.test_files() if kind == "tests" else sharder.spectra_cases()
+    weights = json.loads(sharder.WEIGHTS.read_text())[kind]
+    parts = sharder.shards(items, weights, count)
+    assert all(parts)
+    assert sorted(item for part in parts for item in part) == sorted(items)
+
+
+def test_sharding_is_a_partition_even_for_unweighted_items():
+    items = [f"tests/test_{index}.py" for index in range(11)]
+    for count in range(1, 12):
+        parts = sharder.shards(items, {items[0]: 50.0}, count)
+        assert len(parts) == count and all(parts)
+        assert sorted(sum(parts, [])) == sorted(items)
+    with pytest.raises(ValueError):
+        sharder.shards(items, {}, 12)
+
+
+def test_shard_discovery_matches_pytest_collection():
+    output = subprocess.check_output(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-o", "addopts=", "tests"],
+        cwd=ROOT, text=True, env=dict(os.environ, PYTHONPATH=str(ROOT / "src")),
+    )
+    collected = {line.split("::", 1)[0] for line in output.splitlines() if "::" in line}
+    assert collected <= set(sharder.test_files())
+
+
+def test_prose_only_prs_skip_fixed_spectra_but_other_events_do_not(tmp_path, monkeypatch):
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+    event = {"pull_request": {"base": {"sha": "b"}, "head": {"sha": "h"}}}
+    monkeypatch.setattr(policy, "changed_inputs", lambda base, head: (["docs/limitations.md"], {}))
+    policy.spectra_main("pull_request", event)
+    monkeypatch.setattr(policy, "changed_inputs", lambda base, head: (["src/wd_spectra/opacity.py"], {}))
+    policy.spectra_main("pull_request", event)
+    for event in ("push", "workflow_dispatch"):
+        policy.spectra_main(event, {})
+    assert outputs.read_text().split() == [
+        "spectra=false", "spectra=true", "spectra=true", "spectra=true"]
 
 
 def test_d6_matrix_runs_every_version_with_separate_artifacts_and_unchanged_guards():

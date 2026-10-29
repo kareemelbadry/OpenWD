@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import PurePosixPath
 import subprocess
+import sys
 
 
 # These fields describe an observation; no numerical consumer reads them.
@@ -80,6 +81,7 @@ def requires_full(paths, *, contents=None):
                 "test_hot_cold_canary.py",
                 "test_released_family_canaries.py",
                 "test_dah_paper.py",
+                "test_dah_disk_quadrature.py",
                 "test_radiative_da_convergence.py",
                 "test_d6_regression.py",
                 "d6_regression_support.py",
@@ -136,10 +138,24 @@ def changed_inputs(base, head):
     return paths, contents
 
 
+def spectra_main(event_name, event):
+    """Fixed spectra are skipped only for PRs with no numerical inputs changed."""
+    paths, contents = [], {}
+    if event_name == "pull_request":
+        pr = event["pull_request"]
+        paths, contents = changed_inputs(pr["base"]["sha"], pr["head"]["sha"])
+    required = event_name != "pull_request" or requires_full(paths, contents=contents)
+    print(json.dumps(dict(spectra=required, changed=paths)))
+    with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+        stream.write(f"spectra={str(required).lower()}\n")
+
+
 def main():
     from pathlib import Path
 
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    if sys.argv[1:] == ["spectra"]:
+        return spectra_main(os.environ["GITHUB_EVENT_NAME"], event)
     paths = []
     contents = {}
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
