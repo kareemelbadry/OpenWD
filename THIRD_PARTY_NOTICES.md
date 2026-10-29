@@ -132,7 +132,7 @@ the [Keck Observatory Archive](https://koa.ipac.caltech.edu/), analyzed by
 [Xu et al. (2019)](https://doi.org/10.3847/1538-3881/ab4cee). Credit the
 W. M. Keck Observatory, KOA and the original observers when using these
 observations. They are newly generated comparisons, with data processing and
-model provenance described in the [DZ guide](docs/models/DZ.md#xu-et-al-2019-hires-comparisons).
+model provenance described in the [DZ observational comparisons](docs/validation/dz-observational-comparisons.md#xu-et-al-2019-hires-comparisons).
 
 ## Hot-star NLTE atomic inputs
 

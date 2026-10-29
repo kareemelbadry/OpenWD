@@ -1,59 +1,61 @@
-# Research and validation history
+# History
 
-[Documentation home](../../README.md) · [Development guide](../README.md)
+[Documentation home](../../README.md) · [Contributor guide](../README.md)
 
-These records preserve investigations, successful and unsuccessful experiments,
-and the evidence behind numerical decisions. They describe the code at the
-time of writing and may discuss settings that are not public defaults.
-Use [getting started](../../getting-started.md) for current commands and
-[tested points](../../tested-temperature-ranges.md) for current qualification.
+This directory is an archive of dated investigation and qualification
+records. Each record describes the code at its date. Some settings in the
+records are no longer the defaults. For the current code, read the
+[model guides](../../models/README.md) and the
+[tested temperature ranges](../../tested-temperature-ranges.md).
 
-## Magnetic hydrogen models
+## Solver and numerics
 
-- [DAH paper prescription and release integration](dah-release-2026-09-29.md)
-- [DAH drift-resolved disk quadrature](dah-disk-quadrature-2026-10-08.md)
-- [DAH clean-up and convergence repair](dah-cleanup-2026-10-25.md)
-- [DAH default: RWA photoionization and magnetic EOS](dah-rwa-default-2026-10-25.md)
+| Date | Record |
+| --- | --- |
+| 2026-09-04 | [Solver consistency](solver-consistency-2026-09-04.md) |
+| 2026-09-05 | [Solver review and controlled experiments](solver-review-2026-09-05.md) |
+| 2026-09-05 | [Nonlinear convection in the trial step](nonlinear-convection-experiments-2026-09-05.md) |
+| 2026-09-05 | [Direct local-energy response](direct-local-energy-experiments-2026-09-05.md) |
+| 2026-09-06 | [Helium physics applicability and solver isolation](helium-physics-isolation-2026-09-06.md) |
+| 2026-09-07 | [Cold-start numerical repair](cold-start-numerics-2026-09-07.md) |
+| 2026-09-07 | [Reliability and automatic physics selection](reliability-2026-09-07.md) |
+| 2026-09-10 | [Microphysics audit](microphysics-audit-2026-09-10.md) |
+| 2026-10-05 | [Hydrogen line widths, native array bounds and helium mean charge](physics-boundary-fixes-2026-10-05.md) |
+| 2026-10-07 | [Jacobian reuse and solver robustness](solver-cache-2026-10-07.md) |
+| 2026-10-07 | [Native frequency-Voigt manifold profiles](native-frequency-voigt-2026-10-07.md) |
+| 2026-10-09 | [LTE preconditioner flux handoff](preconditioner-handoff-2026-10-09.md) |
 
-## Hot H/He models
+## Cool helium and mixed atmospheres
 
-- [DO/DAO release integration and cold-start evidence](do-dao-release-2026-09-20.md)
+| Date | Record |
+| --- | --- |
+| 2026-09-05 | [Molecular physics in the cool mixed H/He model](cool-dab-molecular-2026-09-05.md) |
+| 2026-09-05 | [Cool DB and molecular DAB material consistency](cool-convection-consistency-2026-09-05.md) |
+| 2026-09-07 | [Molecular DAB conservative transport](cool-dab-conservative-2026-09-07.md) |
+| 2026-10-22 | [Dense pure-He DB v6](dense-db-v6-2026-10-22.md) |
+| 2026-10-23 | [Cool-DZ defaults and regression approvals](cool-dz-release-2026-10-23.md) |
 
-## PG1159 models
+## DQ
 
-- [PG1159 shared-solver release and qualification](pg1159-release-2026-09-22.md)
+| Date | Record |
+| --- | --- |
+| 2026-09-17 | [Refractive DQ release](dq-release-2026-09-17.md) |
+| 2026-09-17 | [DQ historical C–A default](dq-ca-default-2026-09-17.md) |
+| 2026-09-17 | [DQ 2024 C–A and Swan-completeness default](dq-completed-default-2026-09-17.md) |
+| 2026-09-18 | [DQ stride-four structure sampling](dq-stride4-default-2026-09-18.md) |
+| 2026-10-15 | [Dense-He He⁻ free-free correction](dq-dense-he-ff-2026-10-15.md) |
 
-## Numerical baseline and reliability
+## Hot and magnetic models
 
-- [Microphysics normalization and buffer audit](microphysics-audit-2026-09-10.md)
-- [Recovered solver baseline](recovered-solver-baseline.md)
-- [Checkpoint validation and CI portability](checkpoint-validation-2026-09-07.md)
-- [Cold-start numerical repair](cold-start-numerics-2026-09-07.md)
-- [Certification and automatic physics selection](reliability-2026-09-07.md)
+| Date | Record |
+| --- | --- |
+| 2026-09-20 | [DO/DAO release](do-dao-release-2026-09-20.md) |
+| 2026-09-22 | [PG1159 release qualification](pg1159-release-2026-09-22.md) |
+| 2026-09-29 | [DAH paper prescription](dah-release-2026-09-29.md) |
+| 2026-10-05 | [Hot DA trace-metal development](hot-daz-trace-metals-2026-10-05.md) |
+| 2026-10-08 | [DAH disk quadrature](dah-disk-quadrature-2026-10-08.md) |
+| 2026-10-25 | [DAH clean-up and convergence repair](dah-cleanup-2026-10-25.md) |
+| 2026-10-25 | [DAH default: RWA photoionization and magnetic EOS](dah-rwa-default-2026-10-25.md) |
 
-## Cool helium physics
-
-- [Cool-DZ dense-helium defaults and regression approvals](cool-dz-release-2026-10-23.md)
-- [Dense pure-He DB v6: bound-ion He₂⁺ opacity, dense He⁻ ff, cold tables](dense-db-v6-2026-10-22.md)
-- [Dense-He He⁻ free-free correction with a Rogers–Young S(k)](dq-dense-he-ff-2026-10-15.md)
-- [DQ stride-four structure sampling default](dq-stride4-default-2026-09-18.md)
-- [DQ 2024 C–A and completed-Swan default](dq-completed-default-2026-09-17.md)
-- [Refractive DQ release extraction and validation](dq-release-2026-09-17.md)
-- [Initial cool-helium investigation](cool-helium-2026-09-04.md)
-- [Dense-helium EOS and ionization](dense-helium-investigation-2026-09-05.md)
-- [Helium-dimer experiment](helium-dimer-experiment-2026-09-05.md)
-- [Cross-model checks](dense-helium-cross-model-checks-2026-09-06.md)
-- [Helium applicability and isolation](helium-physics-isolation-2026-09-06.md)
-
-## Mixed atmospheres
-
-- [Molecular DAB physics](cool-dab-molecular-2026-09-05.md)
-- [Conservative molecular transport](cool-dab-conservative-2026-09-07.md)
-
-## Solver investigations
-
-- [Solver consistency](solver-consistency-2026-09-04.md)
-- [Literature review and controlled experiments](solver-review-2026-09-05.md)
-- [Nonlinear convective trials](nonlinear-convection-experiments-2026-09-05.md)
-- [Convection and material consistency](cool-convection-consistency-2026-09-05.md)
-- [Local energy and transfer precision](direct-local-energy-experiments-2026-09-05.md)
+The JSON files in this directory are the machine-readable evidence of these
+records.

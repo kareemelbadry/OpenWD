@@ -1,139 +1,121 @@
-# DAB/DBA module
+# DAB/DBA: mixed hydrogen–helium atmospheres
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
-`compute_dab` defaults to one homogeneous atomic H/He layer in LTE; it is not a
-stratified thin-hydrogen-layer calculation. Hydrogen and helium share the
-charge-neutrality solution and nonideal occupation-probability EOS. The module
-combines the DA hydrogen opacity/profile treatment with the DB helium profiles
-and uses ML2/alpha=1.25 convection.
+`DABConfig` computes a homogeneous hydrogen–helium LTE atmosphere for a
+given Teff, log g and log10 N(H)/N(He). It is not a stratified
+thin-hydrogen-layer model. "DAB" and "DBA" use the same code; the label only
+says which lines are stronger. Both elements enter the EOS, opacity and
+temperature structure, with ML2/α = 1.25 convection.
 
-```bash
-python examples/one_shot_dab.py --teff 20000 --logg 8.0 --log-h-he -2 \
-  --quality standard --output results/dab-20000-8.0
+## Run it
+
+```python
+from wd_spectra import DABConfig, run_model
+
+run = run_model(
+    DABConfig(effective_temperature=20_000, logg=8.0,
+              log_hydrogen_to_helium=-2.0, quality="production"),
+    "results/dab-20000",  # must be a new directory
+    require_convergence=True,
+)
+spectrum = run.spectrum  # surface F_lambda, vacuum Angstrom
 ```
 
-`--log-h-he` means `log10[N(H)/N(He)]`. Standard calculations typically take
-3--20 minutes, with cool mixtures and low-gravity production models slower.
+`run_model` uses the molecular H/He chemistry for every metal-free DAB. This
+needs the HITRAN `H2-He_2011.cia` table, which is not bundled. See
+[getting started](../getting-started.md) to install it.
 
-## Paper comparison
+Each run is a cold start. A model takes about 3–20 minutes on a laptop; cool
+and low-gravity models are slower.
 
-The paper fixes `log_hydrogen_to_helium = -2` and compares six homogeneous
-H/He atmospheres with the Montreal DB/DBA grid of
-[Cukanovaite et al. (2021)](https://doi.org/10.1093/mnras/staa3684).
-The temperature sequence is 9000, 15000, 20000 and 30000 K at log g = 8;
-two additional models have log g = 7 and 9 at 20000 K. The composition is
-one hydrogen nucleus per 100 helium nuclei throughout the atmosphere.
+| `quality` | Depth points | Use |
+| --- | --- | --- |
+| `"quick"` | 20 | Interface test only. Not a converged model. |
+| `"standard"` | 40 | Exploration. |
+| `"production"` | 80 | Science use. |
 
-[![Mixed H/He surface-flux spectra compared with the Montreal grid](../assets/dab-paper-grid.png)](../assets/dab-paper-grid.pdf)
+The command-line equivalent is
+`python examples/one_shot_dab.py --teff 20000 --logg 8.0 --log-h-he -2 --quality production --output results/dab-20000`.
 
-[Download the comparison (PDF)](../assets/dab-paper-grid.pdf).
-Each OpenWD structure is relaxed with the shared H/He charge-neutrality
-solution, the hydrogen and helium opacities, and ML2/alpha=1.25 convection.
-Both species therefore affect the temperature structure as well as the
-final spectrum. The left panels show 900--30000 Å surface flux and the right
-panels show the optical hydrogen and helium features. Neither curve is
-rescaled or continuum-normalized for the plot, and the comparison grid does
-not provide OpenWD's temperature structure.
+## Options
 
-This is a fixed-composition comparison between atmosphere codes, not an
-observational abundance fit or a test of a stratified H/He layer. The archived
-paper spectra and the current molecular cold-start checks below answer
-different questions; the six plotted points do not validate cooler mixtures.
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `effective_temperature` | `20000.0` | Teff in K. |
+| `logg` | `8.0` | log10 of surface gravity in cm s⁻². |
+| `log_hydrogen_to_helium` | `-2.0` | log10 N(H)/N(He), constant with depth. |
+| `quality` | `"standard"` | Numerical resolution (see above). |
+| `mixing_length_alpha` | `1.25` | ML2 mixing length. |
+| `include_molecules` | `False` | Molecular chemistry in `compute_dab`. `run_model` sets it to `True` for metal-free models. |
+| `h2_he_cia_path` | `None` | Path to `H2-He_2011.cia`. `None` looks in the data cache. |
+| `neutral_broadening` | `"unsold"` | Neutral-He broadening of He I lines (as for [DB](DB.md#options)). |
+| `allard_minimum_effective_temperature` | `None` | `None` uses the Allard Lyα tables at all Teff. A number sets a Teff below which the cool neutral-H wing is used. |
+| `abundances` | `None` | Trace metals (see [Trace metals](#trace-metals)). |
 
-## Cool mixtures and the molecular closure
+## Physics
 
-`run_model(DABConfig(...), output_directory)` runs every metal-free DAB with the
-in-process molecular H/He closure: H2, H2+, H-, H3+, HeH+, H/He ionization,
-H2-He/H2-H2 collision-induced absorption and neutral Ly-alpha wings, at any
-temperature and gravity. The molecular terms vanish where molecules are absent,
-so neighbouring grid models share one set of physics; there is no switch at a
-molecular threshold or at log g = 8. The H2 screen is recorded in the run
-manifest for provenance only. DABs with trace metals keep the atomic mixture
-and are refused where the screen indicates molecular chemistry.
-`compute_dab` stays atomic unless `include_molecules=True`.
+- **Equation of state.** One charge-neutral solution for H I, H II, He I,
+  He II and He III, with Hummer–Mihalas/Q-MHD occupation probabilities. Both
+  elements enter the pressure, density, thermodynamic derivatives and
+  structure.
+- **Molecules** (`run_model`, metal-free). H₂, H₂⁺, H⁻ and H₃⁺ by mass
+  action. The molecular terms vanish where molecules are rare, so there is no
+  switch in Teff or log g.
+- **Continuum.** The hydrogen and helium continua of the [DA](DA.md) and
+  [DB](DB.md) modules. With molecules: H₂–H₂ and H₂–He (HITRAN, Abel et al.)
+  collision-induced absorption, H₂ bands and the neutral Lyα wing.
+- **Hydrogen lines.** As in the DA module: Tremblay & Bergeron (2009)
+  charged-particle profiles and Ali–Griem self broadening, plus an
+  approximate neutral-He impact width. Lyα uses the Allard tables at all
+  Teff; the 9000 K table is used for cooler gas.
+- **Helium lines.** B25 He I profiles with Unsöld broadening, and
+  Schöning–Butler He II profiles, as in the DB module.
 
-Even where molecules are rare, the closure changes the far UV: at 12000 K,
-log10 N(H)/N(He) = 0, the molecular and atomic spectra differ by up to 17%
-(log g 8) and 32% (log g 9) near 1083 A, mainly from H2 Lyman/Werner
-absorption, but by at most 0.1-0.3% in the optical and 0.001% in total flux.
+## Validation
 
-Production cold starts pass all five certificate gates at 7500, 8000, 9000 and
-10000 K (log g 8, log10 N(H)/N(He) = -2) and at 12000 K (log g 8 and 9) and
-15000 K (log g 9) for log10 N(H)/N(He) = 0. These are individual points, not a
-guaranteed interval; 7250 and 5000 K remain unqualified. The pinned HITRAN
-`H2-He_2011.cia` table is required. See
-[cool-model setup](../getting-started.md#cool-helium-and-mixed-atmospheres),
-[tested points](../tested-temperature-ranges.md), and
-[physical limitations](../limitations.md#physical-approximations).
+[![Mixed H/He spectra: OpenWD compared with Cukanovaite+2021](../assets/dab-paper-grid.png)](../assets/dab-paper-grid.pdf)
 
-## Lyman-alpha profiles below 9000 K (2026-10-13)
-
-`DABConfig(allard_minimum_effective_temperature=None)` is the default: the
-delivered Allard Lyman profiles are used at every Teff. The tables start at
-9000 K, so cooler local gas uses the 9000-K table, as the cool upper layers of
-9000-K models already did. At 8000 K, log g = 8 and log10 N(H)/N(He) = -2 this
-follows the Cukanovaite et al. (2021) DBA model to +25-30% over 1150-1500 A,
-as at 9000 K; the previous cool neutral-H wing treatment over-predicted
-1150-1300 A by a factor of ~50. The optical continuum changes by about 1%.
-Pass a number to restore a Teff cutoff. This has not been checked below 8000 K.
-
-## Flux conservation (2026-10-01)
-
-Two numerics settings are on by default:
-
-- `photospheric_depth_concentration=1` concentrates the structure depths
-  across 0.01 < tau < 10 at an unchanged point count.
-- `synthesis_transfer_depth_refinement=4` subdivides each depth interval for
-  the final formal solution.
-
-Before, the 40-point standard structures emitted up to 2-3% more than
-sigma Teff^4. The bare-grid formal solution partly cancelled this, so the
-totals looked right while the structure was not. Standard-quality totals
-are now within about 0.75% (see the [DZ guide](DZ.md) for the method). Setting
-both to 0 and 1 restores the previous numerics.
+**OpenWD and the Cukanovaite et al. (2021) DB/DBA models at
+log N(H)/N(He) = −2.** Six models: 9000, 15,000, 20,000 and 30,000 K at
+log g = 8, and log g = 7 and 9 at 20,000 K
+([Cukanovaite et al. 2021](https://doi.org/10.1093/mnras/staa3684)). Left:
+900–30,000 Å surface flux. Right: optical hydrogen and helium lines. No flux
+scaling. Agreement is good over the full range.
+[PDF](../assets/dab-paper-grid.pdf).
 
 ## Trace metals
 
-`DABConfig(abundances={...})` adds trace metals to the homogeneous atomic
-H/He atmosphere. Abundances are **log10 N(Z)/N(H)**, as for DAZ. Thus, the
-host can be hydrogen-rich (DABZ, DAZB) or helium-rich (DBAZ).
+`DABConfig(abundances={...})` adds trace metals to the atomic H/He
+atmosphere. Abundances are **log10 N(Z)/N(H)**, as for DAZ. The host can be
+hydrogen-rich (DABZ, DAZB) or helium-rich (DBAZ).
 
-- The H/He EOS, the hydrogen frequency grid and the thermodynamic
-  derivatives are those of the metal-free mixture.
-- The metals share its charge closure at fixed H and He nuclei densities.
-- The metals add bound-bound and Verner/phfit2 bound-free opacity to the
-  structure (opacity-sampled at R = 1000) and to the final spectrum.
-- `maximum_metal_charge` (default 4) can be one value or a mapping by
-  element.
+- Metals share the H/He charge balance. They add bound–bound and bound–free
+  opacity to the structure (opacity-sampled at R = 1000) and to the final
+  spectrum. They do not enter the EOS thermodynamics.
+- `maximum_metal_charge` (default `4`) is one value or a mapping by element.
 - `metal_classical_electron_stark=True` adds the SYNSPEC classical electron
-  width to metal lines that have no tabulated Stark width.
-- Molecular mixtures with metals are rejected. They do not run without the
-  metals.
+  width to metal lines without a tabulated Stark width.
+- `metal_line_supplements` adds optional E1 lines for ions whose Stout data
+  contain only forbidden lines: `"rauch-zn-cu"` (Rauch et al., Zn IV–V,
+  Cu IV–VI) and `"kurucz-fe-ni"` (Kurucz Fe IV, Fe VII, Ni IV–VI). The
+  default `()` uses Stout only.
+- Metals and molecules cannot be combined. `run_model` refuses a metal-bearing
+  DAB where molecular chemistry matters.
 
-Use DZ for helium-dominated stars with little hydrogen: its He EOS treats
-hydrogen as a trace species. Use DAB for hydrogen-rich or mixed hosts. With
-metal opacity, the solver takes its Rosseland depth scale from the full
-structure opacity. Thus, compare structures on column mass.
+For helium-dominated stars with very little hydrogen, use [DZ](DZ.md). With
+metals, the Rosseland depth scale includes the metal opacity, so compare
+structures on column mass. The [niobium note](../development/niobium.md)
+shows a nine-metal application.
 
-The bundled Stout Ni, Cu and Zn IV–VI ions contain only forbidden lines. By
-default, these stages add charge and partition functions, but no E1
-absorption. `metal_line_supplements` adds optional E1 lines. The default
-`()` uses Stout only.
+## Limitations
 
-- `"rauch-zn-cu"`: the HFR lines of Rauch et al. for Zn IV–V (2014) and
-  Cu IV–VI (2020), attached to Stout levels. No levels are added. See the
-  [data README](../../src/wd_spectra/data/runtime/cache/metal-opacity/rauch-zn-cu/README.md).
-- `"kurucz-fe-ni"`: Kurucz measured-level lines of Fe IV, Fe VII and
-  Ni IV–VI, with Kurucz damping constants, added between level pairs that
-  Stout does not connect. Kurucz levels that Stout does not have are added
-  (31, 20 and 140 for Ni IV–VI). At 35800 K, they increase the Ni VI
-  partition function by 1.4%. Fe V, Fe VI and Ni VII are excluded, because
-  some of their Kurucz levels would duplicate Stout levels.
+- No unified H–He Lyman and Balmer profiles.
+- Homogeneous composition only; no stratified hydrogen layer.
+- The molecular chemistry is ideal-gas mass action, not a dense-fluid EOS.
 
-At the HS 0209+0832 parameters (35800 K, log g = 7.90, log H/He = 1.90), a
-standard cold start with all metals at log N(Z)/N(H) = -20 reproduces the
-metal-free preset. The difference is |dT/T| < 7 × 10⁻⁴ on column mass below
-the top layer and 0.14% in the emergent flux. The
-[development note](../development/niobium.md) gives the nine-metal model and
-its comparison with the observed far-UV spectrum.
+See also the general [limitations](../limitations.md).
+
+## Tested range
+
+See [tested points](../tested-temperature-ranges.md).
