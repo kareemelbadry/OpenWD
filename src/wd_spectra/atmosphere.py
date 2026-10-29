@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     )
     from .molecules import H2H2CollisionInducedAbsorptionTable
     from .hydrogen_self import BarklemSelfBroadeningTable
-    from .jackson_lyman import JacksonLymanProfileTable
     from .quasimolecular import AllardUnifiedLymanTable
 
 
@@ -1200,7 +1199,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
     h2_h2_cia_table: H2H2CollisionInducedAbsorptionTable | None = None,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     mixing_length_alpha: float | None = 0.7,
     n_angle: int = 3,
     initial_temperature: FloatArray | None = None,
@@ -1704,7 +1702,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 current_atmosphere,
                 wavelength,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
             )
             if include_series_pseudocontinuum:
                 absorption += (
@@ -1719,13 +1716,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
                         wavelength,
                         allard_table=(
                             unified_allard_table.lines.get((1, 2))
-                            if (
-                                unified_allard_table is not None
-                                and not (
-                                    jackson_lyman_table is not None
-                                    and (1, 2) in jackson_lyman_table.lines
-                                )
-                            )
+                            if unified_allard_table is not None
                             else None
                         ),
                     )

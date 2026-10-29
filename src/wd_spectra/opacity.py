@@ -59,7 +59,6 @@ except ImportError:  # pragma: no cover - exercised in source-only installs
     _rt = None
 
 if TYPE_CHECKING:
-    from .jackson_lyman import JacksonLymanProfileTable
     from .quasimolecular import (
         AllardNeutralLymanAlphaTable,
         AllardUnifiedLymanTable,
@@ -2360,22 +2359,16 @@ def lyman_mass_absorption_coefficient(
     *,
     stark_table: HydrogenStarkTable | None = None,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     allard_stark_weight: float = 0.5,
     lines: tuple[HydrogenLine, ...] = LYMAN_LINES,
 ) -> FloatArray:
     """Return LTE Lyman-series true-absorption opacity in cm^2 g^-1.
 
     Lyalpha through the 1->21 transition normally use the bundled
-    Doppler-convolved Tremblay-Bergeron profiles.  A supplied Jackson table
-    replaces the complete charged-particle profile of Lyalpha and Lybeta with
-    the Xenomorph calculation, including electron Stark, ion dynamics,
-    quasi-H2+ satellites, and its delivered Doppler convolution.
-    It is not added to the ordinary Stark line because that would double-count
-    both electron and proton broadening.  For transitions absent from the
-    Jackson delivery, a supplied temperature-dependent Allard table retains
-    the existing half-Stark additive approximation; otherwise the ordinary
-    Tremblay-Bergeron profile is used.
+    Doppler-convolved Tremblay-Bergeron profiles.  A supplied
+    temperature-dependent Allard table adds the half-Stark approximation for
+    the transitions it covers; otherwise the ordinary Tremblay-Bergeron
+    profile is used.
     """
 
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
@@ -2423,38 +2416,6 @@ def lyman_mass_absorption_coefficient(
             -PLANCK * line_frequency / (BOLTZMANN * atmosphere.temperature)
         )
         transition = (line.lower_level, line.upper_level)
-        jackson_line = (
-            jackson_lyman_table[transition]
-            if (
-                jackson_lyman_table is not None
-                and transition in jackson_lyman_table.lines
-            )
-            else None
-        )
-        if jackson_line is not None:
-            profile_per_hz = jackson_line.profile_per_hz(
-                wavelength,
-                atmosphere.temperature,
-                atmosphere.electron_density,
-                lyman_alpha_wavelength_angstrom=(
-                    LYMAN_LINES[0].wavelength_vacuum_angstrom
-                ),
-                include_doppler=True,
-            )
-            # White et al.'s absorption profile omits the trivial omega/omega_ij
-            # factor.  In wavelength coordinates that ratio is lambda_ij/lambda.
-            frequency_ratio = line.wavelength_vacuum_angstrom / wavelength
-            opacity += (
-                integrated_cross_section
-                * line.absorption_oscillator_strength
-                * profile_per_hz
-                * frequency_ratio[:, np.newaxis]
-                * lower_population[np.newaxis, :]
-                * bound_bound_survival[np.newaxis, :]
-                * stimulated_emission[np.newaxis, :]
-                / atmosphere.mass_density[np.newaxis, :]
-            )
-            continue
         allard_line = (
             unified_allard_table[transition]
             if (

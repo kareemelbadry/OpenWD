@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     )
     from .molecules import H2H2CollisionInducedAbsorptionTable
     from .hydrogen_self import BarklemSelfBroadeningTable
-    from .jackson_lyman import JacksonLymanProfileTable
     from .quasimolecular import AllardUnifiedLymanTable
 
 
@@ -370,7 +369,6 @@ def synthesize_balmer_spectrum(
     include_series_pseudocontinuum: bool = False,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
@@ -532,7 +530,6 @@ def synthesize_balmer_spectrum(
                 atmosphere,
                 wavelength,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
             )
             if include_neutral_lyman_alpha_wing:
                 line_opacity += (
@@ -541,13 +538,7 @@ def synthesize_balmer_spectrum(
                         wavelength,
                         allard_table=(
                             unified_allard_table.lines.get((1, 2))
-                            if (
-                                unified_allard_table is not None
-                                and not (
-                                    jackson_lyman_table is not None
-                                    and (1, 2) in jackson_lyman_table.lines
-                                )
-                            )
+                            if unified_allard_table is not None
                             else None
                         ),
                     )
@@ -741,7 +732,6 @@ def synthesize_balmer_spectrum(
                 include_series_pseudocontinuum=include_series_pseudocontinuum,
                 include_neutral_lyman_alpha_wing=include_neutral_lyman_alpha_wing,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
                 n_angle=n_angle,
                 backend=backend,
                 _return_radiation_field=True,
@@ -933,12 +923,6 @@ def synthesize_balmer_spectrum(
                 if include_lyman and unified_allard_table is not None
                 else "disabled"
             ),
-            "jackson_lyman_profiles": (
-                "Xenomorph electron+ion Stark with quasi-H2+; "
-                "depth-interpolated in log(T), log(ne); Doppler-convolved"
-                if include_lyman and jackson_lyman_table is not None
-                else "disabled"
-            ),
             "neutral_lyman_alpha_wing": (
                 "Rohrmann-Althaus-Kepler 2011 H-H b-a/X-B plus H-H2 E1-E3/E1-E4 at 6000 K"
                 if (
@@ -1018,7 +1002,6 @@ def synthesize_hydrogen_spectrum(
     include_series_pseudocontinuum: bool = False,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
@@ -1073,7 +1056,6 @@ def synthesize_hydrogen_spectrum(
         include_series_pseudocontinuum=include_series_pseudocontinuum,
         include_neutral_lyman_alpha_wing=include_neutral_lyman_alpha_wing,
         unified_allard_table=unified_allard_table,
-        jackson_lyman_table=jackson_lyman_table,
         metal_database=metal_database,
         metal_abundances=metal_abundances,
         metal_photoionization_database=metal_photoionization_database,
