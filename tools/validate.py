@@ -42,6 +42,7 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "daz-galex1931",
     "dq-j1235",
     "dq-j1311",
+    "sdb-hd4539",
 )
 CANARY = "tests/test_protected_model_canaries.py::"
 COLD_TESTS = {
@@ -52,6 +53,7 @@ COLD_TESTS = {
        for key in ("j1007+1237", "j1254+5612")},
     "do-50000": "tests/test_hot_cold_canary.py::test_hot_public_model_converges_from_cold[do-50000-standard]",
     "dao-60000": "tests/test_hot_cold_canary.py::test_hot_public_model_converges_from_cold[dao-60000-standard]",
+    "sdb-hd4539": "tests/test_sdb_cold_canary.py::test_hd4539_public_cold_start_and_research_spectrum",
     **{
         case: f"tests/test_released_family_canaries.py::test_released_family_cold_start[{case}]"
         for case in ("dz-pg1225", "pg1159-pg1424", "d6-j1637")
@@ -135,6 +137,10 @@ def commands(tier, cases=()):
             tasks[case] = pytest + [
                 "tests/test_dq_spectral_regression.py::test_completed_default_retains_j1311_absolute_flux"
             ]
+        elif tier == "spectra" and case == "sdb-hd4539":
+            tasks[case] = pytest + [
+                "tests/test_sdb_spectral_regression.py::test_hd4539_fixed_spectrum_matches_research_driver"
+            ]
         elif tier == "spectra" and case.startswith("daz-"):
             name = "g149_28" if case == "daz-g149-28" else "galex1931"
             tasks[case] = pytest + [
@@ -215,6 +221,8 @@ def numerical_identity(root=ROOT):
         "tests/test_daz_regressions.py",
         "tests/test_dq_spectral_regression.py",
         "tests/test_dq_release.py",
+        "tests/test_sdb_cold_canary.py",
+        "tests/test_sdb_spectral_regression.py",
         "tests/test_dah_paper.py",
         "tests/test_radiative_da_convergence.py",
         "tests/test_d6_regression.py",

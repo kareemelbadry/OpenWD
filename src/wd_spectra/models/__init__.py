@@ -70,3 +70,6 @@ __all__ += ["D6Config", "compute_d6"]
 
 from .dah import DAH_PAPER_PRESCRIPTION, DAHConfig, compute_dah, paper_dah_config
 __all__ += ["DAH_PAPER_PRESCRIPTION", "DAHConfig", "compute_dah", "paper_dah_config"]
+
+from .sdb import SdBConfig, compute_sdb
+__all__ += ["SdBConfig", "compute_sdb"]

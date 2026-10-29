@@ -42,6 +42,7 @@ from .hot import DOConfig, DAOConfig, compute_do, compute_dao
 from .pg1159 import PG1159Config, compute_pg1159
 from .d6 import D6Config, compute_d6
 from .dah import DAHConfig, compute_dah
+from .sdb import SdBConfig, compute_sdb
 from ..spectrum import Spectrum
 
 
@@ -245,6 +246,7 @@ def run_model(
                 PG1159Config: compute_pg1159,
                 D6Config: compute_d6,
                 DAHConfig: compute_dah,
+                SdBConfig: compute_sdb,
                 DAConfig: compute_da,
                 DAZConfig: compute_daz,
                 DQConfig: compute_dq,

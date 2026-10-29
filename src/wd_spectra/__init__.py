@@ -178,3 +178,6 @@ __all__ += ['PG1424_BEST_LINE_ATOM_COUNTS', 'PG1424_COMPOSITION_LADDER_ATOM_COUN
 
 from .models.dah import DAH_PAPER_PRESCRIPTION, DAHConfig, compute_dah, paper_dah_config
 __all__ += ["DAH_PAPER_PRESCRIPTION", "DAHConfig", "compute_dah", "paper_dah_config"]
+
+from .models.sdb import SdBConfig, compute_sdb
+__all__ += ["SdBConfig", "compute_sdb"]
