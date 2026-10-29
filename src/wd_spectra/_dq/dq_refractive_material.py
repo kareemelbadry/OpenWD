@@ -35,7 +35,6 @@ from wd_spectra.spectrum import Spectrum,planck_lambda_angstrom
 from .dq_dense_continuum_inputs import atomic_polarizability
 from .dq_pair_virial_quadrature import pair_virial_integrals
 from .dq_hornkohl_bounded_energy import BoundedDirectEnergyDQMaterial
-from .dq_hornkohl_cell import CellIntegratedDQMaterial
 from .dq_hornkohl_gated_energy import gated_solve
 from .dq_refractive_finite_volume import solve as fv_solve, formal_field
 from .dq_refractive_fv_response import integrated_response
@@ -127,8 +126,7 @@ class RefractiveBackend:
 
     def index(self,current):
         state=self.material.chemistry(current)[0]
-        index=(refractive_index(state,self.wave) if self.material.refraction_enabled
-            else np.ones((len(self.wave),state.n_depth)))
+        index=refractive_index(state,self.wave)
         return state,index
 
     def absorption(self,current,original):
@@ -278,17 +276,15 @@ class RefractiveBackend:
 
 
 class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
-    refraction_enabled=True
     ray_angles=4
-    declared_eos_seed=False
     maximum_memory_bytes=4*1024**3
 
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.interface_index_cache=OrderedDict()
         from .provenance import digest
-        self.experiment_metadata=dict(refraction_enabled=self.refraction_enabled,
-            declared_eos_seed=self.declared_eos_seed,
+        self.experiment_metadata=dict(refraction_enabled=True,
+            declared_eos_seed=False,
             ray_angles_per_invariant_interval=self.ray_angles,
             angular_coordinate='quadratic high-end turning-point map',
             maximum_process_memory_bytes=self.maximum_memory_bytes,
@@ -308,30 +304,11 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         state=self.chemistry(current)[0]
         electron=dq.electron_scattering_mass_coefficient(state)[None,:]
         rayleigh=dq.helium_rayleigh_scattering_mass_coefficient(state,wavelength)
-        if not self.refraction_enabled:return electron+rayleigh
         index=refractive_index(state,wavelength)
         # The generic ray kernel divides its input extinction by n. The
         # already-transport-form Rayleigh cross section must NOT be divided
         # again. Thomson is retained in the non-dispersive input convention.
         return electron+index*rayleigh
-
-    def hydrostatic_seed(self,teff,logg,n_depth):
-        if not self.declared_eos_seed:
-            return super().hydrostatic_seed(teff,logg,n_depth)
-        if self.helium_reos3 is None:
-            raise ValueError('Declared REOS seed requires the configured table')
-        print('DQ cold seed: using the declared REOS host in hydrostatic integration',flush=True)
-        return dq.helium_continuum_atmosphere(teff,logg,n_depth=n_depth,
-            correlated_microfields=True,metal_database=self.atomic,
-            metal_abundances={'C':self.config.log_carbon_to_helium},
-            include_dense_helium_metal_ionization=self.config.nonideal_carbon_ionization,
-            helium_reos3_table=self.helium_reos3)
-
-    def solve(self,*args,**kwargs):
-        # The refractive path performs its own explicit flux-to-energy handoff
-        # below. Skip the older research subclass whose implementation
-        # replaces the module-level solver function.
-        return CellIntegratedDQMaterial.solve(self,*args,**kwargs)
 
     def solve_adaptive_structure(self,seed,wave,**options):
         backend=RefractiveBackend(self,wave)
@@ -341,7 +318,7 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
             true_absorption=lambda a:backend.absorption(a,absorption),
             rosseland_opacity=lambda a:backend.rosseland(a,absorption))
         options['metadata']={**options.get('metadata',{}),
-            'dq_refractive_transfer':self.refraction_enabled,
+            'dq_refractive_transfer':True,
             'dq_refractive_ray_angles':self.ray_angles,
             'dq_transfer_discretization':'conservative-invariant-ray-mass-cells',
             'dq_ml2_refraction':'frequency-integrated diffusion; static-index grey thin-cell bridge',
@@ -350,7 +327,6 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         def coefficients(atmosphere,opacity,cp,expansion,adiabatic,alpha):
             result=_ml2_local_coefficients_from_thermodynamics(
                 atmosphere,opacity,cp,expansion,adiabatic,alpha)
-            if not self.refraction_enabled:return result
             # Density/thermal derivatives remain the caller's explicit
             # interface averages. Refractivity uses the same coupled EOS at
             # interface P,T, and is re-evaluated for tangent probes.
@@ -395,7 +371,7 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
             w=wave[first:first+1000]
             a=self.absorption(state,w,include_c2=include_c2);s=self.scattering(state,w)
             b=planck_lambda_angstrom(w[:,None],state.temperature[None,:])
-            index=refractive_index(state,w) if self.refraction_enabled else np.ones_like(a)
+            index=refractive_index(state,w)
             result=fv_solve(state.column_mass,a,s,b,index,n_angle=self.ray_angles)
             flux[first:first+len(w)]=result['flux'][:,0]
             if continuum:
@@ -406,7 +382,7 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
             conservation=max(conservation,result['maximum_conservation_error'])
             print(f'DQ refractive synthesis: {first+len(w)}/{len(wave)} wavelengths',flush=True)
         if np.any(~np.isfinite(flux)) or np.any(flux<=0):raise RuntimeError('Invalid refractive emergent spectrum')
-        return Spectrum(wave,flux,dict(refraction=self.refraction_enabled,
+        return Spectrum(wave,flux,dict(refraction=True,
             transfer_discretization='conservative-invariant-ray-mass-cells',opacity_scale=1.,
             independent_radiation_scaled_source_error=closure,maximum_cell_conservation_error=conservation,
             continuum_flux=('He continuum (dense He-minus correction, dissolved-level '

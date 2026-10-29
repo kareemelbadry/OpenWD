@@ -35,7 +35,6 @@ from wd_spectra.opacity import (
     hydrogen_continuum_mass_absorption_coefficient,
     hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient,
     hydrogen_ground_state_photoionization_cross_section,
-    hydrogen_level_population,
     molecular_hydrogen_mass_absorption_coefficient,
     h2_h2_cia_mass_absorption_coefficient,
     hydrogen_rayleigh_scattering_cross_section,
@@ -65,8 +64,8 @@ from wd_spectra.atmosphere import Atmosphere, _metal_line_opacity_sampling_grid
 from wd_spectra.eos import (
     hummer_mihalas_hydrogen_lte,
     hummer_mihalas_hydrogen_helium_thermodynamics,
+    hummer_mihalas_hydrogen_thermodynamics,
     ideal_hydrogen_lte,
-    ideal_hydrogen_thermodynamics,
 )
 
 
@@ -289,11 +288,6 @@ def test_bundled_infrared_tables_and_atomic_data():
         [0.4161967, 0.0791016],
         rtol=2.0e-6,
     )
-
-
-def test_excited_hydrogen_population_increases_over_da_range():
-    population = hydrogen_level_population(1.0e17, [8_000.0, 12_000.0, 20_000.0], 2)
-    assert np.all(np.diff(population) > 0.0)
 
 
 def test_neutral_hydrogen_broadening_covers_low_and_high_balmer_members():
@@ -734,16 +728,6 @@ def test_balmer_bound_bound_opacity_uses_upper_level_survival():
     nonideal = balmer_mass_absorption_coefficient(
         atmosphere, wavelength, lines=(line,), include_self_broadening=False
     )
-    ideal_lower_population = hydrogen_level_population(
-        atmosphere.neutral_h_density, atmosphere.temperature, 2
-    )
-    nonideal_lower_population = hydrogen_level_population(
-        atmosphere.neutral_h_density,
-        atmosphere.temperature,
-        2,
-        electron_density=atmosphere.electron_density,
-    )
-    assert np.all(nonideal_lower_population <= ideal_lower_population)
     assert np.all(nonideal >= 0.0)
     assert np.any(nonideal > 0.0)
 
@@ -1634,7 +1618,7 @@ def test_ml2_flux_is_zero_for_stable_gradient_and_positive_when_unstable():
 
 def test_ml2_analytic_gradient_response_matches_centered_difference():
     atmosphere = gray_hydrogen_atmosphere(9_000.0, 8.0, n_depth=12)
-    thermodynamics = ideal_hydrogen_thermodynamics(
+    thermodynamics = hummer_mihalas_hydrogen_thermodynamics(
         atmosphere.temperature, atmosphere.gas_pressure
     )
     opacity = np.full(atmosphere.n_depth, 0.1)

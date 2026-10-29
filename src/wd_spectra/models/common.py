@@ -282,7 +282,7 @@ class ModelData:
             / "molecular-opacity/CIA_Borysow_H2H2_0060-7000K_0.6-500um.dat"
         )
 
-    def require(self, *paths: Path, fetch_command: str | None = None) -> None:
+    def require(self, *paths: Path) -> None:
         missing = [path for path in paths if not path.is_file() and not path.is_dir()]
         if not missing:
             return

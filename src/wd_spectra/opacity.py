@@ -1853,52 +1853,6 @@ def rosseland_mean_hydrogen_continuum_opacity(
     return result
 
 
-def hydrogen_level_population(
-    neutral_h_density: ArrayLike,
-    temperature: ArrayLike,
-    principal_quantum_number: int,
-    *,
-    electron_density: ArrayLike | None = None,
-) -> FloatArray:
-    """LTE population of an H I level.
-
-    When ``electron_density`` is supplied, the result is normalized with the
-    same Hummer--Mihalas internal partition function used by the atmosphere
-    EOS.  Omitting it retains the ideal ground-state-relative calculation for
-    backward compatibility and controlled tests.
-    """
-
-    if principal_quantum_number < 1:
-        raise ValueError("principal_quantum_number must be positive")
-    neutral_h_density, temperature = np.broadcast_arrays(
-        np.asarray(neutral_h_density, dtype=np.float64),
-        np.asarray(temperature, dtype=np.float64),
-    )
-    if np.any(neutral_h_density < 0.0) or np.any(temperature <= 0.0):
-        raise ValueError("density and temperature must be physical")
-    if electron_density is not None:
-        neutral_h_density, temperature, electron_density = np.broadcast_arrays(
-            neutral_h_density,
-            temperature,
-            np.asarray(electron_density, dtype=np.float64),
-        )
-        if np.any(electron_density < 0.0):
-            raise ValueError("electron density must be physical")
-        distribution = hydrogen_level_distribution(
-            neutral_h_density,
-            electron_density,
-            temperature,
-            maximum_level=max(40, principal_quantum_number),
-        )
-        return distribution.population_density[..., principal_quantum_number - 1]
-    n = float(principal_quantum_number)
-    degeneracy_ratio = n * n
-    excitation_energy = HYDROGEN_IONIZATION_ENERGY * (1.0 - 1.0 / n**2)
-    return neutral_h_density * degeneracy_ratio * np.exp(
-        -excitation_energy / (BOLTZMANN * temperature)
-    )
-
-
 def balmer_mass_absorption_coefficient(
     atmosphere: Atmosphere,
     wavelength_angstrom: ArrayLike,
@@ -2407,7 +2361,6 @@ def lyman_mass_absorption_coefficient(
     stark_table: HydrogenStarkTable | None = None,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
     jackson_lyman_table: JacksonLymanProfileTable | None = None,
-    jackson_include_doppler: bool = True,
     allard_stark_weight: float = 0.5,
     lines: tuple[HydrogenLine, ...] = LYMAN_LINES,
 ) -> FloatArray:
@@ -2417,7 +2370,7 @@ def lyman_mass_absorption_coefficient(
     Doppler-convolved Tremblay-Bergeron profiles.  A supplied Jackson table
     replaces the complete charged-particle profile of Lyalpha and Lybeta with
     the Xenomorph calculation, including electron Stark, ion dynamics,
-    quasi-H2+ satellites, and (by default) its delivered Doppler convolution.
+    quasi-H2+ satellites, and its delivered Doppler convolution.
     It is not added to the ordinary Stark line because that would double-count
     both electron and proton broadening.  For transitions absent from the
     Jackson delivery, a supplied temperature-dependent Allard table retains
@@ -2486,7 +2439,7 @@ def lyman_mass_absorption_coefficient(
                 lyman_alpha_wavelength_angstrom=(
                     LYMAN_LINES[0].wavelength_vacuum_angstrom
                 ),
-                include_doppler=jackson_include_doppler,
+                include_doppler=True,
             )
             # White et al.'s absorption profile omits the trivial omega/omega_ij
             # factor.  In wavelength coordinates that ratio is lambda_ij/lambda.
@@ -2743,52 +2696,6 @@ def lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient(
             / atmosphere.mass_density[np.newaxis, :]
         )
     return opacity
-
-
-def allard_unified_lyman_alpha_mass_absorption_coefficient(
-    atmosphere: Atmosphere,
-    wavelength_angstrom: ArrayLike,
-    unified_table: AllardNeutralLymanAlphaTable,
-) -> FloatArray:
-    """Evaluate external SYNSPEC-format H/H+ Lyalpha opacity in cm2 g-1.
-
-    This compatibility function evaluates only the external Lyalpha cross
-    section.  Production synthesis should pass an ``AllardUnifiedLymanTable``
-    to ``lyman_mass_absorption_coefficient`` so it can select the requested
-    Stark/perturber combination explicitly.
-    """
-
-    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    if wavelength.ndim != 1 or np.any(~np.isfinite(wavelength)) or np.any(wavelength <= 0.0):
-        raise ValueError("wavelength_angstrom must be a finite positive 1D array")
-    level_distribution = _atmosphere_level_distribution(atmosphere, maximum_level=2)
-    ground_population = level_distribution.population_density[:, 0]
-    line_frequency = LIGHT_SPEED / (
-        LYMAN_LINES[0].wavelength_vacuum_angstrom * 1.0e-8
-    )
-    stimulated_emission = 1.0 - np.exp(
-        -PLANCK * line_frequency / (BOLTZMANN * atmosphere.temperature)
-    )
-    profile_temperature = _allard_profile_temperature_by_depth(
-        unified_table, atmosphere
-    )
-    # GETLAL/ALLARD is tabulated for H(1s) perturbers.  Native SYNSPEC passes
-    # PJ(1), the ground-state population, both here and as the absorbing
-    # population below; using the total neutral atomic density would quietly
-    # count excited H atoms as ground-state perturbers in hot/deep layers.
-    cross_section = unified_table.profile_cross_section(
-        wavelength,
-        profile_temperature,
-        ground_population,
-        atmosphere.proton_density,
-        extend_lyman_alpha_red_wing=True,
-    )
-    return (
-        cross_section
-        * ground_population[np.newaxis, :]
-        * stimulated_emission[np.newaxis, :]
-        / atmosphere.mass_density[np.newaxis, :]
-    )
 
 
 def optical_depth_from_mass_opacity(

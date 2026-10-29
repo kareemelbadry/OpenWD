@@ -1143,7 +1143,6 @@ def synthesize_helium_spectrum(
     ca_ii_helium_impact_scale: float = 1.0,
     ca_ii_resonance_scattering_fraction: float = 0.0,
     ca_ii_resonance_collision_strengths: str | None = None,
-    ca_ii_resonance_redistribution: Literal["complete", "coherent"] = "complete",
     c2_cross_section_table: object | None = None,
     include_dense_helium_metal_ionization: bool = True,
     metal_occupation_probability_partitions: bool = False,
@@ -1356,8 +1355,6 @@ def synthesize_helium_spectrum(
                 ca_ii_resonance_collision_strengths,
             )
             ca_ii_crd_atmosphere = atmosphere
-            if ca_ii_resonance_redistribution not in ("complete", "coherent"):
-                raise ValueError("ca_ii_resonance_redistribution must be 'complete' or 'coherent'")
 
             def ca_ii_line_extinction(grid):
                 def extinction(keys, profile_table):
@@ -1390,17 +1387,6 @@ def synthesize_helium_spectrum(
                 total = sum(ordinary.values())
                 share = np.divide(1.0, total, out=np.zeros_like(total), where=total > 0)
                 return {key: joint * value * share for key, value in ordinary.items()}
-
-            if ca_ii_resonance_redistribution == "coherent":
-                # Monochromatic coherent scattering with the same
-                # probabilities (the pre-2026-09-30 treatment), for controls.
-                for key, extinction in ca_ii_line_extinction(wavelength).items():
-                    metal_line_scattering += (
-                        ca_ii_probabilities[key].probability[np.newaxis, :]
-                        * extinction
-                    )
-                absorption -= metal_line_scattering
-                ca_ii_probabilities = None
         elif ca_ii_resonance_scattering_fraction > 0.0 and calcium_lines_enabled:
             ca_ii = metal_database.ions.get(("Ca", 1))
             if ca_ii is not None:

@@ -71,7 +71,6 @@ EV_TO_WAVENUMBER = EV_TO_ERG / WAVENUMBER_TO_ERG
 BOHR_RADIUS_CM = 5.291_772_105_44e-9
 STOUT_ARCHIVE_URL = "https://linelist.pa.uky.edu/newpage/downloads/stout.tar.gz"
 STOUT_ARCHIVE_SHA256 = "6be3a8ee145aa9364e06eec25348a3ac65cdcaf68951c52203b9bd7a4413341e"
-KURUCZ_CR_II_URL = "http://kurucz.harvard.edu/atoms/2401/gf2401.all"
 KURUCZ_CR_II_SHA256 = "6f0c4d0e01421fb0549ddbcf5649af391ca9b930e4e83e693e662d5874505205"
 _KURUCZ_CR_II_SOURCE = "Kurucz Cr II gf2401.all missing-transition supplement"
 # Unmodified, observed-level UV rows from the checksum-pinned gf2601.all;
@@ -87,8 +86,6 @@ MG_HE_RED_WING_URL = "https://cdsarc.cds.unistra.fr/ftp/J/A+A/619/A152/fig5.dat"
 MG_HE_RED_WING_SHA256 = "b79879240f935aadb7afbf68a590a26a2a43c572315323c8785fc750bb0f9aa7"
 VERNER_PHOTOIONIZATION_URL = "https://www.pa.uky.edu/~verner/dima/photo/photo.dat"
 VERNER_PHOTOIONIZATION_SHA256 = "a53e73b0af4cc6b801aef67b84bd964e3ed8c9c4992f214e4a69dc7e4443f389"
-VERNER_PHFIT2_URL = "https://www.pa.uky.edu/~verner/dima/photo/phfit2.f"
-VERNER_PHFIT2_SHA256 = "8df982535a4a2b952e33ca2ffb6d81600e156d7373fbf547a0c0170c1cecc296"
 BARKLEM_NEUTRAL_H_BROADENING_URL = (
     "https://raw.githubusercontent.com/barklem/public-data/"
     "master/broadening-neutrals/hlist"
@@ -319,7 +316,6 @@ _CA_II_HE_WAVENUMBER_HWHM_PER_DENSITY_5200 = MappingProxyType(
 )
 _CA_II_HE_REFERENCE_TEMPERATURE = 5200.0
 _CA_II_HE_LENNARD_JONES_A_5200 = MappingProxyType({"K": 4.09, "H": 1.63})
-_CA_II_HE_REDUCED_MASS_U = 40.078 * 4.002602 / (40.078 + 4.002602)
 
 # Aguilera, Aragon & Manrique (2014, MNRAS 444, 1854), Table 2, measured
 # electron-impact FWHM values at ne=1e17 cm^-3 and T=14000 K.  Their reported
@@ -497,19 +493,6 @@ _BULK_METAL_STATIC_POLARIZABILITY_A3 = MappingProxyType(
     {"C": 1.760, "O": 0.802, "Ne": 0.394_299}
 )
 
-# Negative-ion continuum data used for cool O/Ne-dominated remnants.  John
-# (1975a,b) gives the long-wavelength free-free coefficient in the form
-# k_lambda=A(T) lambda[A]^2 n(X I) P_e.  The two temperatures below are the
-# directly relevant entries of his Table I; interpolation is a power law in
-# temperature.  The O- electron affinity is the NIST value.  The compact
-# photodetachment envelope follows the Wigner threshold law and is normalized
-# to the 5.9--6.3e-18 cm2 laboratory measurements at 662/532 nm; its 1.2e-17
-# cm2 asymptote is the close-coupling result of Robinson & Geltman (1967).
-_JOHN_NEGATIVE_ION_FREE_FREE_A_TIMES_1E34 = MappingProxyType(
-    {"Ne": (0.0410, 0.0328), "O": (0.429, 0.290), "Na": (2.7, 1.3)}
-)
-_O_MINUS_ELECTRON_AFFINITY_EV = 1.461_113_6
-_O_MINUS_ASYMPTOTIC_CROSS_SECTION_CM2 = 1.2e-17
 _RYDBERG_ENERGY_EV = 13.605_693_122_994
 
 # The Stout O I file omits eight fine-structure components connecting the
@@ -2806,23 +2789,6 @@ def _rauch_matched_lines(
     transitions.sort(key=lambda line: line.wavelength_vacuum_angstrom)
     counts["attached"] = len(transitions)
     return tuple(transitions), MappingProxyType(counts)
-
-
-def rauch_zn_cu_line_counts(
-    database: AtomicDatabase, root: str | Path
-) -> dict[str, dict[str, int]]:
-    """Report how many Rauch lines attach to each ion's Stout levels."""
-
-    directory = str(_rauch_data_directory(Path(root)).resolve())
-    return {
-        f"{element} {charge}": dict(
-            _rauch_matched_lines(
-                directory, element, charge, database.ions[(element, charge)].levels
-            )[1]
-        )
-        for element, charge in RAUCH_ZN_CU_ION_FILES
-        if (element, charge) in database.ions
-    }
 
 
 def atomic_database_with_rauch_zn_cu_transitions(
@@ -5476,7 +5442,6 @@ def metal_lte_state(
     reference_species: Literal["auto", "H", "He"] = "auto",
     include_dense_helium_ionization: bool = True,
     log_hydrogen_abundance: float | None = None,
-    trace_hydrogen_correlated_microfields: bool = True,
     occupation_probability_partitions: bool = False,
 ) -> MetalLTEState:
     """Solve trace-metal Saha populations and total electron density.
@@ -5643,7 +5608,7 @@ def metal_lte_state(
                 neutral_hydrogen,
                 distribution_electron_density,
                 temperature,
-                correlated_microfields=trace_hydrogen_correlated_microfields,
+                correlated_microfields=True,
             )
             for _ in range(12):
                 log_saha_ratio = (
@@ -5668,7 +5633,7 @@ def metal_lte_state(
                     neutral_hydrogen,
                     distribution_electron_density,
                     temperature,
-                    correlated_microfields=trace_hydrogen_correlated_microfields,
+                    correlated_microfields=True,
                 )
             proton_hydrogen = trace_hydrogen_density - neutral_hydrogen
             hydrogen_charge = proton_hydrogen
@@ -5937,9 +5902,7 @@ def metal_lte_state(
             internal_partition_function=distribution.internal_partition_function,
             level_occupation_probability=distribution.occupation_probability,
             level_population_density=distribution.population_density,
-            microfield_model=(
-                "qmhd" if trace_hydrogen_correlated_microfields else "holtsmark"
-            ),
+            microfield_model="qmhd",
             chemical_model="trace-atomic-hm-in-helium",
         )
     return MetalLTEState(
@@ -6305,33 +6268,6 @@ def _voigt_profile_per_angstrom(
     scale = 1.0 / (sigma_nu * np.sqrt(2.0))
     profile_nu = _humlicek_w4(detuning * scale, gamma_nu * scale) * scale / np.sqrt(PI)
     return profile_nu * per_angstrom
-
-
-def _pseudo_voigt_profile_grid(
-    wavelength: FloatArray,
-    center: float,
-    gaussian_sigma: FloatArray,
-    lorentz_hwhm: FloatArray,
-) -> FloatArray:
-    """Depth-vectorized :func:`_pseudo_voigt_profile_per_angstrom`."""
-
-    gaussian_fwhm = 2.0 * np.sqrt(2.0 * np.log(2.0)) * np.maximum(gaussian_sigma, 1.0e-12)
-    lorentz_fwhm = 2.0 * np.maximum(lorentz_hwhm, 0.0)
-    width = (
-        gaussian_fwhm**5 + 2.69269 * gaussian_fwhm**4 * lorentz_fwhm
-        + 2.42843 * gaussian_fwhm**3 * lorentz_fwhm**2
-        + 4.47163 * gaussian_fwhm**2 * lorentz_fwhm**3
-        + 0.07842 * gaussian_fwhm * lorentz_fwhm**4 + lorentz_fwhm**5
-    ) ** 0.2
-    ratio = lorentz_fwhm / np.maximum(width, np.finfo(np.float64).tiny)
-    mixing = np.clip(1.36603 * ratio - 0.47719 * ratio**2 + 0.11116 * ratio**3, 0.0, 1.0)
-    offset = (wavelength - center)[:, np.newaxis] / width[np.newaxis, :]
-    gaussian = (
-        2.0 * np.sqrt(np.log(2.0)) / (np.sqrt(np.pi) * width[np.newaxis, :])
-        * np.exp(-4.0 * np.log(2.0) * offset**2)
-    )
-    lorentz = 2.0 / (np.pi * width[np.newaxis, :]) / (1.0 + 4.0 * offset**2)
-    return (1.0 - mixing)[np.newaxis, :] * gaussian + mixing[np.newaxis, :] * lorentz
 
 
 def _quasistatic_line_profile(
@@ -8753,41 +8689,6 @@ def unsold_hydrogen_impact_rate_coefficient(
     return coefficient * temperature**0.3
 
 
-def unsold_helium_impact_rate_coefficient(
-    ion: AtomicIon,
-    transition: AtomicTransition,
-    temperature_kelvin: ArrayLike,
-    *,
-    parent_ion: AtomicIon | None = None,
-) -> FloatArray | None:
-    """Estimate neutral-He damping per perturber from the line's levels.
-
-    The classical neutral-H Unsold/Warner rate is rescaled by the He/H
-    polarizability ratio and the radiator--perturber reduced mass.
-
-    For Ca II K this reproduces Hammond's (1975) own Unsold estimate,
-    3.3e-9 cm3 s-1 at 5200 K, which is about half of his laboratory width.
-    That factor of about two is the known Unsold underestimate; production
-    Ca II H/K therefore uses the measured width instead.
-    """
-
-    temperature = np.asarray(temperature_kelvin, dtype=np.float64)
-    if np.any(~np.isfinite(temperature)) or np.any(temperature <= 0.0):
-        raise ValueError("temperature_kelvin must be finite and positive")
-    hydrogen_rate = unsold_hydrogen_impact_rate_coefficient(
-        ion, transition, temperature, parent_ion=parent_ion
-    )
-    if hydrogen_rate is None:
-        return None
-
-    return neutral_impact_rate_from_hydrogen(
-        ion,
-        hydrogen_rate,
-        perturber_atomic_mass_u=_HELIUM_ATOMIC_MASS_U,
-        perturber_static_polarizability_a3=_HELIUM_STATIC_POLARIZABILITY_A3,
-    )
-
-
 def neutral_impact_rate_from_hydrogen(
     ion: AtomicIon,
     hydrogen_rate_coefficient: ArrayLike,
@@ -8830,162 +8731,6 @@ def neutral_impact_rate_from_hydrogen(
         * (reduced_mass_h / reduced_mass) ** 0.3
     )
     return rate * scale
-
-
-def unsold_neutral_metal_impact_rate_coefficient(
-    ion: AtomicIon,
-    transition: AtomicTransition,
-    temperature_kelvin: ArrayLike,
-    perturber: str,
-    *,
-    parent_ion: AtomicIon | None = None,
-) -> FloatArray | None:
-    """Estimate Unsold damping by a supported neutral bulk-metal perturber.
-
-    The induced-dipole width scales as polarizability to the two-fifths power
-    and reduced mass to the minus three-tenths power.  Rescaling the existing
-    H-perturber Unsold/Warner result keeps the line-specific radiator physics
-    unchanged while supplying the physically relevant host gas in a bulk
-    C/O atmosphere.  Polarizabilities are experimental NIST CCCBDB values.
-    """
-
-    symbol = _canonical_element(perturber)
-    if symbol not in _BULK_METAL_STATIC_POLARIZABILITY_A3:
-        raise ValueError(
-            "neutral-metal Unsold broadening currently supports C, O, and Ne"
-        )
-    hydrogen_rate = unsold_hydrogen_impact_rate_coefficient(
-        ion, transition, temperature_kelvin, parent_ion=parent_ion
-    )
-    if hydrogen_rate is None:
-        return None
-    return neutral_impact_rate_from_hydrogen(
-        ion,
-        hydrogen_rate,
-        perturber_atomic_mass_u=ATOMIC_MASS_U[symbol],
-        perturber_static_polarizability_a3=(
-            _BULK_METAL_STATIC_POLARIZABILITY_A3[symbol]
-        ),
-    )
-
-
-def oxygen_negative_ion_lte_number_density(
-    atmosphere: Atmosphere,
-    metal_state: MetalLTEState,
-) -> FloatArray:
-    """Return the LTE O-minus ground-state number density in ``cm^-3``.
-
-    O-minus is treated as a trace negative ion, so its small contribution to
-    charge neutrality and mass density is neglected.  The attachment Saha
-    relation uses the O-(2P) statistical weight 6 and the complete O I(3P)
-    ground-term weight 9.
-    """
-
-    if "O" not in metal_state.ion_number_density:
-        return np.zeros(atmosphere.n_depth, dtype=np.float64)
-    if metal_state.electron_density.shape != atmosphere.temperature.shape:
-        raise ValueError("metal_state and atmosphere depth grids do not match")
-    statistical_weight_ratio = 6.0 / (2.0 * 9.0)
-    inverse_translation = (
-        PLANCK**2
-        / (2.0 * PI * ELECTRON_MASS * BOLTZMANN * atmosphere.temperature)
-    ) ** 1.5
-    attachment = np.exp(np.minimum(
-        _O_MINUS_ELECTRON_AFFINITY_EV * EV_TO_ERG
-        / (BOLTZMANN * atmosphere.temperature),
-        745.0,
-    ))
-    neutral_oxygen = metal_state.ion_number_density["O"][0]
-    return np.ascontiguousarray(
-        neutral_oxygen
-        * metal_state.electron_density
-        * statistical_weight_ratio
-        * inverse_translation
-        * attachment
-    )
-
-
-def cool_metal_negative_ion_mass_absorption_coefficient(
-    atmosphere: Atmosphere,
-    wavelength_angstrom: ArrayLike,
-    metal_state: MetalLTEState,
-) -> FloatArray:
-    """Approximate O-/Ne-/Na- continuum opacity in ``cm2 g-1``.
-
-    The free-free part is the optical/long-wavelength John (1975a,b)
-    prescription used in LP 40-365 atmosphere work.  The O- bound-free part
-    is a resonance-averaged Wigner-threshold envelope constrained by measured
-    visible photodetachment cross sections.  This compact implementation is
-    intended for assessing cool O/Ne atmosphere structure; it does not claim
-    the detailed resonances of the full negative-ion calculations cited by
-    Raddi et al. (2019).
-    """
-
-    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    if (
-        wavelength.ndim != 1
-        or np.any(~np.isfinite(wavelength))
-        or np.any(wavelength <= 0.0)
-    ):
-        raise ValueError("wavelength_angstrom must be finite, positive, and 1D")
-    if metal_state.electron_density.shape != atmosphere.temperature.shape:
-        raise ValueError("metal_state and atmosphere depth grids do not match")
-    shape = (wavelength.size, atmosphere.n_depth)
-    result = np.zeros(shape, dtype=np.float64)
-    temperature = atmosphere.temperature
-    electron_pressure = (
-        metal_state.electron_density * BOLTZMANN * temperature
-    )
-
-    for element, (value_5000, value_10000) in (
-        _JOHN_NEGATIVE_ION_FREE_FREE_A_TIMES_1E34.items()
-    ):
-        populations = metal_state.ion_number_density.get(element)
-        if populations is None or populations.shape[0] == 0:
-            continue
-        exponent = np.log(value_10000 / value_5000) / np.log(2.0)
-        coefficient = (
-            value_5000 * (temperature / 5000.0) ** exponent * 1.0e-34
-        )
-        result += (
-            wavelength[:, np.newaxis] ** 2
-            * coefficient[np.newaxis, :]
-            * populations[0, np.newaxis, :]
-            * electron_pressure[np.newaxis, :]
-            / atmosphere.mass_density[np.newaxis, :]
-        )
-
-    if "O" in metal_state.ion_number_density:
-        photon_energy_ev = (
-            PLANCK * LIGHT_SPEED
-            / (wavelength[:, np.newaxis] * 1.0e-8) / EV_TO_ERG
-        )
-        above = photon_energy_ev > _O_MINUS_ELECTRON_AFFINITY_EV
-        cross_section = np.where(
-            above,
-            _O_MINUS_ASYMPTOTIC_CROSS_SECTION_CM2 * np.sqrt(np.maximum(
-                1.0
-                - _O_MINUS_ELECTRON_AFFINITY_EV / photon_energy_ev,
-                0.0,
-            )),
-            0.0,
-        )
-        stimulated = -np.expm1(
-            -PLANCK * LIGHT_SPEED
-            / (
-                wavelength[:, np.newaxis] * 1.0e-8
-                * BOLTZMANN * temperature[np.newaxis, :]
-            )
-        )
-        result += (
-            cross_section
-            * oxygen_negative_ion_lte_number_density(
-                atmosphere, metal_state
-            )[np.newaxis, :]
-            * stimulated
-            / atmosphere.mass_density[np.newaxis, :]
-        )
-    return np.ascontiguousarray(np.maximum(result, 0.0))
 
 
 def metal_bound_free_mass_absorption_coefficient(

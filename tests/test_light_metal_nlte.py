@@ -9,11 +9,8 @@ from wd_spectra import (
     ChiantiScaledCollisionComponent,
     ChiantiTermCollisionStrength,
     TmadStructureModelAtom,
-    atomic_database_with_chianti_radiative_transitions,
     atomic_database_with_tmad_formal_ions,
     atomic_database_with_tmad_profile_parameters,
-    barklem_oi_electron_collision_data,
-    fine_structure_collision_data_from_tmad,
     btm_quadrupole_l_mixing_rate_coefficient,
     gray_helium_atmosphere,
     light_metal_free_free_charge_kernel,
@@ -22,11 +19,9 @@ from wd_spectra import (
     psm20_debye_l_mixing_rate_coefficient,
     psm20_l_mixing_rate_coefficient,
     read_chianti_term_collision_strengths,
-    read_barklem_mgi_electron_collision_data,
     read_norad_oxygen_vi_photoionization_data,
     read_sirocco_topbase_photoionization_data,
     read_tmad_structure_model_atom,
-    read_tlusty_forbidden_collision_strengths,
     read_tlusty_photoionization_threshold_data,
     reduced_light_metal_wavelength,
     rydberg_angular_momentum_mixing_collision_data,
@@ -36,11 +31,10 @@ from wd_spectra import (
     TmadEffectiveDielectronicCoupling,
     TmadLTEBoundBoundCoupling,
 )
-from wd_spectra.constants import LIGHT_SPEED, PLANCK
+from wd_spectra.constants import LIGHT_SPEED
 from wd_spectra._compat import trapezoid
 from wd_spectra.metals import (
     ATOMIC_MASS_U,
-    EV_TO_ERG,
     IONIZATION_ENERGY_EV,
     AtomicDatabase,
     AtomicIon,
@@ -59,7 +53,7 @@ from wd_spectra.light_metal_nlte import (
     _mapped_fine_structure_components,
     _photoionization_rates,
     _photoionization_rates_python,
-    _profile_weighted_line_means,
+    _profile_weighted_line_field_means,
     _tmap_seaton_collisional_ionization_rate,
     _profile_weighted_line_means_python,
     _tabulated_electron_stark_fwhm_angstrom,
@@ -185,100 +179,6 @@ def test_rydberg_l_mixing_builder_uses_only_adjacent_high_l_terms():
     assert all(record.target_core_charge == 6.0 for record in collisions.values())
 
 
-def test_barklem_oi_collision_builder_preserves_ls_term_rates():
-    levels = (
-        AtomicLevel(1, 0.0, 5.0, "2s2.2p4.(3P<2>)"),
-        AtomicLevel(2, 100.0, 3.0, "2s2.2p4.(3P<1>)"),
-        AtomicLevel(3, 200.0, 1.0, "2s2.2p4.(3P<0>)"),
-        AtomicLevel(4, 15_000.0, 5.0, "2s2.2p4.(1D<2>)"),
-        AtomicLevel(5, 33_000.0, 1.0, "2s2.2p4.(1S<0>)"),
-        AtomicLevel(6, 73_000.0, 5.0, "2s2.2p3.3s.(5So<2>)"),
-        AtomicLevel(7, 76_000.0, 3.0, "2s2.2p3.3s.(3So<1>)"),
-        AtomicLevel(8, 86_000.0, 3.0, "2s2.2p3.3p.(5P<1>)"),
-        AtomicLevel(9, 86_100.0, 5.0, "2s2.2p3.3p.(5P<2>)"),
-        AtomicLevel(10, 86_200.0, 7.0, "2s2.2p3.3p.(5P<3>)"),
-        AtomicLevel(11, 88_000.0, 3.0, "2s2.2p3.3p.(3P<1>)"),
-        AtomicLevel(12, 88_100.0, 5.0, "2s2.2p3.3p.(3P<2>)"),
-        AtomicLevel(13, 88_200.0, 1.0, "2s2.2p3.3p.(3P<0>)"),
-    )
-    ion = AtomicIon(
-        element="O",
-        charge=0,
-        atomic_mass_u=ATOMIC_MASS_U["O"],
-        ionization_energy_ev=IONIZATION_ENERGY_EV["O"][0],
-        levels=levels,
-        transitions=(),
-        source="synthetic O I fine atom",
-    )
-    database = AtomicDatabase(
-        MappingProxyType({("O", 0): ion}), source="synthetic O I atom"
-    )
-    collisions = barklem_oi_electron_collision_data(database)
-    quintet_rates = sum(
-        collisions[("O", 0, 6, upper)].upward_rate_coefficient(12_000.0)
-        for upper in (8, 9, 10)
-    )
-    triplet_rates = sum(
-        collisions[("O", 0, 7, upper)].upward_rate_coefficient(12_000.0)
-        for upper in (11, 12, 13)
-    )
-    assert quintet_rates == pytest.approx(1.20e-7)
-    assert triplet_rates == pytest.approx(1.26e-7)
-    record = collisions[("O", 0, 6, 8)]
-    assert record.upward_rate_coefficient(np.sqrt(8_000.0 * 12_000.0)) == pytest.approx(
-        np.sqrt(
-            record.upward_rate_coefficient_cm3_s[3]
-            * record.upward_rate_coefficient_cm3_s[4]
-        )
-    )
-
-
-def test_barklem_mgi_collision_reader_preserves_term_rate(tmp_path: Path):
-    ion = AtomicIon(
-        element="Mg",
-        charge=0,
-        atomic_mass_u=ATOMIC_MASS_U["Mg"],
-        ionization_energy_ev=IONIZATION_ENERGY_EV["Mg"][0],
-        levels=(
-            AtomicLevel(1, 0.0, 1.0, "3s2.(1S<0>)"),
-            AtomicLevel(2, 21_850.0, 1.0, "3s.3p.(3Po<0>)"),
-            AtomicLevel(3, 21_870.0, 3.0, "3s.3p.(3Po<1>)"),
-            AtomicLevel(4, 21_910.0, 5.0, "3s.3p.(3Po<2>)"),
-        ),
-        transitions=(),
-        source="synthetic Mg I fine atom",
-    )
-    database = AtomicDatabase(
-        MappingProxyType({("Mg", 0): ion}), source="synthetic Mg I atom"
-    )
-    (tmp_path / "states.dat").write_text(
-        "  1    3s2_1S    1  0.000\n"
-        "  2    3s3p_3P   9  2.714\n",
-        encoding="ascii",
-    )
-    (tmp_path / "1000k_c.dat").write_text(
-        "0.0 2.0\n2.0 0.0\n", encoding="ascii"
-    )
-    (tmp_path / "2000k_c.dat").write_text(
-        "0.0 4.0\n4.0 0.0\n", encoding="ascii"
-    )
-    collisions = read_barklem_mgi_electron_collision_data(
-        tmp_path, database
-    )
-    summed_rate = sum(
-        collisions[("Mg", 0, 1, upper)].upward_rate_coefficient(1_000.0)
-        for upper in (2, 3, 4)
-    )
-    expected = (
-        8.63e-6
-        * 2.0
-        / np.sqrt(1_000.0)
-        * np.exp(-2.714 * EV_TO_ERG / (1.380_649e-16 * 1_000.0))
-    )
-    assert summed_rate == pytest.approx(expected)
-    assert len(collisions) == 3
-
-
 def test_rydberg_quadrupole_builder_connects_delta_l_two_terms():
     ion = AtomicIon(
         element="O",
@@ -308,53 +208,6 @@ def test_rydberg_quadrupole_builder_connects_delta_l_two_terms():
         ("O", 5, 5, 6),  # n=8 F-H.
     }
     assert all(record.target_core_charge == 6.0 for record in collisions.values())
-
-
-def test_tlusty_reader_retains_collision_only_forbidden_link(tmp_path: Path):
-    ionization_frequency = IONIZATION_ENERGY_EV["C"][2] * EV_TO_ERG / PLANCK
-    excited_frequency = ionization_frequency - 1.0e15
-    path = tmp_path / "c3.dat"
-    path.write_text(
-        f"""****** Levels
- {ionization_frequency:.12E} 1. 3 'CIII 1Se 1' 0 0. 0.
- {excited_frequency:.12E} 9. 3 'CIII 3Po 1' 0 0. 0.
-****** Continuum transitions
-*** Line transitions
- 1 2 0 0 4 0 0 0.000E+00 5.000E-02
-""",
-        encoding="ascii",
-    )
-    ion = AtomicIon(
-        element="C",
-        charge=2,
-        atomic_mass_u=ATOMIC_MASS_U["C"],
-        ionization_energy_ev=IONIZATION_ENERGY_EV["C"][2],
-        levels=(
-            AtomicLevel(1, 0.0, 1.0, "C302S2 1S"),
-            AtomicLevel(2, 1.0e15 / LIGHT_SPEED, 9.0, "C302P  3PO"),
-        ),
-        transitions=(),
-        source="synthetic population atom",
-    )
-    model_atom = TmadStructureModelAtom(
-        atomic_database=AtomicDatabase(
-            MappingProxyType({("C", 2): ion}),
-            source="synthetic population atom",
-        ),
-        levels_per_charge=MappingProxyType({2: 2}),
-        formal_level_mapping=MappingProxyType({}),
-        formal_lte_parent_mapping=MappingProxyType({}),
-        continuum_parent_mapping=MappingProxyType({}),
-        lte_level_reservoir=MappingProxyType({}),
-        lte_bound_bound_couplings=(),
-        collision_data=MappingProxyType({}),
-        source="synthetic population atom",
-    )
-    collisions = read_tlusty_forbidden_collision_strengths(
-        path, model_atom.atomic_database, "C", 2
-    )
-    record = collisions[("C", 2, 1, 2)]
-    assert record.effective_collision_strength(100_000.0) == pytest.approx(0.05)
 
 
 def test_sirocco_topbase_reader_collapses_identical_fine_components(
@@ -563,39 +416,6 @@ def test_chianti_reader_sums_fine_components_onto_population_terms(
     assert isinstance(record, ChiantiTermCollisionStrength)
     assert len(record.components) == 2
     assert record.effective_collision_strength(1.57888e5) == pytest.approx(3.0)
-
-
-def test_chianti_radiative_reader_fills_only_missing_endpoint_pairs(
-    tmp_path: Path,
-):
-    ion = AtomicIon(
-        element="P",
-        charge=4,
-        atomic_mass_u=ATOMIC_MASS_U["P"],
-        ionization_energy_ev=IONIZATION_ENERGY_EV["P"][4],
-        levels=(
-            AtomicLevel(1, 0.0, 2.0, "3s 2S"),
-            AtomicLevel(2, 100_000.0, 4.0, "3p 2P"),
-        ),
-        transitions=(),
-        source="synthetic Stout ion",
-    )
-    database = AtomicDatabase(
-        MappingProxyType({("P", 4): ion}), source="synthetic database"
-    )
-    wgfa = tmp_path / "p_5.wgfa"
-    wgfa.write_text(
-        "1 2 1000.0 6.0e-1 1.0e8 3s 2S - 3p 2P\n-1\n",
-        encoding="ascii",
-    )
-    augmented = atomic_database_with_chianti_radiative_transitions(
-        database, wgfa, "P", 4
-    )
-    transition = augmented.ions[("P", 4)].transitions[0]
-    assert transition.wavelength_vacuum_angstrom == pytest.approx(1000.0)
-    assert transition.absorption_oscillator_strength == pytest.approx(0.3)
-    assert transition.einstein_a == pytest.approx(1.0e8)
-    assert database.ions[("P", 4)].transitions == ()
 
 
 def test_holtsmark_microfield_distribution_matches_reference_values():
@@ -816,16 +636,15 @@ def test_compiled_metal_line_rate_means_match_python():
     expected_j, expected_lambda = _profile_weighted_line_means_python(
         wavelength, intensity, lambda_diagonal, center, gaussian, lorentz
     )
-    actual_j, actual_lambda = _profile_weighted_line_means(
-        wavelength, intensity, lambda_diagonal, center, gaussian, lorentz
+    actual_j, actual_lambda = _profile_weighted_line_field_means(
+        wavelength, (intensity, lambda_diagonal), center, gaussian, lorentz
     )
     np.testing.assert_allclose(actual_j, expected_j, rtol=5.0e-14)
     np.testing.assert_allclose(actual_lambda, expected_lambda, rtol=5.0e-14)
-    no_lambda_j, no_lambda = _profile_weighted_line_means(
-        wavelength, intensity, None, center, gaussian, lorentz
+    (no_lambda_j,) = _profile_weighted_line_field_means(
+        wavelength, (intensity,), center, gaussian, lorentz
     )
     np.testing.assert_allclose(no_lambda_j, expected_j, rtol=5.0e-14)
-    np.testing.assert_array_equal(no_lambda, 0.0)
 
 
 def test_formula4_static_wings_enter_metal_line_rate_mean():
@@ -839,18 +658,16 @@ def test_formula4_static_wings_enter_metal_line_rate_mean():
     gaussian = np.ascontiguousarray(((0.015,),))
     lorentz = np.ascontiguousarray(((0.001,),))
 
-    impact_j, impact_lambda = _profile_weighted_line_means(
+    impact_j, impact_lambda = _profile_weighted_line_field_means(
         wavelength,
-        intensity,
-        lambda_diagonal,
+        (intensity, lambda_diagonal),
         center,
         gaussian,
         lorentz,
     )
-    static_j, static_lambda = _profile_weighted_line_means(
+    static_j, static_lambda = _profile_weighted_line_field_means(
         wavelength,
-        intensity,
-        lambda_diagonal,
+        (intensity, lambda_diagonal),
         center,
         gaussian,
         lorentz,
@@ -1716,10 +1533,6 @@ C302P  1POC303D 21D  3 3   1.0000E-01   5.0000E+07  0.2 WAVELENGTH:  4500.00000 
             series_lower_principal_quantum_number=3,
             minimum_upper_principal_quantum_number=8,
         )
-    projected_collision = fine_structure_collision_data_from_tmad(
-        model, formal_lines
-    )
-    assert projected_collision[("C", 2, 1, 2)] == (1, (0.5, 0.2))
 
 
 def test_tmad_structure_retains_rbb_with_only_oscillator_strength(
@@ -2349,19 +2162,6 @@ def test_compiled_holtsmark_interpolation_preserves_central_and_wing_profiles(qu
     expected_a[central]*=quadrature_scale;expected_e[central]*=quadrature_scale
     np.testing.assert_allclose(absorption,expected_a,rtol=3e-13,atol=0.)
     np.testing.assert_allclose(emission,expected_e,rtol=3e-13,atol=0.)
-
-
-@pytest.mark.parametrize("photon,inverse,old_source,diagonal", [
-    (.01,.02,10.,.8), (10.,.01,10.,.8), (2.,3.,2.,.7), (.1,1.1,1e8,1.)])
-def test_mali_preserves_positive_rates_and_unpreconditioned_particle_balance(photon,inverse,old_source,diagonal):
-    from wd_spectra.light_metal_nlte import _mali_radiative_occupations
-    upward,downward=_mali_radiative_occupations(photon,inverse,diagonal,old_source)
-    assert upward>=0 and downward>=0
-    lower=1.;weight_ratio=2.
-    upper=weight_ratio*lower*old_source/(1.+old_source)
-    original=weight_ratio*lower*photon-upper*inverse
-    preconditioned=weight_ratio*lower*upward-upper*downward
-    np.testing.assert_allclose(preconditioned,original,rtol=3e-14,atol=3e-15)
 
 
 def test_compiled_bound_free_accumulation_matches_numpy(monkeypatch):

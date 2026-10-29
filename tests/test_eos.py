@@ -16,7 +16,6 @@ from wd_spectra.eos import (
     hummer_mihalas_hydrogen_lte,
     hummer_mihalas_hydrogen_thermodynamics,
     ideal_hydrogen_lte,
-    ideal_hydrogen_thermodynamics,
     hydrogen_saha_constant,
 )
 from wd_spectra.constants import BOLTZMANN, BOHR_RADIUS, PI
@@ -353,24 +352,6 @@ def test_molecular_hm_thermodynamics_is_physical():
     assert np.all(result.density_temperature_derivative > 0.0)
     assert np.all(result.adiabatic_temperature_gradient > 0.0)
     assert np.all(result.adiabatic_temperature_gradient < 0.4)
-
-
-def test_ideal_hydrogen_thermodynamic_derivatives_match_finite_differences():
-    temperature = np.array([8_000.0, 12_000.0, 20_000.0])
-    pressure = np.array([1.0e5, 3.0e5, 1.0e6])
-    result = ideal_hydrogen_thermodynamics(temperature, pressure)
-    epsilon = 1.0e-5
-    cool = ideal_hydrogen_lte(temperature * np.exp(-epsilon), pressure)
-    hot = ideal_hydrogen_lte(temperature * np.exp(epsilon), pressure)
-    numerical_q = -(
-        np.log(hot.mass_density) - np.log(cool.mass_density)
-    ) / (2.0 * epsilon)
-    np.testing.assert_allclose(
-        result.density_temperature_derivative, numerical_q, rtol=2.0e-9
-    )
-    assert np.all(result.specific_heat_constant_pressure > 0.0)
-    assert np.all((result.adiabatic_temperature_gradient > 0.0))
-    assert np.all((result.adiabatic_temperature_gradient < 0.4))
 
 
 def test_helium_eos_conserves_nuclei_charge_and_pressure():

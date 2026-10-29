@@ -31,35 +31,6 @@ def cell_conservation_rows(values: FloatArray) -> FloatArray:
     return result
 
 
-def discrete_cell_energy_balance(
-    wavelength: FloatArray,
-    optical_depth: FloatArray,
-    planck: FloatArray,
-    mean_intensity: FloatArray,
-    absorption_fraction: FloatArray,
-    convective_flux: FloatArray,
-) -> tuple[FloatArray, FloatArray]:
-    """Return signed cell-energy defects and local transport-rate scales.
-
-    Use the same control volumes as the Feautrier discretization, including
-    its inserted zero-depth surface. The radiative term is evaluated as
-    4 pi integral(delta_tau_cell * epsilon * (J-B)), avoiding subtraction of
-    nearly equal interface fluxes in optically thin cells. The convective
-    contribution is the actual interface-flux difference, never a surrogate.
-
-    The positive scale is thermal emission plus the magnitudes of convective
-    flux through both faces. In radiative cells the resulting relative defect
-    is the local heating/cooling imbalance. At the last node transfer imposes
-    a boundary value instead of a cell equation, so only N-1 cells are returned.
-    These diagnostics do not themselves certify domain or grid adequacy.
-    """
-    radiative_exchange, thermal_emission = discrete_radiative_cell_energy_balance(
-        wavelength, optical_depth, planck, mean_intensity, absorption_fraction)
-    defect = radiative_exchange + np.diff(convective_flux)
-    scale = thermal_emission + np.abs(convective_flux[:-1]) + np.abs(convective_flux[1:])
-    return defect, np.maximum(scale, np.finfo(np.float64).tiny)
-
-
 def discrete_radiative_cell_energy_balance(
     wavelength, optical_depth, planck, mean_intensity, absorption_fraction,
 ):

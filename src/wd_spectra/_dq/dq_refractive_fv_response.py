@@ -9,50 +9,8 @@ per-temperature-column full atmosphere/radiation solve is used.
 import numpy as np
 from numba import njit
 
-from .dq_refractive_finite_volume import operators, ray_cells, ray_solve, validate
+from .dq_refractive_finite_volume import operators, ray_solve, validate
 from .dq_refractive_ray_bundles import bundles
-
-
-@njit(cache=True)
-def face_derivatives(index,dindex):
-    size=len(index);result=np.zeros((size,size))
-    for i in range(1,size):
-        result[i,i-1]=index[i-1]*dindex[i-1]
-        result[i,i]=index[i]*dindex[i]
-    return result
-
-
-@njit(cache=True)
-def ray_geometry_response(mass,k,index,dk,dindex,faces,n2,dn2,region,t,w):
-    size=len(mass);first=max(0,region-1);count=size-1-first
-    low=0. if region==0 else n2[region-1];high=n2[region]
-    dlow=np.zeros(size) if region==0 else dn2[region-1]
-    dhigh=dn2[region]
-    q=high-(high-low)*t*t;dq=dhigh-(dhigh-dlow)*t*t
-    weight=(high-low)*t*w;dweight=(dhigh-dlow)*t*w
-    depth,g=ray_cells(mass,k,index,faces,n2,q,first)
-    ddepth=np.empty((count,size));dg=np.empty((count+1,size))
-    for j in range(count):
-        i=first+j
-        if region>0 and j==0:
-            y0=0.;dy0=np.zeros(size)
-        else:
-            y0=np.sqrt(n2[i]-q);dy0=(dn2[i]-dq)/(2*y0)
-        y1=np.sqrt(n2[i+1]-q);dy1=(dn2[i+1]-dq)/(2*y1)
-        # Turning-cell mass fraction is exactly t^2, independent of n.
-        ddepth[j]=-depth[j]*(dy0+dy1)/(y0+y1)
-        ddepth[j,i]+=depth[j]*dk[i]/k[i]
-    dg[0]=-.5*g[0]**2*ddepth[0]
-    for j in range(1,count):dg[j]=-.5*g[j]**2*(ddepth[j-1]+ddepth[j])
-    y0=np.sqrt(n2[-1]-q);dy0=(dn2[-1]-dq)/(2*y0)
-    y1=np.sqrt(index[-1]**2-q)
-    dnb=np.zeros(size);dnb[-1]=2*index[-1]*dindex[-1]
-    dy1=(dnb-dq)/(2*y1)
-    buffer=2*k[-1]*(mass[-1]-faces[-1])/(y0+y1)
-    dbuffer=-buffer*(dy0+dy1)/(y0+y1)
-    dbuffer[-1]+=buffer*dk[-1]/k[-1]
-    dg[-1]=-.5*g[-1]**2*ddepth[-1]
-    return depth,g,ddepth,dg,weight,dweight
 
 
 @njit(cache=False)

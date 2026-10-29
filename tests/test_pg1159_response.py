@@ -126,50 +126,6 @@ def test_hydrostatic_response_matches_temperature_and_pressure_probes(force_scal
     np.testing.assert_allclose(jac,numerical,atol=2e-7,rtol=2e-5)
 
 
-def test_material_tangent_rebuilds_ion_and_level_lte_references(monkeypatch):
-    """A frozen unit departure must stay LTE when T and density change."""
-    from dataclasses import replace
-    from types import SimpleNamespace,MappingProxyType
-    from wd_spectra import _pg1159_structure as structure
-    from wd_spectra.pg1159 import PG1159NLTEState
-    from wd_spectra.light_metal_nlte import LightMetalNLTEState,ReducedLightMetalLevelState
-    from wd_spectra.constants import PLANCK,LIGHT_SPEED,BOLTZMANN
-    a=gray_helium_atmosphere(90000.,7.,n_depth=8)
-    keys=(('C',2,1),('C',2,2),('C',3,1))
-    atom=SimpleNamespace(ions={
-        ('C',2):SimpleNamespace(levels=(SimpleNamespace(index=1,energy_wavenumber=0.,statistical_weight=1.),SimpleNamespace(index=2,energy_wavenumber=100000.,statistical_weight=2.))),
-        ('C',3):SimpleNamespace(levels=(SimpleNamespace(index=1,energy_wavenumber=0.,statistical_weight=1.),))})
-    def material(atmosphere):
-        total=atmosphere.gas_pressure/(BOLTZMANN*atmosphere.temperature)
-        ratio=(atmosphere.temperature/90000.)**4
-        ions=np.zeros((4,a.n_depth));ions[2]=total/(1+ratio);ions[3]=total-ions[2]
-        partition=1+2*np.exp(-100000.*PLANCK*LIGHT_SPEED/(BOLTZMANN*atmosphere.temperature))
-        return SimpleNamespace(element_number_density={'C':total},ion_number_density={'C':ions},partition_function={('C',2):partition,('C',3):np.ones(a.n_depth)})
-    def references(atmosphere,metal):
-        ground=metal.ion_number_density['C'][2]/metal.partition_function[('C',2)]
-        return np.array([ground,metal.ion_number_density['C'][2]-ground,metal.ion_number_density['C'][3]])
-    metal=material(a);reference=references(a,metal)
-    mapping={key:np.ones(a.n_depth) for key in keys}
-    levels=ReducedLightMetalLevelState('C',keys,reference,reference,mapping,0.,{},mapping)
-    light=LightMetalNLTEState(metal.ion_number_density,metal.ion_number_density,
-        {('C',q):np.ones(a.n_depth) for q in range(4)},{},{},{},{},0.,{})
-    state=PG1159NLTEState(object(),metal,light,levels,None,{})
-    class Model:
-        nlte_charge_feedback=False
-        atomic_database=None
-        mass_fractions={'He':.5,'C':.5}
-        carbon_population_atomic_database=atom
-        carbon_lte_level_reservoir=None
-        def rebuild_atmosphere(self,a,t,p):return replace(a,temperature=t)
-    monkeypatch.setattr(structure,'pg1159_composition_atmosphere',lambda a,*args:(a,material(a)))
-    monkeypatch.setattr(structure,'remap_coupled_helium_state',lambda a,s:s)
-    new_a,new=structure.remap_material(Model(),a,a.temperature*1.1,a.gas_pressure*.9,state)
-    expected=references(new_a,material(new_a))
-    np.testing.assert_allclose(new.carbon_level_state.population_density,expected,rtol=1e-14)
-    np.testing.assert_allclose(new.carbon_level_state.lte_population_density,expected,rtol=1e-14)
-    np.testing.assert_allclose(new.light_metal_state.ion_number_density['C'],material(new_a).ion_number_density['C'],rtol=1e-14)
-
-
 def test_trial_population_domain_failure_backtracks_but_programming_error_propagates(monkeypatch):
     from wd_spectra._pg1159_structure import PG1159Equations
     from wd_spectra.nlte_core import NonphysicalPopulationError

@@ -169,22 +169,6 @@ def _solve_bracketed_log_root(
     return 0.5 * (lower + upper)
 
 
-def _node_values_on_upper_interfaces(
-    values: FloatArray,
-    *,
-    surface_value: float | None = None,
-) -> FloatArray:
-    """Map depth-node values to the upper cell interfaces."""
-
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim != 1 or array.size < 2 or np.any(~np.isfinite(array)):
-        raise ValueError("values must be a finite one-dimensional depth array")
-    result = np.empty_like(array)
-    result[0] = array[0] if surface_value is None else float(surface_value)
-    result[1:] = 0.5 * (array[:-1] + array[1:])
-    return result
-
-
 def _upper_interface_values_on_nodes(values: FloatArray) -> FloatArray:
     """Map upper-interface values back to the atmosphere depth nodes."""
 

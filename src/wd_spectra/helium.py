@@ -1427,7 +1427,6 @@ def helium_i_resonance_line_mass_absorption_coefficient(
     *,
     lines: tuple[HeliumResonanceLine, ...] = HELIUM_I_RESONANCE_LINES,
     include_occupation_probability: bool = True,
-    include_stark_broadening: bool = True,
     maximum_stark_upper_level: int = 8,
 ) -> FloatArray:
     """Return approximate ground-state He I resonance-series opacity.
@@ -1495,11 +1494,7 @@ def helium_i_resonance_line_mass_absorption_coefficient(
                 ground_population[depth],
             )
             stark_hwhm = 0.0
-            if (
-                include_stark_broadening
-                and line.upper_principal_quantum_number
-                <= maximum_stark_upper_level
-            ):
+            if line.upper_principal_quantum_number <= maximum_stark_upper_level:
                 stark_hwhm = helium_i_resonance_stark_hwhm_angstrom(
                     atmosphere.temperature[depth],
                     state.electron_density[depth],

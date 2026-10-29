@@ -210,11 +210,9 @@ def gradient_material(wavelengths, *, system_class=ExplicitGradientSystem):
             from .dq_eos_knot_model import eos_trial_material
             from . import dq_eos_knot_model
             from . import dq_reos_secant_response
-            from . import dq_eos_knot_search
             self.experiment_metadata['material_derivative_source_sha256'] = digest(implementation.__file__)
             self.experiment_metadata['eos_trial_model_source_sha256'] = digest(dq_eos_knot_model.__file__)
             self.experiment_metadata['eos_analytic_response_source_sha256'] = digest(dq_reos_secant_response.__file__)
-            self.experiment_metadata['eos_corner_search_source_sha256'] = digest(dq_eos_knot_search.__file__)
             self.experiment_metadata['eos_trial_model'] = 'finite table at fixed host pressure; exact coupled origin/tangent; actual outer acceptance'
             def probes(evaluate, step, *, centered):
                 return eos_probe_policy(self, evaluate, step, centered=centered)

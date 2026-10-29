@@ -6,8 +6,6 @@ import pytest
 from wd_spectra.d6 import SDSS_J1637_LOG_NUMBER_ABUNDANCE
 from wd_spectra.metals import (
     _metal_holtsmark_microfield_distribution,
-    _pseudo_voigt_profile_grid,
-    _pseudo_voigt_profile_per_angstrom,
     _tabulated_holtsmark_distribution,
     linear_stark_mixing_fraction,
     linear_stark_rydberg_level,
@@ -61,19 +59,10 @@ def test_mixing_fraction_limits_and_monotonicity():
     assert np.all(linear_stark_mixing_fraction(9.0, 0.2, 1.0, field) <= mixing)
 
 
-def test_vectorized_profiles_match_scalar_definitions():
+def test_tabulated_holtsmark_distribution_matches_scalar_definition():
     beta = np.linspace(0.0, 12.0, 20_001)
     np.testing.assert_allclose(
         _tabulated_holtsmark_distribution(beta),
         _metal_holtsmark_microfield_distribution(beta),
         atol=1.0e-7,
     )
-    wavelength = np.linspace(4990.0, 5010.0, 2001)
-    sigma = np.array([0.02, 0.05, 0.2])
-    hwhm = np.array([0.0, 0.3, 1.0])
-    grid = _pseudo_voigt_profile_grid(wavelength, 5000.0, sigma, hwhm)
-    for index in range(sigma.size):
-        np.testing.assert_array_equal(
-            grid[:, index],
-            _pseudo_voigt_profile_per_angstrom(wavelength, 5000.0, sigma[index], hwhm[index]),
-        )

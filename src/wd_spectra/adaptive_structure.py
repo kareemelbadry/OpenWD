@@ -343,12 +343,10 @@ def solve_adaptive_lte_structure(
     maximum_formal_flux_continuations: int = 2,
     use_adiabatic_asymptotic_conditioning: bool = False,
     use_initial_bolometric_rescaling: bool = True,
-    safeguard_surface_flux: bool = False,
     use_convective_trial_correction: bool = False,
     compute_local_energy_response: bool = False,
     reuse_material_probe_rosseland: bool = False,
     enforce_local_energy_balance: bool = False,
-    physical_temperature_coordinates: bool = True,
     energy_thermal_sweeps: int = 40,
     use_precision_polish: bool = True,
     transfer_discretization: Literal[
@@ -448,8 +446,6 @@ def solve_adaptive_lte_structure(
         raise ValueError("local energy enforcement flag must be boolean")
     if not isinstance(reuse_material_probe_rosseland, bool):
         raise ValueError("material-probe Rosseland reuse flag must be boolean")
-    if not isinstance(physical_temperature_coordinates, bool):
-        raise ValueError("temperature-coordinate selection must be boolean")
     if (
         isinstance(energy_thermal_sweeps, bool)
         or not isinstance(energy_thermal_sweeps, int)
@@ -1664,8 +1660,7 @@ def solve_adaptive_lte_structure(
             log_temperature_from_state[interface:, interface] = pressure_step
 
     nodal_coordinates = bool(
-        physical_temperature_coordinates
-        and energy_completion_active
+        energy_completion_active
         and use_physical_flux_residual
         and not use_deep_gradient_conditioner
     )
@@ -1984,15 +1979,7 @@ def solve_adaptive_lte_structure(
             except ValueError:
                 initial_convective_gradient_projection_rejected_infeasible += 1
                 continue
-            projection_improves_surface = (
-                not safeguard_surface_flux
-                or surface_flux_error(candidate_evaluation)
-                <= surface_flux_error(ordinary_evaluation) + 1.0e-12
-            )
-            if (
-                seed_merit(candidate_evaluation) < ordinary_merit
-                and projection_improves_surface
-            ):
+            if seed_merit(candidate_evaluation) < ordinary_merit:
                 initial_log_temperature = candidate_log_temperature
                 initial_convective_gradient_projection_damping = (
                     projection_damping
@@ -2123,14 +2110,6 @@ def solve_adaptive_lte_structure(
         callback=report_iteration,
         convergence_test=phase_converged,
         rejected_step_handoff=local_energy_handoff,
-        acceptance_test=(
-            (
-                lambda old, trial: surface_flux_error(trial)
-                <= surface_flux_error(old) + 1.0e-12
-            )
-            if safeguard_surface_flux
-            else None
-        ),
         step_measure=lambda old_state, new_state: float(
             np.max(np.abs(temperature_map() @ (new_state - old_state)))
         ),
@@ -2286,7 +2265,7 @@ def solve_adaptive_lte_structure(
         use_deep_gradient_conditioner = False
         solver_phase = "formal-radiative-flux-completion"
         completion_state = np.asarray(result.state, dtype=np.float64).copy()
-        if physical_temperature_coordinates and energy_completion_active:
+        if energy_completion_active:
             completion_state = log_temperature_from_state @ completion_state
             nodal_coordinates = True
         completion_options = dict(nonlinear_options)
@@ -2403,7 +2382,7 @@ def solve_adaptive_lte_structure(
         use_physical_flux_residual = True
         use_deep_gradient_conditioner = False
         solver_phase = "local-energy-completion"
-        nodal_coordinates = bool(physical_temperature_coordinates)
+        nodal_coordinates = True
         completion_state = state_from_log_temperature(completion_state)
         energy_options = dict(
             nonlinear_options,

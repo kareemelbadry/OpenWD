@@ -92,11 +92,6 @@ def nonlinear_planck_trials():
                 if not matches:raise RuntimeError('Missing physical Planck anchor context')
                 ctx=matches[-1];wave=backend.wave
                 d=np.diff(wave,prepend=wave[0],append=wave[-1]);weights=.5*(d[:-1]+d[1:])
-                path=owner.experiment_metadata.get('fixed_wavelength_grid')
-                if path is not None:
-                    with np.load(path) as z:
-                        if 'weights' in z.files:
-                            np.testing.assert_array_equal(z['wavelength'],wave);weights=z['weights'].copy()
                 print('Building nonlinear Planck trial response',flush=True)
                 model=PlanckRemainder(ctx['mass'],wave,ctx['a'],ctx['s'],ctx['b'],ctx['n'],temperature,
                     weights,n_angle=owner.ray_angles)

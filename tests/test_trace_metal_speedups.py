@@ -49,9 +49,6 @@ def test_line_means_blocks_exact_at_zero_and_accurate():
     forest = smooth * rng.uniform(0.2, 1., (wave.size, sigma.shape[1]))
     constant = np.ones_like(forest)
     exact = L._profile_weighted_line_field_means(wave, (forest, smooth, constant), centers, sigma, gamma)
-    legacy_j, legacy_lambda = L._profile_weighted_line_means(wave, forest, smooth, centers, sigma, gamma)
-    np.testing.assert_array_equal(exact[0], legacy_j)
-    np.testing.assert_array_equal(exact[1], legacy_lambda)
     blocked = L._profile_weighted_line_field_means(
         wave, (forest, smooth, constant), centers, sigma, gamma, block_tolerance=1e-4)
     np.testing.assert_allclose(blocked[0], exact[0], rtol=1e-5)

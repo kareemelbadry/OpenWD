@@ -56,11 +56,6 @@ def refined_material(base, points, *, full_continuum=False, structure_stride=1):
                                          if full_continuum else 'UV only'))
 
         def structure_grid(self, seed, count):
-            path = self.experiment_metadata.get('fixed_wavelength_grid')
-            if path is not None:
-                with np.load(path, allow_pickle=False) as saved:
-                    if 'weights' in saved.files:
-                        raise ValueError('UV refinement does not support externally weighted grids')
             original = super().structure_grid(seed, count)
             full = augment_uv(original, points, full_continuum=full_continuum)
             wave = thinned_grid(full, structure_stride)

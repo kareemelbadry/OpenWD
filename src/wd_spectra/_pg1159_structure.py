@@ -12,7 +12,7 @@ import logging
 import time
 import numpy as np
 from ._compat import trapezoid
-from .constants import STEFAN_BOLTZMANN, LIGHT_SPEED, PLANCK, BOLTZMANN
+from .constants import STEFAN_BOLTZMANN, LIGHT_SPEED
 from .nonlinear import (
     NonlinearEvaluation,
     RecoverableEvaluationError,
@@ -28,19 +28,13 @@ from ._mass_feautrier import (
 from ._pg1159_transfer import transfer_field
 from ._convergence import equilibrium_certificate
 from .opacity import optical_depth_from_mass_opacity
-from .helium_nlte import remap_coupled_helium_state
 from .spectrum import planck_lambda_angstrom
 from .pg1159 import (
-    pg1159_composition_atmosphere,
-    _pg1159_nlte_charge_feedback,
     _maximum_population_state_change,
     _maximum_coupled_helium_population_change,
     _coupled_helium_population_change_diagnostic,
     _population_state_change_diagnostic,
-    _formal_departures_from_population,
-    _finite_departure_ratio,
 )
-from types import MappingProxyType
 
 LOGGER = logging.getLogger(__name__)
 PG1159_LOCAL_ENERGY_MINIMUM_ROSSELAND_DEPTH = 1.0e-5
@@ -281,122 +275,7 @@ def population_defect_diagnostic(old, new, model):
     )
 
 
-def remap_material(model, template, temperature, pressure, state):
-    """A local, frozen-departure-coefficient approximation to material response."""
-    a = model.rebuild_atmosphere(
-        replace(template, gas_pressure=pressure), temperature, state
-    )
-    _, metal = pg1159_composition_atmosphere(
-        a, model.atomic_database, model.mass_fractions
-    )
-    if model.nlte_charge_feedback:
-        a, metal = _pg1159_nlte_charge_feedback(a, metal, state)
-    helium = remap_coupled_helium_state(a, state.helium_state)
-    light = state.light_metal_state
-    if light is not None:
-        populations = {}
-        for element, old in light.ion_number_density.items():
-            reference = metal.ion_number_density[element]
-            departure = _finite_departure_ratio(
-                old, light.lte_ion_number_density[element]
-            )
-            trial = departure * reference
-            trial *= metal.element_number_density[element] / np.maximum(
-                trial.sum(axis=0), 1e-300
-            )
-            populations[element] = trial
-        light = replace(
-            light,
-            ion_number_density=MappingProxyType(populations),
-            lte_ion_number_density=metal.ion_number_density,
-            ion_departure_coefficient=MappingProxyType(
-                {
-                    (e, q): _finite_departure_ratio(
-                        v[q], metal.ion_number_density[e][q]
-                    )
-                    for e, v in populations.items()
-                    for q in range(len(v))
-                }
-            ),
-        )
-    levels = []
-    for prefix, level in (
-        ("carbon", state.carbon_level_state),
-        ("oxygen", state.oxygen_level_state),
-    ):
-        if level is None:
-            levels.append(None)
-            continue
-        database = getattr(model, prefix + "_population_atomic_database")
-        by_key = {
-            (element, charge, l.index): l
-            for (element, charge), ion in database.ions.items()
-            for l in ion.levels
-        }
-        reference = np.array(
-            [
-                metal.ion_number_density[element][charge]
-                * by_key[(element, charge, index)].statistical_weight
-                * np.exp(
-                    -by_key[(element, charge, index)].energy_wavenumber
-                    * PLANCK
-                    * LIGHT_SPEED
-                    / (BOLTZMANN * temperature)
-                )
-                / metal.partition_function[(element, charge)]
-                for element, charge, index in level.level_key
-            ]
-        )
-        reservoir = np.zeros_like(reference)
-        index_by_key = {key: i for i, key in enumerate(level.level_key)}
-        for parent, terms in (
-            getattr(model, prefix + "_lte_level_reservoir") or {}
-        ).items():
-            for charge, energy, weight in terms:
-                reservoir[index_by_key[parent]] += (
-                    metal.ion_number_density[level.element][charge]
-                    * weight
-                    * np.exp(-energy * PLANCK * LIGHT_SPEED / (BOLTZMANN * temperature))
-                    / metal.partition_function[(level.element, charge)]
-                )
-        departure = _finite_departure_ratio(
-            level.population_density, level.lte_population_density
-        )
-        # Keep the atom's complete explicit-plus-LTE-reservoir conservation.
-        norm = (reference + reservoir).sum(axis=0) / np.maximum(
-            ((reference + reservoir) * departure).sum(axis=0), 1e-300
-        )
-        departure = departure * norm
-        mapping = MappingProxyType(
-            {key: departure[i] for i, key in enumerate(level.level_key)}
-        )
-        levels.append(
-            replace(
-                level,
-                population_density=reference * departure,
-                lte_population_density=reference,
-                conservation_weight=1. + reservoir / np.maximum(reference, 1e-300),
-                population_level_departure_coefficient=mapping,
-                level_departure_coefficient=_formal_departures_from_population(
-                    level, mapping
-                ),
-            )
-        )
-    return (
-        a,
-        replace(
-            state,
-            helium_state=helium,
-            metal_state=metal,
-            light_metal_state=light,
-            carbon_level_state=levels[0],
-            oxygen_level_state=levels[1],
-        ),
-    )
-
-
-def rate_response_material(model, template, temperature, pressure, state, *,
-                           local_lambda_operator=False):
+def rate_response_material(model, template, temperature, pressure, state):
     """Local SE/EOS tangent with the accepted radiation field held fixed.
 
     All depth temperatures can be perturbed together: the frozen radiation
@@ -411,15 +290,6 @@ def rate_response_material(model, template, temperature, pressure, state, *,
     # A diagonal-Lambda* local radiation response was tested here (2026-09-24)
     # and made the upper-atmosphere columns worse against finite differences;
     # the missing damping is non-local.  Keep the frozen-field tangent.
-    operator = (
-        (state.radiation_diagonal_lambda, state.radiation_source_function)
-        if local_lambda_operator
-        and getattr(state, "radiation_diagonal_lambda", None) is not None
-        and getattr(state, "radiation_source_function", None) is not None
-        else None
-    )
-    if local_lambda_operator and operator is None:
-        raise ValueError("the anchor population state has no local lambda operator")
     local = replace(
         model,
         metal_population_iterations=1,
@@ -434,10 +304,7 @@ def rate_response_material(model, template, temperature, pressure, state, *,
     p = state
     for iteration in range(6):
         a = local.rebuild_atmosphere(template, temperature, p)
-        next_state = local.solve_populations(
-            a, p, _fixed_radiation=radiation,
-            **({"_local_lambda_operator": operator} if operator is not None else {}),
-        )
+        next_state = local.solve_populations(a, p, _fixed_radiation=radiation)
         refreshed = local.rebuild_atmosphere(template, temperature, next_state)
         charge = float(np.max(abs(refreshed.electron_density / a.electron_density - 1)))
         defect = population_defect(p, next_state, local)

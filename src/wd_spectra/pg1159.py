@@ -16,7 +16,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 from .atmosphere import Atmosphere
 from .constants import BOLTZMANN
@@ -61,8 +61,8 @@ from ._pg1159_helium import CoupledHeliumNLTEModel, PG1159HeliumTransferCache
 from .nlte_core import NLTETransferCoefficients, NonphysicalPopulationError
 from .nlte import _profile_averaged_mean_intensity_nu
 from .opacity import optical_depth_from_mass_opacity
-from .radiative_transfer import Backend, emergent_flux, radiation_field, RadiationField
-from .spectrum import Spectrum, planck_lambda_angstrom
+from .radiative_transfer import radiation_field, RadiationField
+from .spectrum import planck_lambda_angstrom
 
 
 LOGGER = logging.getLogger(__name__)
@@ -323,41 +323,6 @@ def _formal_departures_from_population(
     return MappingProxyType(departure)
 
 
-def _formal_population_transition_keys(
-    population_atomic_database: AtomicDatabase,
-    formal_atomic_database: AtomicDatabase,
-    formal_level_mapping: Mapping[
-        tuple[str, int, int], tuple[tuple[str, int, int], ...]
-    ],
-    element: str,
-    levels_per_charge: Mapping[int, int],
-) -> frozenset[tuple[str, int, int, int]]:
-    """Identify formal components connecting retained population terms."""
-
-    symbol = element.strip().capitalize()
-    represented_formal_levels: dict[int, set[int]] = {}
-    for charge, count in levels_per_charge.items():
-        population_ion = population_atomic_database.ions[(symbol, charge)]
-        selected = sorted(
-            population_ion.levels, key=lambda level: level.energy_wavenumber
-        )[: int(count)]
-        represented_formal_levels[charge] = {
-            formal_key[2]
-            for level in selected
-            for formal_key in formal_level_mapping.get(
-                (symbol, charge, level.index), ()
-            )
-        }
-    return frozenset(
-        (symbol, charge, line.lower_index, line.upper_index)
-        for charge, represented in represented_formal_levels.items()
-        for line in formal_atomic_database.ions[(symbol, charge)].transitions
-        if line.lower_index in represented
-        and line.upper_index in represented
-        and line.einstein_a > 0.0
-    )
-
-
 def _formal_spectrum_transition_keys(
     formal_atomic_database: AtomicDatabase,
     elements: Iterable[str],
@@ -490,49 +455,6 @@ def _replace_light_metal_elements(
         ion_number_density=MappingProxyType(population),
         lte_ion_number_density=MappingProxyType(lte_population),
         ion_departure_coefficient=MappingProxyType(departure),
-    )
-
-
-def _damp_reduced_level_state(
-    previous: ReducedLightMetalLevelState | None,
-    current: ReducedLightMetalLevelState,
-    damping: float,
-) -> ReducedLightMetalLevelState:
-    if previous is None or damping >= 1.0:
-        return current
-    if previous.level_key == current.level_key:
-        previous_population = previous.population_density
-    else:
-        previous_by_key = {
-            key: previous.population_density[index]
-            for index, key in enumerate(previous.level_key)
-        }
-        previous_population = np.asarray([
-            previous_by_key.get(key, current.lte_population_density[index])
-            for index, key in enumerate(current.level_key)
-        ])
-    population = (
-        (1.0 - damping) * previous_population
-        + damping * current.population_density
-    )
-    population_departures = {
-        key: _finite_departure_ratio(
-            population[index], current.lte_population_density[index]
-        )
-        for index, key in enumerate(current.level_key)
-    }
-    metadata = dict(current.metadata)
-    metadata["population_damping"] = damping
-    return replace(
-        current,
-        population_density=np.asarray(population),
-        population_level_departure_coefficient=MappingProxyType(
-            population_departures
-        ),
-        level_departure_coefficient=_formal_departures_from_population(
-            current, population_departures
-        ),
-        metadata=metadata,
     )
 
 
@@ -1210,7 +1132,6 @@ class PG1159NLTEModel:
     use_population_ali: bool = True
     minimum_active_lte_ion_fraction: float = 1.0e-12
     active_ion_stage_margin: int = 1
-    recouple_helium_radiation: bool = True
     nlte_charge_feedback: bool = False
     coupled_population_acceleration_depth: int = 0
     helium_population_damping: float = 0.4
@@ -1225,67 +1146,15 @@ class PG1159NLTEModel:
     metal_population_minimum_damping: float = 1.0e-3
     metal_population_acceleration_depth: int = 0
     metal_population_acceleration_damping: float = 0.7
-    adaptive_atmosphere_population_effort: bool = False
     # Full-NLTE atmosphere stages can use the transfer response to solve the
     # bolometric flux profile directly.  Initializer stages retain the cheap
     # operator-split map and override this flag in the structure driver.
     use_pg1159_response_jacobian: bool = False
     pg1159_population_response_probes: int = 1
-    atmosphere_coarse_population_iterations: int = 12
-    atmosphere_coarse_population_relative_tolerance: float = 2.0e-2
-    atmosphere_population_tightening_threshold: float = 1.5e-2
-    atmosphere_population_accuracy_final: bool = True
 
     @property
     def name(self) -> str:
         return "pg1159-he-co-reduced-nlte"
-
-    def atmosphere_iteration_model(
-        self,
-        iteration: int,
-        previous_temperature_correction: float | None,
-        previous_local_energy_residual: float | None = None,
-    ) -> PG1159NLTEModel:
-        """Choose inexact or final population accuracy for an atmosphere step.
-
-        Accurate statistical equilibrium is wasteful while the thermal
-        structure is still moving by several percent.  The final-accuracy
-        flag prevents the outer solver from converging on a state obtained
-        with the deliberately loose early tolerance.
-        """
-
-        del iteration
-        if not self.adaptive_atmosphere_population_effort:
-            return self
-        temperature_near_convergence = (
-            previous_temperature_correction is not None
-            and previous_temperature_correction
-            <= self.atmosphere_population_tightening_threshold
-        )
-        local_balance_near_convergence = (
-            previous_local_energy_residual is None
-            or previous_local_energy_residual
-            <= self.atmosphere_population_tightening_threshold
-        )
-        if temperature_near_convergence and local_balance_near_convergence:
-            return replace(self, atmosphere_population_accuracy_final=True)
-        coarse_iterations = min(
-            self.metal_population_iterations,
-            self.atmosphere_coarse_population_iterations,
-        )
-        return replace(
-            self,
-            metal_population_iterations=coarse_iterations,
-            metal_population_minimum_iterations=min(
-                self.metal_population_minimum_iterations,
-                coarse_iterations,
-            ),
-            metal_population_relative_tolerance=max(
-                self.metal_population_relative_tolerance,
-                self.atmosphere_coarse_population_relative_tolerance,
-            ),
-            atmosphere_population_accuracy_final=False,
-        )
 
     def rebuild_atmosphere(
         self,
@@ -1331,7 +1200,6 @@ class PG1159NLTEModel:
         *,
         iteration_callback: Callable[[int, PG1159NLTEState], None] | None = None,
         _fixed_radiation: tuple[FloatArray,FloatArray] | None = None,
-        _local_lambda_operator: tuple[FloatArray, FloatArray] | None = None,
         _stop_iteration: Callable[[int, PG1159NLTEState], bool] | None = None,
         _coupled_population_history: Any | None = None,
         _coupled_population_near_root_history: int | None = None,
@@ -1352,18 +1220,6 @@ class PG1159NLTEModel:
             raise ValueError("metal_population_acceleration_damping must be in (0, 1]")
         if self.metal_population_iterations < 1:
             raise ValueError("metal_population_iterations must be positive")
-        if self.atmosphere_coarse_population_iterations < 1:
-            raise ValueError(
-                "atmosphere_coarse_population_iterations must be positive"
-            )
-        if self.atmosphere_coarse_population_relative_tolerance <= 0.0:
-            raise ValueError(
-                "atmosphere_coarse_population_relative_tolerance must be positive"
-            )
-        if self.atmosphere_population_tightening_threshold <= 0.0:
-            raise ValueError(
-                "atmosphere_population_tightening_threshold must be positive"
-            )
         if (
             self.maximum_population_trace_lines is not None
             and self.maximum_population_trace_lines < 1
@@ -1439,8 +1295,6 @@ class PG1159NLTEModel:
             )
         rate_wavelength = rate_mean_intensity = None
         rate_diagonal_lambda = rate_source_function = None
-        if _local_lambda_operator is not None and _fixed_radiation is None:
-            raise ValueError("a local lambda operator needs its fixed radiation field")
         population_iteration_count = 0
         population_relative_change = np.inf
         undamped_population_change = np.inf
@@ -1525,43 +1379,39 @@ class PG1159NLTEModel:
                         self.metal_rate_line_velocity_samples_kms
                     ),
                 ))
-            helium_neutral_wavelength = None
-            helium_ion_wavelength = None
-            helium_ion_line_problems = ()
-            if self.recouple_helium_radiation:
-                helium_neutral_wavelength = (
-                    default_neutral_helium_continuum_wavelength()
+            helium_neutral_wavelength = (
+                default_neutral_helium_continuum_wavelength()
+            )
+            helium_ion_wavelength = default_helium_ii_continuum_wavelength(
+                self.helium_model.maximum_helium_ii_level
+            )
+            # Population-rate closure is larger than the compact named
+            # He II line list used by the emergent-spectrum synthesizer.
+            # The hydrogenic fallback provides exact shell wavelengths
+            # and f-values for every remaining pair.
+            helium_ion_line_problems = tuple(
+                _prepare_helium_line_transfer_problem(
+                    composed,
+                    helium_ii_shell_transition(lower, upper),
+                    self.helium_model.maximum_helium_ii_level,
+                    stark_table=self.helium_model.helium_ii_stark_table,
                 )
-                helium_ion_wavelength = default_helium_ii_continuum_wavelength(
-                    self.helium_model.maximum_helium_ii_level
+                for lower in range(
+                    1,
+                    self.helium_model.population_explicit_maximum_lower_level
+                    + 1,
                 )
-                # Population-rate closure is larger than the compact named
-                # He II line list used by the emergent-spectrum synthesizer.
-                # The hydrogenic fallback provides exact shell wavelengths
-                # and f-values for every remaining pair.
-                helium_ion_line_problems = tuple(
-                    _prepare_helium_line_transfer_problem(
-                        composed,
-                        helium_ii_shell_transition(lower, upper),
-                        self.helium_model.maximum_helium_ii_level,
-                        stark_table=self.helium_model.helium_ii_stark_table,
-                    )
-                    for lower in range(
-                        1,
-                        self.helium_model.population_explicit_maximum_lower_level
-                        + 1,
-                    )
-                    for upper in range(
-                        lower + 1,
-                        self.helium_model.maximum_helium_ii_level + 1,
-                    )
+                for upper in range(
+                    lower + 1,
+                    self.helium_model.maximum_helium_ii_level + 1,
                 )
-                wavelength_parts.extend((
-                    helium_neutral_wavelength,
-                    helium_ion_wavelength,
-                    *(problem.continuum.wavelength_angstrom
-                      for problem in helium_ion_line_problems),
-                ))
+            )
+            wavelength_parts.extend((
+                helium_neutral_wavelength,
+                helium_ion_wavelength,
+                *(problem.continuum.wavelength_angstrom
+                  for problem in helium_ion_line_problems),
+            ))
             ionization_wavelength = np.unique(np.concatenate(wavelength_parts))
             planck = planck_lambda_angstrom(
                 ionization_wavelength[:, np.newaxis],
@@ -1627,7 +1477,7 @@ class PG1159NLTEModel:
                 previous_light_metal_state = light_metal_state
                 previous_carbon_level_state = carbon_level_state
                 previous_oxygen_level_state = oxygen_level_state
-                if _fixed_radiation is None or _local_lambda_operator is not None:
+                if _fixed_radiation is None:
                     helium_coefficients = self.helium_model.transfer_coefficients(
                         composed, ionization_wavelength, helium_state, **helium_transfer_options
                     )
@@ -1911,33 +1761,10 @@ class PG1159NLTEModel:
                         (emissivity + helium_coefficients.scattering * planck) / total
                     )
                     field = None
-                    need_legacy_operator = _local_lambda_operator is None and (
+                    need_legacy_operator = (
                         self.population_transfer == "legacy" or
                         (self.use_population_ali and self.population_nlte_fraction == 1.))
-                    if _local_lambda_operator is not None:
-                        # Local ALO response (TMAP-style linearization): the
-                        # radiation follows this state's own source function
-                        # through the anchor's diagonal operator,
-                        #   J = J0 + Lambda* (S - S0),  S = (eta + sigma J) / chi,
-                        # solved in closed form at every wavelength and depth.
-                        # No cross-depth coupling enters, so depth columns of a
-                        # simultaneous perturbation stay separable.
-                        old_wave, old_mean = _fixed_radiation
-                        anchor_mean = _interpolate_mean_intensity(
-                            old_wave, old_mean, ionization_wavelength)
-                        operator, anchor_source = _local_lambda_operator
-                        if (np.shape(operator) != np.shape(anchor_mean)
-                                or np.shape(anchor_source) != np.shape(anchor_mean)):
-                            raise ValueError("local lambda operator has the wrong shape")
-                        scattering_fraction = helium_coefficients.scattering / total
-                        denominator = 1.0 - operator * scattering_fraction
-                        local_mean = (
-                            anchor_mean + operator * (emissivity / total - anchor_source)
-                        ) / np.maximum(denominator, 1e-12)
-                        field = RadiationField(
-                            mean_intensity=np.maximum(local_mean, 0.0),
-                            flux=np.zeros_like(local_mean))
-                    elif need_legacy_operator:
+                    if need_legacy_operator:
                         operator_depth = optical_depth
                         if self.population_transfer == "mass":
                             # This field only supplies the approximate Lambda
@@ -1959,7 +1786,7 @@ class PG1159NLTEModel:
                                 calculate_diagonal_lambda=self.use_population_ali)
                             source = np.ascontiguousarray((emissivity
                                 + helium_coefficients.scattering * field.mean_intensity) / total)
-                    if self.population_transfer == "mass" and _local_lambda_operator is None:
+                    if self.population_transfer == "mass":
                         from ._pg1159_transfer import transfer_field
                         coefficients = NLTETransferCoefficients(
                             ionization_wavelength, true_absorption, emissivity,
@@ -1973,8 +1800,7 @@ class PG1159NLTEModel:
                         # and exact scattering closure as the atmosphere equations.
                         field = (exact_field if field is None else
                             replace(exact_field, diagonal_lambda=field.diagonal_lambda))
-                    elif (self.population_transfer != "legacy"
-                          and _local_lambda_operator is None):
+                    elif self.population_transfer != "legacy":
                         raise ValueError("unknown PG1159 population transfer")
                 else:
                     old_wave,old_mean=_fixed_radiation
@@ -1999,91 +1825,87 @@ class PG1159NLTEModel:
                         self.population_nlte_fraction * field.mean_intensity
                         + (1-self.population_nlte_fraction) * planck),
                         diagonal_lambda=None)
-                helium_population_change = 0.0
-                if self.recouple_helium_radiation:
-                    assert helium_neutral_wavelength is not None
-                    assert helium_ion_wavelength is not None
-                    neutral_continuum_mean = _interpolate_mean_intensity(
+                neutral_continuum_mean = _interpolate_mean_intensity(
+                    ionization_wavelength,
+                    field.mean_intensity,
+                    helium_neutral_wavelength,
+                )
+                ion_continuum_mean = _interpolate_mean_intensity(
+                    ionization_wavelength,
+                    field.mean_intensity,
+                    helium_ion_wavelength,
+                )
+                ion_line_fields = {}
+                for problem in helium_ion_line_problems:
+                    local_mean = _interpolate_mean_intensity(
                         ionization_wavelength,
                         field.mean_intensity,
-                        helium_neutral_wavelength,
+                        problem.continuum.wavelength_angstrom,
                     )
-                    ion_continuum_mean = _interpolate_mean_intensity(
-                        ionization_wavelength,
-                        field.mean_intensity,
-                        helium_ion_wavelength,
+                    ion_line_fields[(
+                        problem.line.lower_level,
+                        problem.line.upper_level,
+                    )] = _profile_averaged_mean_intensity_nu(
+                        problem.continuum.wavelength_angstrom,
+                        problem.lte_line_opacity,
+                        local_mean,
                     )
-                    ion_line_fields = {}
-                    for problem in helium_ion_line_problems:
-                        local_mean = _interpolate_mean_intensity(
-                            ionization_wavelength,
-                            field.mean_intensity,
-                            problem.continuum.wavelength_angstrom,
-                        )
-                        ion_line_fields[(
-                            problem.line.lower_level,
-                            problem.line.upper_level,
-                        )] = _profile_averaged_mean_intensity_nu(
-                            problem.continuum.wavelength_angstrom,
-                            problem.lte_line_opacity,
-                            local_mean,
-                        )
-                    next_helium_state = (
-                        solve_coupled_helium_statistical_equilibrium(
-                            composed,
-                            self.helium_model.collision_data,
-                            maximum_helium_ii_level=(
-                                self.helium_model.maximum_helium_ii_level
-                            ),
-                            helium_ii_line_mean_intensity_nu=ion_line_fields,
-                            neutral_continuum_wavelength_angstrom=(
-                                helium_neutral_wavelength
-                            ),
-                            neutral_continuum_mean_intensity_lambda=(
-                                neutral_continuum_mean
-                            ),
-                            helium_ii_continuum_wavelength_angstrom=(
-                                helium_ion_wavelength
-                            ),
-                            helium_ii_continuum_mean_intensity_lambda=(
-                                ion_continuum_mean
-                            ),
-                            neutral_collision_strength_scale=(
-                                self.helium_model.neutral_collision_strength_scale
-                            ),
-                            helium_i_collision_data=(
-                                self.helium_model.helium_i_collision_data
-                            ),
-                            hydrogenic_collision_model=(
-                                self.helium_model.hydrogenic_collision_model
-                            ),
-                            hydrogenic_collision_rate_multiplier=(
-                                self.helium_model.hydrogenic_collision_rate_multiplier
-                            ),
-                            hydrogenic_excitation_collision_rate_multiplier=(
-                                self.helium_model.hydrogenic_excitation_collision_rate_multiplier
-                            ),
-                            hydrogenic_ionization_collision_rate_multiplier=(
-                                self.helium_model.hydrogenic_ionization_collision_rate_multiplier
-                            ),
-                        )
+                next_helium_state = (
+                    solve_coupled_helium_statistical_equilibrium(
+                        composed,
+                        self.helium_model.collision_data,
+                        maximum_helium_ii_level=(
+                            self.helium_model.maximum_helium_ii_level
+                        ),
+                        helium_ii_line_mean_intensity_nu=ion_line_fields,
+                        neutral_continuum_wavelength_angstrom=(
+                            helium_neutral_wavelength
+                        ),
+                        neutral_continuum_mean_intensity_lambda=(
+                            neutral_continuum_mean
+                        ),
+                        helium_ii_continuum_wavelength_angstrom=(
+                            helium_ion_wavelength
+                        ),
+                        helium_ii_continuum_mean_intensity_lambda=(
+                            ion_continuum_mean
+                        ),
+                        neutral_collision_strength_scale=(
+                            self.helium_model.neutral_collision_strength_scale
+                        ),
+                        helium_i_collision_data=(
+                            self.helium_model.helium_i_collision_data
+                        ),
+                        hydrogenic_collision_model=(
+                            self.helium_model.hydrogenic_collision_model
+                        ),
+                        hydrogenic_collision_rate_multiplier=(
+                            self.helium_model.hydrogenic_collision_rate_multiplier
+                        ),
+                        hydrogenic_excitation_collision_rate_multiplier=(
+                            self.helium_model.hydrogenic_excitation_collision_rate_multiplier
+                        ),
+                        hydrogenic_ionization_collision_rate_multiplier=(
+                            self.helium_model.hydrogenic_ionization_collision_rate_multiplier
+                        ),
                     )
-                    helium_state = _damp_coupled_helium_state(
-                        helium_state, next_helium_state, self.helium_population_damping)
-                    helium_population_change = (
-                        _maximum_coupled_helium_population_change(
-                            previous_helium_state,
-                            helium_state,
-                            relative_floor=self.helium_population_relative_floor,
-                        )
+                )
+                helium_state = _damp_coupled_helium_state(
+                    helium_state, next_helium_state, self.helium_population_damping)
+                helium_population_change = (
+                    _maximum_coupled_helium_population_change(
+                        previous_helium_state,
+                        helium_state,
+                        relative_floor=self.helium_population_relative_floor,
                     )
-                    helium_population_worst_change = (
-                        _coupled_helium_population_change_diagnostic(
-                            previous_helium_state,
-                            helium_state,
-                            relative_floor=self.helium_population_relative_floor,
-                        )
+                )
+                helium_population_worst_change = (
+                    _coupled_helium_population_change_diagnostic(
+                        previous_helium_state,
+                        helium_state,
+                        relative_floor=self.helium_population_relative_floor,
                     )
+                )
                 next_light_metal_state = None
                 next_carbon_level_state = None
                 next_oxygen_level_state = None
@@ -2308,7 +2130,7 @@ class PG1159NLTEModel:
                                 effective_population_damping = beta
                         except np.linalg.LinAlgError:
                             pass
-                    if self.coupled_population_acceleration_depth and self.recouple_helium_radiation:
+                    if self.coupled_population_acceleration_depth:
                         if (
                             not near_root_acceleration
                             and _coupled_population_near_root_history is not None
@@ -2515,18 +2337,17 @@ class PG1159NLTEModel:
                     ion_relative_floor=self.metal_ion_population_relative_floor,
                     level_relative_floor=self.metal_level_population_relative_floor,
                 )
-                if self.recouple_helium_radiation:
-                    undamped_population_change = max(undamped_population_change,
-                        _maximum_coupled_helium_population_change(
-                            previous_helium_state, next_helium_state,
-                            relative_floor=self.helium_population_relative_floor))
-                    undamped_helium_population_worst_change = (
-                        _coupled_helium_population_change_diagnostic(
-                            previous_helium_state,
-                            next_helium_state,
-                            relative_floor=self.helium_population_relative_floor,
-                        )
+                undamped_population_change = max(undamped_population_change,
+                    _maximum_coupled_helium_population_change(
+                        previous_helium_state, next_helium_state,
+                        relative_floor=self.helium_population_relative_floor))
+                undamped_helium_population_worst_change = (
+                    _coupled_helium_population_change_diagnostic(
+                        previous_helium_state,
+                        next_helium_state,
+                        relative_floor=self.helium_population_relative_floor,
                     )
+                )
                 measured_input_available = (
                     (previous_light_metal_state is not None or next_light_metal_state is None)
                     and all(new is None or (old is not None and old.level_key == new.level_key)
@@ -2714,9 +2535,6 @@ class PG1159NLTEModel:
                 "metal_population_relative_tolerance": (
                     self.metal_population_relative_tolerance
                 ),
-                "population_accuracy_final": (
-                    self.atmosphere_population_accuracy_final
-                ),
                 "metal_population_relative_change_history": tuple(
                     population_relative_change_history
                 ),
@@ -2758,13 +2576,13 @@ class PG1159NLTEModel:
                     if self.metal_level_population_relative_floor is None
                     else self.metal_level_population_relative_floor
                 ),
-                "helium_radiation_recoupled": self.recouple_helium_radiation,
+                "helium_radiation_recoupled": True,
                 "helium_population_damping": self.helium_population_damping,
                 "coupled_population_acceleration_depth": self.coupled_population_acceleration_depth,
                 "recycled_population_secants": recycled_population_secants,
                 "coupled_population_acceleration_method": (
                     "weighted-svd-anderson" if self.coupled_population_acceleration_depth
-                    and self.recouple_helium_radiation else "none"
+                    else "none"
                 ),
                 "coupled_population_near_root_history": (
                     _coupled_population_near_root_history
@@ -3088,58 +2906,3 @@ class PG1159NLTEModel:
         )
 
 
-def synthesize_pg1159_nlte_spectrum(
-    atmosphere: Atmosphere,
-    wavelength_angstrom: ArrayLike,
-    state: PG1159NLTEState,
-    model: PG1159NLTEModel,
-    *,
-    n_angle: int = 4,
-    scattering_iterations: int = 4,
-    backend: Backend = "auto",
-) -> Spectrum:
-    """Synthesize a fixed-structure PG 1159 spectrum from solved populations."""
-
-    wavelength = np.ascontiguousarray(wavelength_angstrom, dtype=np.float64)
-    if (
-        wavelength.ndim != 1
-        or wavelength.size < 2
-        or np.any(~np.isfinite(wavelength))
-        or np.any(wavelength <= 0.0)
-        or np.any(np.diff(wavelength) <= 0.0)
-    ):
-        raise ValueError("wavelength_angstrom must be finite, positive, and increasing")
-    if scattering_iterations < 1:
-        raise ValueError("scattering_iterations must be positive")
-    coefficients = model.transfer_coefficients(atmosphere, wavelength, state)
-    total = coefficients.total_extinction
-    optical_depth = optical_depth_from_mass_opacity(atmosphere.column_mass, total)
-    planck = planck_lambda_angstrom(
-        wavelength[:, np.newaxis], atmosphere.temperature[np.newaxis, :]
-    )
-    source = np.ascontiguousarray(
-        (coefficients.thermal_emissivity + coefficients.scattering * planck) / total
-    )
-    for _ in range(scattering_iterations):
-        field = radiation_field(optical_depth, source, n_angle=n_angle)
-        source = np.ascontiguousarray(
-            (
-                coefficients.thermal_emissivity
-                + coefficients.scattering * field.mean_intensity
-            )
-            / total
-        )
-    flux = emergent_flux(optical_depth, source, n_angle=n_angle, backend=backend)
-    return Spectrum(
-        wavelength_angstrom=wavelength,
-        surface_flux_lambda=flux,
-        metadata={
-            **coefficients.metadata,
-            "composition": "homogeneous-helium-carbon-oxygen",
-            "wavelength_medium": "vacuum",
-            "flux_convention": "surface F_lambda",
-            "flux_unit": "erg s^-1 cm^-2 Angstrom^-1",
-            "transfer": "reduced He/C/O NLTE plus coherent scattering",
-            "n_angle": int(n_angle),
-        },
-    )

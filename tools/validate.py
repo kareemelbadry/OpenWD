@@ -188,7 +188,6 @@ def numerical_identity(root=ROOT):
         "setup.py",
         "research/validate_public_cold_start.py",
         "research/validate_daz_cold_start.py",
-        "research/check_saved_bolometric_spectrum.py",
         "tests/test_protected_model_canaries.py",
         "tests/test_spectral_regressions.py",
         "tests/test_daz_regressions.py",

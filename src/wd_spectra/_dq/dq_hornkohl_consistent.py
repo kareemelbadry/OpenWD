@@ -21,12 +21,6 @@ from .continuum_batches import helium_continuum_absorption
 from wd_spectra.spectrum import Spectrum, solve_spectrum_source, planck_lambda_angstrom
 from wd_spectra.opacity import optical_depth_from_mass_opacity
 
-PARAMETER_KEYS=('effective_temperature','logg','log_carbon_to_helium')
-
-
-
-
-
 
 def atomic_keys_and_anchors(database, threshold=1e-4):
     selected=[(ion,line) for ion in database.ion_stages('C') for line in ion.transitions

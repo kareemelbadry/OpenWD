@@ -1,11 +1,11 @@
 """Same cold direct-energy DQ experiment, with bounded carbon-line work."""
 
-from .dq_hornkohl_cell_energy import DirectEnergyCellDQMaterial
+from .dq_hornkohl_cell import CellIntegratedDQMaterial
 from .dq_bounded_carbon_lines import BoundedCarbonLines
 from .dq_exact_opacity_cache import ExactLayerOpacityCache
 
 
-class BoundedDirectEnergyDQMaterial(DirectEnergyCellDQMaterial):
+class BoundedDirectEnergyDQMaterial(CellIntegratedDQMaterial):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.bounded_carbon=BoundedCarbonLines(self.atomic,self.atomic_keys,self.atomic_anchors)

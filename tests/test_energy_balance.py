@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from wd_spectra._energy_balance import (
-    cell_conservation_rows, discrete_cell_energy_balance, transport_conditioned_rows,
+    cell_conservation_rows, transport_conditioned_rows,
     locally_scaled_energy_rows,
     discrete_radiative_cell_energy_balance,
     integrated_radiative_cell_energy_state_response,
@@ -110,12 +110,12 @@ def test_local_energy_exchange_matches_feautrier_flux_divergence(epsilon):
         tau, planck, np.full_like(tau, epsilon), np.full_like(tau, 1 - epsilon), n_angle=3
     )
     convective = np.linspace(0, 500, depth.size)**2
-    defect, scale = discrete_cell_energy_balance(
-        wave, tau, planck, field.mean_intensity, np.full_like(tau, epsilon), convective
+    exchange, emission = discrete_radiative_cell_energy_balance(
+        wave, tau, planck, field.mean_intensity, np.full_like(tau, epsilon)
     )
     expected = np.diff(trapezoid(field.interface_flux, wave, axis=0) + convective)
-    np.testing.assert_allclose(defect, expected, rtol=1e-5, atol=1e-5)
-    assert np.all(scale > 0)
+    np.testing.assert_allclose(exchange + np.diff(convective), expected, rtol=1e-5, atol=1e-5)
+    assert np.all(emission > 0)
 
 
 @pytest.mark.parametrize("scattering_fraction", [0., .98, .999999])

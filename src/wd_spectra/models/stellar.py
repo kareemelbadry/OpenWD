@@ -465,10 +465,7 @@ def _low_temperature_allard_lyman_table(
 ) -> AllardUnifiedLymanTable:
     """Return fixed Allard Ly-alpha with Stark-only higher Lyman members."""
 
-    data.require(
-        data.allard_tlusty205,
-        fetch_command="python scripts/fetch_allard_tlusty205.py",
-    )
+    data.require(data.allard_tlusty205)
     complete = read_allard_tlusty205_tables(data.allard_tlusty205)
     transition = (1, 2)
     return AllardUnifiedLymanTable(
@@ -482,7 +479,6 @@ def _helium_tables(data: ModelData):
     data.require(
         data.helium_i_stark,
         data.helium_ii_stark,
-        fetch_command="python scripts/fetch_helium_stark.py",
     )
     return (
         read_helium_stark_table(data.helium_i_stark),
@@ -545,10 +541,7 @@ def compute_da(
     )
     cia = None
     if molecules:
-        data.require(
-            data.h2_h2_cia,
-            fetch_command="python scripts/fetch_molecular_data.py",
-        )
+        data.require(data.h2_h2_cia)
         cia = read_borysow_h2_h2_cia_table(data.h2_h2_cia)
     h3plus_partition_model = (
         None
@@ -1257,7 +1250,6 @@ def _dab_trace_metals(config: DABConfig, data: ModelData) -> dict | None:
         data.stout,
         data.verner_photoionization,
         data.verner_phfit2,
-        fetch_command="python scripts/fetch_metal_data.py",
     )
     supplements = config.metal_line_supplements
     if (
@@ -1653,7 +1645,6 @@ def _polluted_helium_level_resolved_photoionization(
         *(entry[0] for entry in rap),
         *(path for entry in sirocco for path in entry[:2]),
         *(entry[0] for entry in norad),
-        fetch_command="python scripts/fetch_metal_data.py",
     )
     parts = []
     if tlusty:
@@ -1703,16 +1694,12 @@ def compute_dz(
     data.require(
         data.stout,
         data.verner_photoionization,
-        fetch_command="python scripts/fetch_metal_data.py",
     )
     if config.dense_helium_eos not in ("reos3", "ideal"):
         raise ValueError("dense_helium_eos must be 'reos3' or 'ideal'")
     helium_reos3 = None
     if config.dense_helium_eos == "reos3":
-        data.require(
-            data.helium_reos3,
-            fetch_command="python scripts/fetch_metal_data.py",
-        )
+        data.require(data.helium_reos3)
         helium_reos3 = read_helium_reos3_table(data.helium_reos3)
     if config.helium_minus_free_free not in ("automatic", "partial-wave"):
         raise ValueError("helium_minus_free_free must be 'automatic' or 'partial-wave'")
@@ -1741,10 +1728,7 @@ def compute_dz(
         and config.ca_ii_resonance_source == "chianti-reduced"
     )
     if use_reduced_ca_ii_source:
-        data.require(
-            data.ca_ii_chianti_collisions,
-            fetch_command="python scripts/fetch_metal_data.py",
-        )
+        data.require(data.ca_ii_chianti_collisions)
     atomic = read_stout_atomic_database(
         data.stout,
         elements=elements,
@@ -1765,10 +1749,7 @@ def compute_dz(
             if element in elements and charge <= config.maximum_metal_charge
         ]
         if nist_paths:
-            data.require(
-                *nist_paths,
-                fetch_command="python scripts/fetch_metal_data.py",
-            )
+            data.require(*nist_paths)
             # Replace every accuracy-graded (C or better) NIST transition the
             # synthesis can include, not only f >= 0.01: UV abundance lines
             # such as Si II 1808 (f = 0.002) are weak but important.
@@ -1793,7 +1774,7 @@ def compute_dz(
     )
     # photo.dat omits the iron-group ions other than Fe (and P, Cl, K);
     # Verner's phfit2 tables supply their ground-state fits.
-    data.require(data.verner_phfit2, fetch_command="python scripts/fetch_metal_data.py")
+    data.require(data.verner_phfit2)
     supplement = read_verner_phfit2_database(
         data.verner_phfit2,
         elements=elements,
@@ -1830,7 +1811,6 @@ def compute_dz(
                 if config.unified_metal_helium_profiles == "production"
                 else ()
             ),
-            fetch_command="python scripts/fetch_metal_data.py",
         )
         mg_he = read_mg_he_red_wing_table(
             data.mg_he_red_wing,
@@ -1864,7 +1844,6 @@ def compute_dz(
         data.require(
             data.ca_i_he_density_profiles,
             data.ca_i_he_temperature_profiles,
-            fetch_command="python scripts/fetch_metal_data.py",
         )
         ca_i_he = read_ca_i_he_profile_table(
             data.ca_i_he_density_profiles,

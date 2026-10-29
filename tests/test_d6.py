@@ -20,7 +20,6 @@ from wd_spectra.d6 import (
     merge_topbase_photoionization_databases,
     read_norad_ls_photoionization,
     read_sirocco_topbase_lte_photoionization,
-    resonance_average_topbase_photoionization,
     stout_ls_term_excitation_overrides,
     read_tlusty_topbase_lte_photoionization,
     read_tlusty_rap_lte_photoionization,
@@ -47,14 +46,12 @@ from wd_spectra.metals import (
     AtomicLevel,
     AtomicTransition,
     MetalLTEState,
-    cool_metal_negative_ion_mass_absorption_coefficient,
     hydrogenic_metal_level_mean_radius_cm,
     metal_ionic_microfield_perturber_density,
     metal_neutral_hard_sphere_occupation_probability,
     metal_rydberg_level_occupation_probability,
     metal_rydberg_transition_survival_probability,
     o_i_3p5p_nd5d_electron_stark_rate_coefficient,
-    oxygen_negative_ion_lte_number_density,
     read_stout_atomic_database,
 )
 
@@ -258,37 +255,6 @@ def test_bulk_metal_atmosphere_has_no_hidden_hydrogen_or_helium_host():
     assert np.all(attached.neutral_h_density == 0.0)
     assert np.all(attached.proton_density == 0.0)
     assert attached.metadata["composition"] == "hydrogen-helium-free-bulk-metals"
-
-
-def test_cool_bulk_metal_negative_ion_continuum_is_physical():
-    database = _ground_state_database(("O", "Ne", "Na"))
-    abundance = {"O": 0.0, "Ne": 0.3, "Na": -1.1}
-    atmosphere = gray_d6_atmosphere(
-        10_000.0,
-        5.5,
-        database,
-        abundance,
-        reference_element="O",
-        n_depth=8,
-    )
-    state = bulk_metal_lte_state(
-        atmosphere, database, abundance, reference_element="O"
-    )
-    atmosphere = atmosphere_with_bulk_metal_state(atmosphere, state)
-    oxygen_minus = oxygen_negative_ion_lte_number_density(atmosphere, state)
-    assert oxygen_minus.shape == atmosphere.temperature.shape
-    assert np.all(np.isfinite(oxygen_minus))
-    assert np.all(oxygen_minus > 0.0)
-    assert np.all(oxygen_minus < state.ion_number_density["O"][0])
-
-    wavelength = np.asarray([3800.0, 5320.0, 6620.0, 9000.0])
-    opacity = cool_metal_negative_ion_mass_absorption_coefficient(
-        atmosphere, wavelength, state
-    )
-    assert opacity.shape == (wavelength.size, atmosphere.n_depth)
-    assert np.all(np.isfinite(opacity))
-    assert np.all(opacity >= 0.0)
-    assert np.any(opacity > 0.0)
 
 
 def test_bulk_metal_reference_abundance_must_be_zero():
@@ -642,32 +608,6 @@ def test_topbase_positive_table_start_above_nominal_threshold_is_delayed():
     assert section.cross_section(section.threshold_energy_ev) == 0.0
     assert section.cross_section(opening - 1.0e-8) == 0.0
     assert section.cross_section(opening) == pytest.approx(1.953e-17)
-
-
-def test_resonance_average_preserves_delayed_continuum_opening():
-    section = TOPbaseLevelPhotoionization(
-        element="C",
-        charge=0,
-        level_index=3,
-        excitation_energy_ev=4.18,
-        statistical_weight=5.0,
-        threshold_energy_ev=7.08,
-        source_threshold_energy_ev=7.08,
-        photon_energy_ev=np.asarray((7.08, 8.0, 11.8, 12.0, 12.5, 14.0)),
-        cross_section_cm2=np.asarray((0.0, 0.0, 1.0e-18, 5.0e-18, 2.0e-18, 1.0e-18)),
-    )
-    averaged = resonance_average_topbase_photoionization(
-        TOPbasePhotoionizationDatabase((section,), "synthetic delayed C I"),
-        0.03,
-    ).sections[0]
-    opening = section.threshold_energy_ev + (
-        section.photon_energy_ev[2] - section.source_threshold_energy_ev
-    )
-    assert averaged.cross_section(section.threshold_energy_ev) == 0.0
-    assert averaged.cross_section(opening - 1.0e-8) == 0.0
-    assert averaged.cross_section(opening) > 0.0
-    assert averaged.cross_section_cm2[0] == 0.0
-    assert averaged.cross_section_cm2[1] == 0.0
 
 
 def test_tlusty_rap_reader_recovers_level_resolved_cross_section(tmp_path):

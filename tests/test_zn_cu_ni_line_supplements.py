@@ -19,7 +19,6 @@ from wd_spectra.metals import (
     atomic_database_with_rauch_zn_cu_transitions,
     metal_line_mass_absorption_coefficient,
     metal_lte_state,
-    rauch_zn_cu_line_counts,
     read_stout_atomic_database,
 )
 from wd_spectra.models.common import ModelData
@@ -88,18 +87,18 @@ def test_stout_term_parity_agrees_with_the_configuration(stout):
 
 
 def test_rauch_lines_attach_to_stout_levels(stout, rauch):
-    counts = rauch_zn_cu_line_counts(stout, DATA.stout)
-    assert {key: value["attached"] for key, value in counts.items()} == {
-        "Zn 3": 400, "Zn 4": 1651, "Cu 3": 7576, "Cu 4": 4218, "Cu 5": 2717,
-    }
+    counts = {}
     for element, charge in RAUCH_ZN_CU_ION_FILES:
         before = stout.ions[(element, charge)]
         after = rauch.ions[(element, charge)]
         assert after.levels == before.levels
         assert after.transitions[:len(before.transitions)] == before.transitions
         added = after.transitions[len(before.transitions):]
-        assert len(added) == counts[f"{element} {charge}"]["attached"]
+        counts[f"{element} {charge}"] = len(added)
         assert len({(line.lower_index, line.upper_index) for line in added}) == len(added)
+    assert counts == {
+        "Zn 3": 400, "Zn 4": 1651, "Cu 3": 7576, "Cu 4": 4218, "Cu 5": 2717,
+    }
     assert rauch.ions[("Cu", 6)] == stout.ions[("Cu", 6)]
     assert atomic_database_with_rauch_zn_cu_transitions(rauch, DATA.stout) is rauch
 
