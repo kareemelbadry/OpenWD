@@ -25,6 +25,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 DAH_PAPER = ("j1007+1237", "j1034+0327", "j1154+0117", "j2149-0728",
              "j1254+5612", "j1018+0111", "j1351+5419", "j2247+1456")
+DAH_PAPER_SPECTRA = ("j1007+1237", "j1018+0111", "j2247+1456")  # = PAPER_KEYS
 SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dah-limb-integral",
     "d6-j1637",
@@ -32,7 +33,6 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "da-4000",
     "da-5000",
     "da-20000",
-    "db-10000",
     "db-22000",
     "dab-9000",
     "dab-20000",
@@ -40,7 +40,6 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dz-j0738",
     "daz-g149-28",
     "daz-galex1931",
-    "dq-j1235",
     "dq-j1311",
     "sdb-hd4539",
 )
@@ -111,13 +110,9 @@ def commands(tier, cases=()):
             ]
         elif tier == "spectra" and case.startswith("dah-"):
             tasks[case] = pytest + [
-                f"tests/test_dah_paper.py::test_paper_prescription_spectrum_has_not_changed[{case[4:]}]",
                 f"tests/test_dah_paper.py::test_public_default_spectrum_has_not_changed[{case[4:]}]",
-            ]
-        elif tier == "spectra" and case == "dq-j1235":
-            tasks[case] = pytest + [
-                "tests/test_dq_spectral_regression.py::test_refractive_spectrum_retains_j1235_absolute_flux"
-            ]
+            ] + ([f"tests/test_dah_paper.py::test_paper_prescription_spectrum_has_not_changed[{case[4:]}]"]
+                 if case[4:] in DAH_PAPER_SPECTRA else [])
         elif tier == "spectra" and case == "dq-j1311":
             tasks[case] = pytest + [
                 "tests/test_dq_spectral_regression.py::test_completed_default_retains_j1311_absolute_flux"

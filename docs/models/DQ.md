@@ -234,7 +234,7 @@ cold-start qualification.
 The normal fast test suite covers chemistry, refractive conservation and
 responses, controller transitions, and public cold-start/qualification
 contracts. The separate fixed-atmosphere spectrum test is included in
-`python tools/validate.py spectra --case dq-j1235`; this is not cold-start
+`python tools/validate.py spectra --case dq-j1311`; this is not cold-start
 evidence. To run the expensive public cold canary explicitly:
 
 ```sh

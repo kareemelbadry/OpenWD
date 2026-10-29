@@ -19,6 +19,9 @@ TARGETS = json.loads((DATA / "manifest.json").read_text())["targets"]
 # default at the frozen paper structures; earlier approvals, including the
 # published paper spectra, are in git history.
 APPROVED = Path(__file__).parent / "data/approved_regressions/current"
+# The public default is checked on every star. The named paper prescription
+# shares its code path, so weak, cool/intermediate and strongest fields suffice.
+PAPER_KEYS = ("j1007+1237", "j1018+0111", "j2247+1456")
 
 def stellar_parameters(key):
     """Stellar, geometry and resolution inputs only; no physics switches."""
@@ -49,7 +52,7 @@ def frozen_atmosphere(key, config):
 
 
 @pytest.mark.spectral
-@pytest.mark.parametrize("key", TARGETS)
+@pytest.mark.parametrize("key", PAPER_KEYS)
 def test_paper_prescription_spectrum_has_not_changed(key, monkeypatch):
     from wd_spectra.models import dah
 

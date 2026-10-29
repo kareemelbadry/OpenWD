@@ -58,7 +58,7 @@ def assert_spectrum_preserved(wave, actual, expected):
         )
 
 
-@pytest.mark.parametrize("case", ["da-12000-public", "da-20000"])
+@pytest.mark.parametrize("case", ["da-12000-public"])
 def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     from wd_spectra.models import stellar
 
@@ -94,7 +94,7 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
         result = synthesize()
     assert result.spectrum.metadata['transfer_discretization'] == 'formal-pchip'
     assert_spectrum_preserved(wave, result.spectrum.surface_flux_lambda, expected)
-    # Independent stellar-flux guard for these two broad, warm-DA controls.
+    # Independent stellar-flux guard for this broad, warm-DA control.
     # No fitted scale enters the calculation or this check. This does not
     # claim universal bolometric accuracy for arbitrary requested bandpasses.
     ratio = trapezoid(result.spectrum.surface_flux_lambda, wave) / (

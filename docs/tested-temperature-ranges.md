@@ -77,9 +77,8 @@ physics retry. `run_model` rejects checkpoint inputs.
 `compute_*` functions remain explicit physics presets. In particular,
 `compute_db` at 5000 K does not select dense helium, and `compute_dab` stays
 atomic unless `include_molecules=True`, which `run_model` sets for every
-metal-free DAB. The earlier isolated molecular transport worker
-(`wd_spectra._cool.run_molecular_dab_mass_experiment`) is retained for research
-but is no longer selected by `run_model`.
+metal-free DAB. The earlier isolated molecular transport worker was removed on
+2026-10-29 (see git history); `run_model` no longer selected it.
 
 ### DQ release qualification
 

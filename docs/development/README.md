@@ -68,7 +68,7 @@ the independent research-driver recipe. Its numerical assertions remain part
 of protected qualification when that checker changes.
 
 DQ has fast chemistry/transfer/controller tests and fixed-state spectral
-cases, `python tools/validate.py spectra --case dq-j1235 --case dq-j1311`. Its separate
+case, `python tools/validate.py spectra --case dq-j1311`. Its separate
 `cold --case dq-j1235` canary constructs an atmosphere from parameters and
 checks the independent 154000-point spectrum; allow hours for it. The saved
 spectral fixture never supplies an atmosphere to the cold test. DQ data are

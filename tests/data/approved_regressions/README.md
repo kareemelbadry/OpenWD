@@ -14,8 +14,8 @@ current default physics is checked; superseded approvals and the scripts and
 manifests that recorded each physics change are in git history (removed
 2026-10-29). The last approvals were the 2026-10-27 Montreal neutral-hydrogen
 defaults (`da-3000`, `da-4000`, `da-5000`), combined with full hydrogen
-dissolution on 2026-10-28 for every other hydrogen-bearing case; `db-10000`
-and `db-22000` date from the 2026-10-01 flux-conserving numerics.
+dissolution on 2026-10-28 for every other hydrogen-bearing case; `db-22000`
+dates from the 2026-10-01 flux-conserving numerics.
 
 `cold/` and `montreal_h_radius_2026_10_27/cold/` supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh

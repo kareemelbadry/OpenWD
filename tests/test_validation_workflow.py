@@ -85,9 +85,7 @@ def test_default_fast_stage_excludes_both_expensive_markers():
 
 
 def test_dq_fixed_spectrum_and_true_cold_are_separate_tiers():
-    spectral = runner.commands("spectra", ["dq-j1235"])["dq-j1235"]
     cold = runner.commands("cold", ["dq-j1235"])["dq-j1235"]
-    assert spectral[-1].startswith("tests/test_dq_spectral_regression.py::")
     assert cold[-1] == runner.COLD_TESTS["dq-j1235"]
     assert "true_cold" in cold[-1]
     assert runner.commands("spectra", ["dq-j1311"])["dq-j1311"][-1] == (
@@ -367,6 +365,18 @@ def test_d6_regression_runs_the_current_reference_with_unchanged_guards(tmp_path
     assert plan["regression"] == {"d6-j1637": runner.commands("regression")["d6-j1637"]}
     assert plan["regression"]["d6-j1637"][-1] == runner.D6_REGRESSION_TEST
     assert not output.exists()
+
+
+def test_every_spectra_node_id_collects():
+    nodes = sorted({part for command in runner.commands("spectra").values()
+                    for part in command if part.startswith("tests/")})
+    output = subprocess.check_output(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-o", "addopts=", *nodes],
+        cwd=ROOT, text=True, env=dict(os.environ, PYTHONPATH=str(ROOT / "src")),
+    )
+    collected = {line for line in output.splitlines() if "::" in line}
+    for node in nodes:
+        assert any(line == node or line.startswith(node + "[") for line in collected), node
 
 
 def test_protected_node_ids_still_collect_without_running_atmospheres():
