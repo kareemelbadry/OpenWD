@@ -1,254 +1,241 @@
-# Development and regression policy
+# Contributor guide
 
 [Documentation home](../README.md)
 
-Use the [user guide](../getting-started.md) for model generation. This section
-is for changing the implementation and checking it safely; detailed previous
-investigations live in the [research history](history/README.md).
+This guide is for people who change OpenWD. To compute spectra, read
+[getting started](../getting-started.md).
 
-The [hydrogen-line and native-boundary fixes](physics-boundary-fixes-2026-10-05.md)
-document their reproduction tests and validation status.
+## Install for development
 
-The [preconditioner handoff and thermal-conditioning steps](../solver-preconditioner-handoff.md)
-note records the default solver-phase policy and its validation.
+1. Clone the repository and go to its root directory.
+2. Install the package and the test dependencies:
 
-The [solver cache/robustness measurements](../solver-cache-validation.md) and
-[native frequency-Voigt measurements](../native-frequency-voigt-validation.md)
-document the performance changes, reproduction commands and qualification
-limits. They retain the existing solver phases and corrected Voigt prescription.
+   ```bash
+   python -m pip install -e '.[test]'
+   ```
 
-## A short development loop, then full qualification
+3. Make sure that Python imports this checkout and the C extension:
 
-From the repository root:
+   ```bash
+   python -c "import wd_spectra; print(wd_spectra.__file__)"
+   python -c "from wd_spectra import compiled_backend_available; print(compiled_backend_available())"
+   ```
+
+The first command must print a path in `src/wd_spectra` of this checkout.
+The second command must print `True`.
+
+## C extension
+
+The C extension `wd_spectra._rt` contains the radiative-transfer,
+line-profile and Stark-manifold kernels. The sources are in `csrc/`.
+`setup.py` declares the extension.
+
+- The editable install compiles the extension into `src/wd_spectra/`.
+- The extension is optional. If compilation fails, the install continues
+  and OpenWD uses the slower NumPy code. Check the result with
+  `compiled_backend_available()`.
+- After you change a file in `csrc/`, compile again with
+  `python -m pip install -e '.[test]'` or `python setup.py build_ext --inplace`.
+- Compile once for each Python version that you use. The file name of the
+  compiled module includes the Python version.
+- CI requires the extension. A CI job fails if `_rt` does not import.
+
+[Performance](performance.md) describes the threads and the benchmarks.
+
+## Run the tests
+
+Run all tests from the repository root:
 
 ```bash
-python -m pip install -e '.[test]'
-python tools/validate.py fast
-python tools/validate.py spectra --jobs 2
-python tools/validate.py regression --case d6-j1637 --jobs 1
-python tools/validate.py cold --case da-4000 --case db-22000 --jobs 2
+pytest
 ```
 
-Use focused `python -m pytest tests/test_...py` checks after individual edits.
-The ordinary suite includes `tests/test_da_public_spectrum.py`: frozen DA
-continuum and Balmer-profile comparisons through the **public default**, with
-atmosphere iterations forbidden. Do not add a method override to make this
-guard pass. These quick checks complement, not replace, fresh-atmosphere tests.
-The approved cubic DA controls also check the sampled stellar-flux integral.
-Intentional reviewed physics changes use separate, frozen approved outputs
-with a provenance manifest; the historical inputs remain untouched. Never
-regenerate references inside a test or relax tolerances to hide a change.
-The `fast` tier runs numerical/API/documentation and cool-component tests,
-excluding both expensive markers. `spectra` synthesizes the immutable fixed
-atmospheres; it **does not certify equilibrium**. Select a subset with repeated
-`--case` options, for example `spectra --case da-4000 --case daz-g149-28`.
-Use targeted `cold` checks once an implementation looks promising, not after
-every small edit. Existing `python -m pytest` still includes spectral controls
-and excludes cold canaries; its coverage has not silently been reduced.
+- `pyproject.toml` sets `addopts = "-ra -m 'not canary'"`. Thus, `pytest`
+  runs all tests in `tests/` except the `canary` tests. Canary tests compute
+  full atmospheres from a cold start and take hours.
+- The `spectral` marker identifies the fixed-atmosphere spectrum
+  regressions. These tests are slow. To skip them, use
+  `pytest -m 'not canary and not spectral'`. CI uses this selection for the
+  unit tests.
+- To run one file, give its path, for example
+  `pytest tests/test_documentation.py`.
+- The cool-model component tests are in `research/cool_models`. Run them with
+  `PYTHONPATH=src:research/cool_models pytest research/cool_models -o addopts=-ra`.
 
-For a finished solver/physics candidate, run:
+### Import path
+
+pytest reads its import path from `pyproject.toml` (`pythonpath = ["src"]`).
+It puts `src/` of this checkout first on `sys.path`. This setting has
+priority over the `PYTHONPATH` environment variable.
+
+- To test a different source tree, use `-o pythonpath=<tree>/src`.
+- If pytest does not read this `pyproject.toml` (for example, with `-c`),
+  add `-o pythonpath=src`.
+
+## Validation tiers
+
+`tools/validate.py` runs the slow tests in tiers. Each test runs in its own
+process with one numerical thread. Each test has its own log. The runner
+writes `summary.json` with the results, the commands, and hashes of the
+source, data and compiled modules.
+
+| Tier | Contents | When to run |
+| --- | --- | --- |
+| `fast` | `pytest tests -m 'not canary and not spectral'` and the cool-model component tests | After each change |
+| `spectra` | Fixed-atmosphere spectrum regressions for DA, DB, DAB, DAH, DZ, DAZ, DQ, D6 and sdB | After a change to opacity, line profiles or transfer |
+| `regression` | J1637 (D6) two-step warm trajectory for five frozen reference versions | After a change that affects D6 |
+| `cold` | Cold-start canaries: each protected model from parameters, with all convergence checks | For a final candidate |
+| `full` | `fast`, then `spectra`, then `cold`; stops at the first failed tier | Before a release |
+
+The `spectra` tier does not test convergence. Only a passed `full` run sets
+`full_qualification` to `true` in `summary.json`.
+
+Options:
+
+| Option | Effect |
+| --- | --- |
+| `--case NAME` | Selects one case. Repeat it for more cases. Only for `spectra`, `regression` and `cold`. |
+| `--jobs N` | Maximum number of processes. The default is the smaller of 2 and the CPU count. |
+| `--timeout S` | Time limit for each task in seconds (default 7200). A timeout is a failure. |
+| `--output DIR` | Output directory. The default is `results/validation/<UTC time>-<id>`. |
+| `--plan` | Prints the commands and does not run them. |
+| `--reuse FILE` | Reuses passed `spectra` and `cold` results from an earlier `summary.json`, only if all numerical inputs are identical. `fast` always runs again. |
+
+Examples:
 
 ```bash
+python tools/validate.py fast
+python tools/validate.py spectra --case da-4000 --case dz-pg1225
+python tools/validate.py regression --case d6-j1637 --jobs 1
+python tools/validate.py cold --case da-4000 --jobs 1
 python tools/validate.py full --jobs 2 --output results/validation-candidate
 ```
 
-This runs fast checks, fixed-atmosphere spectra, then every protected cold
-case, stopping before an expensive stage if an earlier stage failed. It
-includes the established controls, automatic dense/molecular workflows, and
-DAZ and refractive DQ cold starts. It does not change tolerances, reduce science
-resolutions, renormalize spectra, or supply a previous atmosphere. See the
-[cool-model guide](../../research/cool_models/README.md) for required external
-data. Missing data are failures, not successful physical tests. Additional
-affected comparisons in the paper-validation workspace remain necessary.
+The `SPECTRA`, `COLD` and `REGRESSIONS` lists in `tools/validate.py` give the
+case names. `regression --case d6-j1637` selects all five J1637 versions.
 
-The public hybrid sdB adapter has a separate `cold --case sdb-hd4539`
-acceptance check. It constructs the LTE structure and NLTE populations from
-parameters, then compares its absolute spectrum with a retained control from
-the independent research-driver recipe. Its numerical assertions remain part
-of protected qualification when that checker changes.
-
-DQ has fast chemistry/transfer/controller tests and fixed-state spectral
-cases, `python tools/validate.py spectra --case dq-j1235 --case dq-j1311`. Its separate
-`cold --case dq-j1235` canary constructs an atmosphere from parameters and
-checks the independent 154000-point spectrum; allow hours for it. The saved
-spectral fixture never supplies an atmosphere to the cold test. DQ data are
-bundled; see the [DQ guide](../models/DQ.md#regression-tests).
-
-`--plan` prints the exact commands without running anything. `--jobs` bounds
-simultaneous processes (default two); numerical-library threads are fixed to
-one per process. Use fewer jobs on memory-limited machines. Progress streams
-live with case labels and elapsed-time heartbeats. Each case gets its own log,
-and `summary.json` records outcomes, elapsed time, commands, source/data hashes,
-Python, packages and compiled binaries. Protected DA/DB tests also save the
-last accepted iteration as a **diagnostic-only** artifact and the completed
-model before physical assertions. Interrupted or timed-out work never passes.
-
-To avoid repeating completed expensive tests after prose-only edits, supply
-`--reuse results/previous-run/summary.json`. Reuse is explicit, applies only
-to completed passed spectral/cold tests with retained logs and an identical
-numerical-input/runtime hash, and is identified in the new report. Fast tests
-always rerun. Changed equations, data, compiled binaries, checker inputs or
-dependencies invalidate reuse conservatively; custom `OPENWD_DATA` roots
-disable it. Inputs changed during a run also invalidate its qualification.
-This reuses **test evidence**, never an atmosphere or solver starting state.
-
-Only a successful `full` report is a full-suite qualification; a green subset
-or fixed-atmosphere comparison is not. See [telemetry](solver-telemetry.md)
-and [performance](performance.md) for interpreting diagnostics and threading.
-
-J1637 also has a bounded warm-trajectory regression. It freshly computes
-two measured solver steps from a deliberately perturbed frozen atmosphere
-at the standard 48-layer/25,000-line resolution and compares complete depth
-profiles and residuals. Its fixed-atmosphere optical spectrum is in the
-`spectra` tier. These checks support a short PR loop without claiming that
-an interrupted trajectory establishes cold convergence. The original public
-J1637 cold canary remains in `cold` and `full`; use it for release validation
-and cold-start investigations. See the [reference provenance](../../tests/data/d6_regressions/README.md).
-
-Each frozen J1637 version is a separate regression task. The aggregate
-`regression --case d6-j1637` selects all five; `--jobs 1` runs them
-sequentially with separate per-task work guards. To run just the current
-reference, select `--case d6-j1637-warm_v5_excited_parent-current`. PR CI puts the five
-versions on separate workers, and its qualification gate requires the entire
-matrix to pass. Their reference arrays, two measured steps and physical
-tolerances are unchanged.
+The `molecular-dab-*` cold cases need two external tables: HITRAN
+`H2-He_2011.cia` and ExoMol `1H2__RACPPK.states.bz2`. Put them in the
+directory given by `OPENWD_RESEARCH_DATA` (default `.cache/molecular-opacity`).
+Check them with `python research/cool_models/check_data.py`. Missing data
+cause a failure. The [cool-model guide](../../research/cool_models/README.md)
+gives the details.
 
 ## GitHub checks
 
-Fast/component and fixed-spectrum checks run on pull requests and pushes to
-`main`; there is no duplicate feature-branch push run. New PR commits cancel
-obsolete checks for that PR without cancelling unrelated main-branch work.
+### Tests workflow
 
-The expensive qualification workflow is explicit: add a **full-validation**
-label to a non-draft PR when the candidate is ready. Remove the label or return
-the PR to draft while iterating. A new commit on a labelled PR is a new candidate
-and must rerun its selected checks. On PRs, J1637 uses its bounded warm
-trajectory plus fixed spectrum, while the other protected models retain
-their cold starts. Without the label, numerical changes leave the cheap
-`qualification` check failing with an explanation; skipped atmosphere jobs
-are never called successful qualification. A successful PR check explicitly
-reports its J1637 warm-regression coverage; it is not a full-suite cold-start
-qualification. Prose and ordinary unit-test edits
-do not require cold starts. The two descriptive fields in the RE J0317-853
-provenance JSON are compared against their merge-base contents: edits to those
-strings also skip cold starts, while numerical fields, checksums, additions,
-deletions and malformed JSON do not. The CI selection planner itself is covered
-by ordinary policy tests. Unknown paths and shared numerical/data/checker
-changes conservatively require the full suite.
+`.github/workflows/tests.yml` runs on each pull request, on each push to
+`main`, and on manual start. All jobs use one numerical thread.
 
-Maintainers can also run **protected model canaries → Run workflow** for the
-selected branch; these manual runs and the weekly schedule still include
-J1637's full cold start. There is no
-automatic expensive merge-push rerun. The cold matrix runs one star per job,
-after cheap preflight checks, and retains logs/results even on failure.
+| Job | Contents |
+| --- | --- |
+| `unit-and-component` | Python 3.9 and 3.12, four shards each (`tools/ci_shard.py`). Each shard runs `pytest -m 'not canary and not spectral'` on its test files. The job first checks the dependencies, the import path and the C extension. |
+| `fixed-spectra` | Python 3.12, four lanes of `tools/validate.py spectra`. On a pull request, it runs only if numerical inputs changed. |
+| `cool-workflow-components` | `pytest research/cool_models` on Python 3.9 and 3.12. |
 
-Preflight runs the complete fast and fixed-spectrum tiers on separate workers,
-with 90 minutes for fast checks and 150 minutes for spectra, each retaining its
-own diagnostic artifact. The spectral budget includes the retained historical
-hydrogen replays; the preceding suite already took about 80 minutes on a hosted
-runner. Both tiers must pass before any protected cold model or J1637 warm
-regression starts. A failed,
-cancelled or skipped tier cannot qualify the candidate. This avoids putting
-both suites under one sequential job limit; their case selections, test
-resolutions and numerical acceptance checks are unchanged.
+### Protected model canaries
 
-For GitHub-enforced merging, select the stable **qualification** check in
-branch protection along with ordinary checks, rather than individual matrix
-job names. Workflow files cannot configure repository branch protection;
-without that setting the check reports failures but does not prevent a
-maintainer overriding them. Direct local development on `main` remains
-supported: run full qualification before pushing numerical changes.
+`.github/workflows/canaries.yml` runs on pull request events, every Monday
+at 09:17 UTC, and on manual start (**Run workflow**).
 
-## Protect existing models
+1. `plan` runs `tools/validation_policy.py`. It sets two flags:
+   - *required*: the pull request changes numerical inputs.
+   - *requested*: the pull request is not a draft and has the
+     `full-validation` label. Scheduled and manual runs are always requested.
+2. `preflight` runs the complete `fast` and `spectra` tiers on separate
+   workers. It runs only for scheduled and manual runs. On a pull request,
+   the tests workflow runs these tiers.
+3. `cold-model` runs each cold case in its own job, with
+   `tools/validate.py cold --timeout 19800`. On a pull request, the J1637
+   warm regression replaces the J1637 cold start.
+4. `d6-regression` runs on pull requests only. It runs the five J1637
+   reference versions in separate jobs.
+5. `qualification` is the summary check. It fails if a required run was not
+   requested, or if a requested job failed. Select this check in branch
+   protection.
 
-The standalone OpenWD repository is the source of truth for the released
-Python package. Research results, private observations, and large validation
-products may live in an adjacent workspace, but must import this checkout
-rather than maintain a copied `wd_spectra` source tree. Pytest explicitly puts
-this repository's `src` directory first so an unrelated editable installation
-cannot make the suite certify the wrong code.
+`tools/validation_policy.py` does not require cold starts for changes only to
+these paths:
 
-Local solver or physics work stays unpushed until its final-candidate checks pass. The
-maintained GitHub branch is `main`; additional published development branches
-are not required. A final candidate is eligible for merge only after:
+- `docs/`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `.gitignore`;
+- `tools/validation_policy.py`;
+- test files in `tests/*.py`, except the canary and spectral test files that
+  the policy lists;
+- `research/test_*` files and `examples/generate_spectrum.ipynb`;
+- the descriptive fields `sigma` and `v_over_i_level` in
+  `src/wd_spectra/data/validation/dah/re-j0317-853-vi.json`.
 
-1. the fast and fixed-spectrum suites pass;
-2. the protected PR checks pass (J1637's warm regression and the other cold cases);
-3. any affected paper-spectrum regressions have been rerun in the validation
-   workspace; and
-4. the model-request physics revision is updated if equations or physical data
-   changed.
+A change to any other path requires cold starts. The same rule decides
+whether `fixed-spectra` runs on a pull request.
 
-Before release, full protected no-fallback cold-start qualification must also
-pass, including J1637. The weekly and manual full runs provide that coverage.
-These are final-candidate requirements, not an instruction to rerun everything
-after every edit. Documentation/interface-only changes need the relevant
-tests; the full atmosphere suite is reserved for changes that affect numerical
-inputs or qualification. A new model needs its own cold-start and spectral
-controls as well as protection of the existing models.
+### Procedure for a numerical change
 
-Public one-shot functions deliberately return exploratory spectra from
-unconverged or provenance-unknown atmospheres, but issue
-`AtmosphereConvergenceWarning` and report `atmosphere_convergence_status` in
-the result metadata. Tests and production workflows should turn that warning
-into an error and assert the atmosphere's all-depth convergence metrics.
-Cold-start canaries must pass all five certificate gates and spectral comparisons
-against immutable controls. They must not be replaced with checkpoint starts.
-Outer temperatures previously unconstrained by interface flux may change only
-with explained local-energy corrections and independently checked spectra.
-Runtime budgets account for the added physical completion, not relaxed physical
-tolerances. Fixed-atmosphere synthesis has separate, tighter regression bounds.
-Iteration ceilings are coarse work guards, not equilibrium criteria. The two
-100-layer ultracool DA canaries share a 120-iteration ceiling; a verified
-4000 K calculation took 61 iterations on one CI run and 59 on another, making
-the former 60-iteration test ceiling too tight. All physical and spectral
-checks remain mandatory and unchanged.
+1. Work on a draft pull request, or keep the `full-validation` label off.
+   The `qualification` check fails with an explanation. This is correct.
+2. When the candidate is ready, mark the pull request ready for review.
+3. Add the `full-validation` label.
+4. Each new commit runs the selected jobs again.
+5. Rerun the observational comparisons that the change affects.
 
-Public generation and examples are cold-start workflows. `run_model` rejects
-checkpoint inputs. Low-level checkpoint/fixed-synthesis utilities are retained
-for explicit diagnostics, not as prerequisites or recovery paths for users.
-Refining or extending the mesh inside a fresh calculation is allowed, provided
-the same physics is retained and the final state is independently certified.
+A pass on a pull request is not a full cold-start qualification, because
+J1637 uses the warm regression. The weekly and manual runs include the J1637
+cold start.
 
-Adaptive solvers must preserve the structured fields documented in
-`solver-telemetry.md`. New numerical changes should be justified with those
-diagnostics, not by increasing iteration limits or accepting a surface-flux
-ratio in place of all-depth convergence.
+## Regression controls
 
-The cool-model runtime lives in `src/wd_spectra/_cool` and is included in wheels.
-Component tests and historical command entry points live in `research/cool_models`.
-The entry points delegate to the installed implementation. Document tested compositions,
-temperatures, initialization and physical limitations before claiming a new
-range. Research comparison flags are not regression-qualified defaults.
+Frozen reference outputs are in `tests/data/`. The directory
+`tests/data/approved_regressions/` holds the controls for intentional physics
+changes. Its [README](../../tests/data/approved_regressions/README.md) and the
+README in each subdirectory record each change.
 
-## Release simplification and compatibility
+Rules:
 
-The supported LTE structure solver is now `adaptive-newton`, including at
-low-level atmosphere entry points. The former `lambda` implementation was
-removed together with its unused damping and convergence-count controls.
-Existing explicit `structure_solver="adaptive-newton"` and config
-`atmosphere_solver="adaptive-newton"` arguments remain accepted for saved
-configuration compatibility. They no longer select between algorithms.
+- Do not compute a reference inside a test.
+- Do not relax a tolerance or increase an iteration limit to make a test pass.
+- Do not change an existing control. Earlier controls stay in the tests.
 
-Normal one-shot CLI calculations delegate to `run_model`, including cool
-DB/DAB physics selection. Use `--synthesize-atmosphere` for a diagnostic
-fixed-state spectrum; the old `--restart-atmosphere` spelling is an alias
-and never resumes an atmosphere solve. Both modes refuse existing output
-directories. `run_model` accepts a final `wavelength` grid and an
-`iteration_callback` for in-process models. Cool workers retain their
-qualified output grids and stdout progress.
+To approve an intentional physics change:
 
-Unsupported continuation arguments were removed from `run_model`,
-`compute_dq`, and `compute_pg1159`. Scientific-resolution controls and
-low-level diagnostic physics remain available. `quality="quick"` is a
-two-iteration smoke-test budget, not a convergence or accuracy guarantee.
-DQ still accepts the single `quality="standard"` value for serialized
-configuration and notebook compatibility.
+1. Get a physics review and the approval of a maintainer.
+2. Write a capture script `research/capture_<topic>_controls.py`. The script
+   must refuse an existing output directory. Tests and CI never run it.
+3. Save the new outputs in a new directory
+   `tests/data/approved_regressions/<topic>_<date>/`.
+4. Add a `README.md` and a `manifest.json` to that directory. The manifest
+   records the source, data, input and output hashes.
+5. If equations or physical data change, update `_MODEL_PHYSICS_REVISION` in
+   `src/wd_spectra/models/common.py`.
 
-Checkpoint request identities now include Python/native code and table
-contents. Older path-only identities become unverified warm starts;
-fixed-state synthesis cannot carry their equilibrium claim forward.
+## Rules for numerical changes
 
-The full validation plan includes cold DZ, DO, DAO, PG 1159, and D6 cases.
-PG 1159 is checked against its declared spectrum-qualification profile;
-it is not promoted to full equilibrium certification.
+- Public functions return spectra from unconverged atmospheres with an
+  `AtmosphereConvergenceWarning`. The result metadata gives
+  `atmosphere_convergence_status`. Tests must make the warning an error, or
+  assert the convergence metrics.
+- A cold-start canary must pass all five convergence checks: all-depth flux,
+  local energy, unrestricted temperature correction, scattering-source closure
+  and lower-boundary screening.
+- A cold-start canary never starts from a saved atmosphere. `run_model`
+  accepts no saved atmosphere.
+- Iteration limits are work limits, not convergence criteria.
+- Show the effect of a solver change with the [solver telemetry](solver-telemetry.md).
+- A new model needs its own cold-start canary and fixed-spectrum control.
+
+## Development notes
+
+- [Performance](performance.md): threads and benchmarks.
+- [Solver telemetry](solver-telemetry.md): convergence diagnostics in the
+  atmosphere metadata.
+- [Hot DA/DAO trace metals](hot-daz-trace-metals.md): the fixed-host NLTE
+  metal solver.
+- [Niobium, zinc, copper and nickel lines](niobium.md): HS 0209+0832.
+- [Hot subdwarf (sdB) models](sdb-hybrid.md): solver options and the trace-metal
+  driver.
+- [History](history/README.md): dated investigation records.
+
+Validation records:
+
+- [Independently corroborated Kurucz lines](../validation/independent-kurucz.md)
+- [Observational comparisons: DZ, DBZ and DAZ](../validation/dz-observational-comparisons.md)
+- [Metal population consistency](../validation/metal-population-consistency.md)

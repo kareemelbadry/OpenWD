@@ -31,6 +31,9 @@ from matplotlib.lines import Line2D
 LIGHT_SPEED_KMS = 299792.458
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT.parents[1]
+# Matplotlib sizes for the printed standard: the 8.0 in figure is printed at 0.95\textwidth = 6.77 in.
+PRINT_SCALE = 8.0 / 6.77
+AXIS_LABEL_SIZE, TICK_SIZE, SECONDARY_SIZE = 8.5 * PRINT_SCALE, 7.5 * PRINT_SCALE, 6.5 * PRINT_SCALE
 OBS = ROOT / 'results/sdb/obs'
 # key: (label, observation, instrument, resolving power below/above the split, split (A, air), RV km/s)
 # The paper's X-shooter display mask (validate_metal_suite._broad_observation_mask)
@@ -259,7 +262,7 @@ def main():
             lower, upper = max(lower, inside.min() - 5.0), min(upper, inside.max() + 5.0)
             ax.set_xlim(lower, upper); ax.set_ylim(0, 1.25); ax.set_yticks((0, .5, 1))
             ax.set_xticks(np.arange(np.ceil(lower / 100 + 0.25) * 100, upper - 20, 100))
-            ax.tick_params(top=True, right=True, length=4, direction='in', labelsize=9)
+            ax.tick_params(top=True, right=True, length=4, direction='in', labelsize=TICK_SIZE)
         # One label per group of interstellar lines closer than 10 A (Na D1/D2).
         groups = []
         for line in sorted(float(air_to_vacuum(x)) for x in target.get('interstellar', ())):
@@ -270,11 +273,11 @@ def main():
         for vacuum in (float(np.mean(g)) for g in groups):
             for ax, (lower, upper) in zip(row, bands):
                 if lower <= vacuum <= upper:
-                    ax.annotate('IS', (vacuum, 1.05), ha='center', va='bottom', fontsize=7, color='.35')
+                    ax.annotate('IS', (vacuum, 1.05), ha='center', va='bottom', fontsize=SECONDARY_SIZE, color='.35')
         label = (f'{target["name"]} ({target["instrument"]})   '
                  + rf'$T_{{\rm eff}}={host["teff"]:.0f}\,$K, $\log g={host["logg"]:.2f}$, '
                  + rf'$\log(N_{{\rm He}}/N_{{\rm H}})={host["log_he_h"]:.2f}$')
-        row[0].set_title(label + '   [' + target['source'] + ']', fontsize=10, loc='left', pad=3)
+        row[0].set_title(label, fontsize=TICK_SIZE, loc='left', pad=3)
         # Adopted metal abundances, log N(X)/N(H): NLTE elements, then LTE line opacity.
         nlte = summary['abundances']
         lte = {**summary.get('lte_abundances', {}),
@@ -283,7 +286,7 @@ def main():
                                        for e in ELEMENT_ORDER if e in values)
         row[1].text(.008, .05, r'$\log N_{\rm X}/N_{\rm H}$ (NLTE): ' + fmt(nlte) + '\n'
                     + r'$\log N_{\rm X}/N_{\rm H}$ (LTE): ' + fmt(lte), transform=row[1].transAxes,
-                    ha='left', va='bottom', fontsize=6.3, color='.2', linespacing=1.3)
+                    ha='left', va='bottom', fontsize=SECONDARY_SIZE, color='.2', linespacing=1.3)
         stored[key + '__wavelength'], stored[key + '__observed'], stored[key + '__model'] = wave, observed, model
         report['cases'][key] = dict(name=target['name'], instrument=target['instrument'],
                                     resolving_power=target['power'], arm_split_air=target['split'],
@@ -307,9 +310,9 @@ def main():
                                         [target['observation'] / f'coadd-{a}.fits' for a in ('uvb', 'vis')])])
     axes[0][0].legend(handles=[Line2D([], [], color='.30', lw=.8, label='Observed'),
                                Line2D([], [], color='#d95f02', lw=.8, label='OpenWD')],
-                      loc='lower right', ncol=2, frameon=False, fontsize=9, handlelength=2.3, columnspacing=1.4)
-    fig.supxlabel(r'vacuum wavelength [$\mathrm{\AA}$]', fontsize=11, y=.06 / height)
-    fig.supylabel('normalized flux', fontsize=11, x=.015)
+                      loc='lower right', ncol=2, frameon=False, fontsize=TICK_SIZE, handlelength=2.3, columnspacing=1.4)
+    fig.supxlabel(r'Wavelength ($\mathrm{\AA}$)', fontsize=AXIS_LABEL_SIZE, y=.06 / height)
+    fig.supylabel('Normalized flux', fontsize=AXIS_LABEL_SIZE, x=.015)
     fig.savefig(args.output / f'{args.name}.pdf', dpi=400)  # rasterized observed spectra
     fig.savefig(args.output / f'{args.name}.png', dpi=220)
     np.savez_compressed(args.output / f'{args.name}-arrays.npz', **stored)

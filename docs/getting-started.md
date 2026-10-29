@@ -1,40 +1,25 @@
 # Getting started
 
-[Documentation home](README.md) · [Model guide](models/README.md) ·
-[Limitations](limitations.md)
+[Documentation home](README.md) · [Installation](installation.md) ·
+[Model guides](models/README.md) · [Limitations](limitations.md)
 
-## Install
+## Check the installation
 
-Use Python 3.9 or newer, preferably in a dedicated environment:
-
-```bash
-git clone https://github.com/kareemelbadry/OpenWD.git
-cd OpenWD
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-python -m pip install -e .
-```
-
-Run subsequent commands from the OpenWD directory. The installer attempts to
-build the optional C acceleration extension. The tested Python implementation
-is also available if no compiler is present; the selected physical model is
-unchanged. NumPy, Matplotlib, SciPy, mpmath, and Numba are installed automatically.
-Established-preset and DQ constitutive data are bundled.
-
-For the notebook, install Jupyter in the same environment:
+Install OpenWD as described in [installation](installation.md). Then run these
+commands from the repository root:
 
 ```bash
-python -m pip install jupyterlab
-python -m jupyter lab examples/generate_spectrum.ipynb
+python -c "import wd_spectra; print(wd_spectra.__version__, wd_spectra.__file__)"
+python -c "from wd_spectra import compiled_backend_available; print(compiled_backend_available())"
 ```
 
-Select this environment's kernel. Restart the kernel after updating the package
-so an old import cannot be mistaken for the current code.
-[`examples/fit_dz_spectrum.ipynb`](../examples/fit_dz_spectrum.ipynb) demonstrates
-a DZ abundance fit. Its observed UVES spectrum is included in the repository;
-no archive download or extra data-reading dependency is needed.
+The second command shows `True` when the optional C extension is active.
+Without the extension, OpenWD uses equivalent Python code, which is slower.
 
-## Run and plot a spectrum
+## Run your first model
+
+This example calculates a DA model at 12,000 K and log g = 8. It uses only
+bundled data. Allow several minutes.
 
 ```python
 import matplotlib.pyplot as plt
@@ -42,8 +27,8 @@ from wd_spectra import DAConfig, run_model
 
 config = DAConfig(effective_temperature=12_000, logg=8.0, quality="standard")
 run = run_model(config, "results/da-12000")
-print(run.selection.workflow)
-print("Numerical convergence verified:", run.convergence_verified)
+print("Selected workflow:", run.selection.workflow)
+print("Converged:", run.convergence_verified)
 
 spectrum = run.spectrum
 plt.plot(spectrum.wavelength_angstrom, spectrum.surface_flux_lambda)
@@ -52,87 +37,165 @@ plt.ylabel("Surface flux (erg s^-1 cm^-2 Angstrom^-1)")
 plt.show()
 ```
 
-Temperature is in kelvin; `logg` is log10 of gravity in cm s⁻². The flux is
-at the stellar surface, not at Earth: it has not been distance-scaled, reddened,
-or convolved with an instrument. The output uses the selected workflow's native
-wavelength grid.
+`run_model` always does a cold start: it builds a new atmosphere from the
+input parameters. It does not use a saved atmosphere. It prints its
+progress while it iterates.
 
-Each calculation starts from scratch. Choose a new output directory each time;
-existing directories are never overwritten. Iteration progress is printed as
-the solver works. Runtime depends strongly on model and machine: allow minutes
-for warm models and potentially much longer for cool or metal-rich atmospheres.
-Refractive DQ calculations can take hours and several GiB of memory.
+The output directory must not exist. `run_model` does not overwrite a
+directory. Use a new directory name for each run.
 
-### Quality and convergence
+For an interactive version, open the
+[example notebook](../examples/generate_spectrum.ipynb).
 
-Use `standard` to start; `production` increases numerical budgets and is
-required by the cool DB/DAB workflows. `quick` is only an
-interface smoke test, not a converged science model. DQ currently accepts only
-`quality="standard"`; its full cold-start protocol has no quick/production variant.
+## Outputs
 
-By default, a completed but unqualified spectrum is saved with a warning for
-exploratory work. To make numerical qualification mandatory:
+### Output files
+
+`run.output_directory` contains these files:
+
+| File | Contents | Written for |
+| --- | --- | --- |
+| `spectrum.txt` | Columns: vacuum wavelength (Å), surface flux, continuum flux | All classes except the dense-helium DB workflow |
+| `model-run.json` | Request, selected physics, status and convergence result | All classes |
+| `metadata.json` | Configuration, convergence certificate and spectrum metadata | All classes except the dense-helium DB workflow |
+| `atmosphere.npz` | Optical depth, column mass, temperature, pressure, density and electron density at each depth | All classes except the dense-helium DB workflow |
+| `populations.npz` | NLTE level populations | DO, DAO, PG 1159 and sdB |
+| `stokes.txt` | Stokes I, Q, U and V | DAH with `return_stokes=True` |
+| `worker/` | Solver products and independent checks | DQ and the dense-helium DB workflow |
+
+`run.spectrum_path` gives the location of the spectrum file for every class.
+`run.spectrum` reads it and returns these arrays:
+
+| Attribute | Unit |
+| --- | --- |
+| `wavelength_angstrom` | Å, vacuum |
+| `surface_flux_lambda` | erg s⁻¹ cm⁻² Å⁻¹ |
+| `continuum_flux_lambda` | erg s⁻¹ cm⁻² Å⁻¹ (`None` if the workflow gives no continuum) |
+
+The flux is the emergent flux at the stellar surface. OpenWD does not scale it
+to a distance, apply extinction or convolve it with an instrument profile.
+Each workflow uses its own wavelength grid.
+
+The continuum flux is the emergent flux of the same atmosphere with all line
+opacity removed. The C₂ bands and the far wing of Lyman α count as lines.
+Bound-free and free-free absorption, collision-induced absorption, scattering
+and the dissolved-level pseudo-continuum stay in the continuum. Divide the
+flux by the continuum to get a normalized spectrum.
+
+### Convergence
+
+`run.convergence_verified` is `True` when the atmosphere passed all the
+convergence checks of its class. `model-run.json` records the same result.
+
+By default, `run_model` keeps a spectrum that did not converge. It shows an
+`AtmosphereConvergenceWarning`. To make convergence mandatory, set
+`require_convergence=True`:
 
 ```python
 run = run_model(config, "results/da-12000-strict", require_convergence=True)
 ```
 
-An unqualified result then raises an error after retaining diagnostic files.
-Missing data, unsupported parameters, and execution failures always raise;
-they never trigger a retry with different physics. Passing the convergence
-checks does not certify all physical approximations or grid accuracy; see
-[limitations](limitations.md).
+Then a run that does not converge raises `RuntimeError`. The output files stay
+in the directory for diagnosis. Missing data, invalid parameters and solver
+failures always raise an error. OpenWD never retries with different physics.
 
-Two classes have their own rules. DQ always requires both the atmosphere
-certificate and the independent final-spectrum flux check, even with
-`require_convergence=False`; an unqualified DQ request raises. PG 1159 reports
-`spectrum-qualified` or `converged` (see [PG 1159](#pg-1159-hot-heliumcarbonoxygen-atmospheres)).
+Two classes have special rules:
+
+- DQ always requires full convergence and an independent flux check. A DQ run
+  that fails these checks raises an error, also with
+  `require_convergence=False`.
+- PG 1159 reports the status `spectrum-qualified` or `converged`. See
+  [PG 1159](#pg-1159-hot-heliumcarbonoxygen-atmospheres).
+
+Convergence is a numerical result. It does not show that the physics is
+correct for your star. See [limitations](limitations.md).
 
 ## Change the composition
 
-Replace the configuration above, keeping the same `run_model` call:
+Each model class has its own configuration class. Every example below is a
+complete script. Read the [model guide](models/README.md) for the class
+before you change other options.
+
+Abundance conventions differ between classes:
+
+| Configuration | Composition input |
+| --- | --- |
+| `DAZConfig` | `abundances`: log10 N(Z)/N(H) |
+| `DABConfig` | `log_hydrogen_to_helium`: log10 N(H)/N(He) |
+| `DZConfig` | `abundances`: log10 N(Z)/N(He); `log_hydrogen_abundance`: log10 N(H)/N(He) |
+| `DQConfig` | `log_carbon_to_helium`: log10 N(C)/N(He) |
+| `DAOConfig` | `log_hydrogen_to_helium`: log10 N(H)/N(He) |
+| `PG1159Config` | `mass_fractions`: mass fractions, normalized to a sum of 1 |
+| `D6Config` | `abundances`: log10 N(Z)/N(C) |
+| `SdBConfig` | `log_helium_to_hydrogen`: log10 N(He)/N(H) |
+
+An `abundances` or `mass_fractions` dictionary replaces the complete default
+dictionary. Elements that you do not list are not included.
+
+### DA and DAZ hydrogen atmospheres
 
 ```python
-from wd_spectra import (D6Config, DABConfig, DAHConfig, DAOConfig, DAZConfig,
-                        DBConfig, DOConfig, DQConfig, DZConfig, PG1159Config)
+from wd_spectra import DAZConfig, run_model
 
-helium = DBConfig(effective_temperature=22_000, logg=8.0, quality="standard")
-mixed = DABConfig(effective_temperature=20_000, logg=8.0,
-                  log_hydrogen_to_helium=-2.0, quality="standard")
-polluted = DZConfig(effective_temperature=15_300, logg=8.0, quality="standard")
-polluted_hydrogen = DAZConfig(effective_temperature=11_820, logg=8.40,
-                             quality="standard")
-carbon_helium = DQConfig(effective_temperature=9347, logg=8.041,
-                        log_carbon_to_helium=-4.107, quality="standard")
-hot_helium = DOConfig(effective_temperature=50_000, logg=8.0, quality="standard")
-hot_mixed = DAOConfig(effective_temperature=60_000, logg=8.0,
-                      log_hydrogen_to_helium=2.0, quality="standard")
-hot_carbon_oxygen = PG1159Config(effective_temperature=110_000, logg=7.0,
-                                 refine_upper_atmosphere=True)
-carbon_oxygen = D6Config(quality="standard")  # SDSS J1637+3631 defaults
-magnetic = DAHConfig(effective_temperature=22_642, logg=8.37,
-                     magnetic_field_megagauss=45.09, field_geometry="dipole",
-                     dipole_inclination_deg=66.0,
-                     dipole_offset_radius=(0.0, 0.0, 0.17))
+# G29-38; the DAZConfig defaults use this star's metal abundances.
+config = DAZConfig(effective_temperature=11_820, logg=8.40,
+                   abundances={"C": -6.9, "O": -5.0, "Mg": -5.77, "Si": -5.6,
+                               "Ca": -6.58, "Ti": -7.9, "Cr": -7.51, "Fe": -5.9})
+run = run_model(config, "results/daz-11820")
 ```
 
-`log_hydrogen_to_helium=-2` means N(H)/N(He) = 0.01, not a hydrogen mass
-fraction. DZ defaults to a bundled GD 40 composition; supplying an
-`abundances` dictionary replaces that complete dictionary. See the
-[composition guides](models/README.md) for details. Example parameters are
-not guarantees of convergence or paper-spectrum reproduction. For DAZ, metal
-abundances are relative to hydrogen, and the defaults describe G29-38.
-`PG1159Config` takes mass fractions (normalized once); its defaults describe
-PG 1424+535. `D6Config` takes log number ratios to carbon, has no hydrogen or
-helium, and defaults to the Hollands et al. (2025) solution for SDSS
-J1637+3631; see the [D6 guide](models/D6.md). `DAHConfig` defaults to normalized Kurucz/Griem profiles and scalar magnetic
-synthesis on a nonmagnetic DA structure. It adds a magnetic
-field, uniform or an offset dipole (the example is J2149−0728 from Hardy et
-al. 2023); see the [DAH guide](models/DAH.md). The sections below cover the classes with their own requirements.
+### DB, DAB/DBA and DZ helium atmospheres
+
+```python
+from wd_spectra import DABConfig, DBConfig, DZConfig, run_model
+
+run_db = run_model(DBConfig(effective_temperature=22_000, logg=8.0), "results/db-22000")
+
+# GD 40; the DZConfig defaults use this star's composition.
+dz = DZConfig(effective_temperature=15_300, logg=8.0, log_hydrogen_abundance=-6.16,
+              abundances={"C": -7.2, "O": -5.61, "Mg": -6.24, "Si": -6.76,
+                          "Ca": -6.88, "Ti": -8.61, "Cr": -8.31, "Mn": -8.62,
+                          "Fe": -6.48})
+run_dz = run_model(dz, "results/dz-15300")
+
+# Needs the external H2-He_2011.cia file (see below).
+dab = DABConfig(effective_temperature=20_000, logg=8.0, log_hydrogen_to_helium=-2.0)
+run_dab = run_model(dab, "results/dab-20000")
+```
+
+### Cool helium and mixed atmospheres
+
+`run_model` checks the photospheric conditions before it solves the
+atmosphere:
+
+- For a cool pure-helium DB, it selects the dense-helium workflow when the
+  photosphere is dense (below about 8500 K at log g = 8). This workflow needs
+  `quality="production"` and an integer Teff. Always use `run_model` for cool
+  DBs. The lower-level `compute_db` does not select the dense-helium workflow.
+- Every metal-free DAB/DBA uses molecular H/He chemistry (H2, H2+, H-, H3+)
+  and H2-He and H2-H2 collision-induced absorption, at all Teff and log g. This needs the external `H2-He_2011.cia` file. See
+  [external data](installation.md#external-data).
+- A DAB/DBA with trace metals uses atomic H/He chemistry. `run_model` refuses
+  it where molecules are important.
+
+```python
+from wd_spectra import DABConfig, DBConfig, run_model
+
+cool_db = run_model(
+    DBConfig(effective_temperature=8000, logg=8.0, quality="production"),
+    "results/db-8000", require_convergence=True,
+)
+cool_dab = run_model(
+    DABConfig(effective_temperature=7500, logg=8.0, log_hydrogen_to_helium=-2.0,
+              quality="production"),
+    "results/dab-7500", research_data="~/openwd-data", require_convergence=True,
+)
+```
 
 ### DQ helium/carbon atmospheres
 
-For a hydrogen-free, nonmagnetic helium atmosphere with trace carbon:
+DQ models are hydrogen-free, nonmagnetic helium atmospheres with trace carbon.
+All DQ data are bundled.
 
 ```python
 from wd_spectra import DQConfig, run_model
@@ -146,210 +209,154 @@ dq = run_model(
 )
 ```
 
-`log_carbon_to_helium` is log10 N(C nuclei)/N(He nuclei), not a mass fraction
-or C₂ molecule abundance. These parameters remain fixed; nothing is fitted.
-The solver constructs its own gray seed and wavelength grid: no saved
-atmosphere, previous spectrum, observation, or external DQ download is needed.
+- DQ accepts only `quality="standard"` and -12 ≤ `log_carbon_to_helium` ≤ -3.
+- `maximum_seconds` is the time limit for the structure and the final spectrum.
+- A DQ run can take hours and several GB of memory.
+- Hot carbon-dominated DQs, hydrogen-bearing DQs and DQp stars are outside the
+  scope of this module.
 
-DQ uses refractive transfer for both structure and final synthesis. Success
-requires all five atmosphere checks plus a finite, positive spectrum on an
-independent 218520-point grid with
-`abs(F_bol/(sigma Teff^4) - 1) <= 0.002`. Surface flux is not rescaled.
-Progress and diagnostic checkpoints are retained under `worker/`; the public
-API does not accept restart inputs. The 28800-second budget includes structure
-and final synthesis, not a promise of completion within that time.
-
-The module describes classical, hydrogen-free DQ atmospheres; hot
-carbon-dominated, hydrogen-bearing and pressure-distorted DQp atmospheres are
-outside its scope. The current default is qualified from a cold start at J1225
-(6294 K, log g = 7.924, log(C/He) = -5.33), which took about 25 minutes; the
-example above (J1235) was qualified with the previous dense-grid default.
-Runtime depends strongly on the parameters.
-See [DQ physics and limitations](models/DQ.md) and the
-[qualified release point](tested-temperature-ranges.md#dq-release-qualification).
-
-### Cool helium and mixed atmospheres
-
-The automatic interface screens local material conditions before solving. For
-pure-He DB it selects the dense-helium workflow when indicated (below about
-8500 K at log g = 8); that workflow
-requires `quality="production"` and integer-K temperatures, and preserves the
-requested gravity through the initializer, atmosphere calculation and
-independent spectrum audit. Always run cool DBs through `run_model`: the
-lower-level `compute_db` keeps the dilute-helium physics and raises
-`DenseHeliumPhotosphereError` for a dense photosphere. See the
-[DB guide](models/DB.md#cool-helium).
-
-Every metal-free DAB/DBA request runs the in-process molecular H/He closure
-(H2, H2+, H-, H3+, HeH+, H2-He/H2-H2 CIA) at any temperature and gravity, so
-neighbouring models share one set of physics; the molecular terms vanish where
-molecules are absent. The H2 screen is recorded in the run manifest for
-provenance only. DABs with trace metals keep the atomic mixture and are refused
-where the screen indicates molecular chemistry. Python dependencies are
-included in the normal installation.
-
-Molecular DAB needs the checksum-pinned HITRAN `H2-He_2011.cia` table from the
-[data setup instructions](../research/cool_models/README.md#additional-molecular-dab-data).
-Supply its directory as `research_data=...` or set `OPENWD_RESEARCH_DATA`;
-otherwise it is read from the package data cache. OpenWD does not download it
-during a model calculation.
-
-```python
-cool_db = run_model(
-    DBConfig(effective_temperature=8000, logg=8.0, quality="production"),
-    "results/db-8000", require_convergence=True,
-)
-cool_dab = run_model(
-    DABConfig(effective_temperature=7500, logg=8.0, quality="production",
-              log_hydrogen_to_helium=-2.0),
-    "results/dab-7500", research_data="/path/to/pinned-molecular-tables",
-    require_convergence=True,
-)
-```
-
-Read the [tested points](tested-temperature-ranges.md) before extrapolating
-these examples to other temperatures, gravities, or mixtures.
-Allowing a dense-DB gravity does not qualify that point: the material-domain
-guards and all native equilibrium and independent spectrum checks still apply.
+See the [DQ guide](models/DQ.md).
 
 ### DO/DAO hot helium and hydrogen–helium atmospheres
 
-Use the explicit `DOConfig` (pure helium) or `DAOConfig` (mixed H/He).
-A high temperature in `DAConfig` or `DBConfig` does not select NLTE.
-The required CCC, TLUSTY and line-profile inputs are installed with OpenWD;
-see the [DO/DAO data notes](models/DO-DAO.md#bundled-atomic-data).
+Use `DOConfig` for pure helium and `DAOConfig` for mixed H/He. These classes
+solve NLTE populations. A high Teff in `DAConfig` or `DBConfig` does not
+select NLTE.
 
 ```python
-from wd_spectra import DOConfig, run_model
+from wd_spectra import DAOConfig, DOConfig, run_model
 
-run = run_model(
-    DOConfig(effective_temperature=50_000, logg=8, quality="standard"),
-    "results/do-50000",  # new directory; always starts from scratch
-    require_convergence=True,
+run_do = run_model(DOConfig(effective_temperature=50_000, logg=8.0), "results/do-50000")
+run_dao = run_model(
+    DAOConfig(effective_temperature=60_000, logg=8.0, log_hydrogen_to_helium=2.0),
+    "results/dao-60000",
 )
 ```
 
-The CLI equivalent is:
-
-```bash
-python examples/one_shot_do.py --teff 50000 --output results/do-50000
-```
-
-Add `--log-hydrogen-to-helium 2` for DAO. Expect roughly one to several hours
-for the tested standard/production configurations, depending on hardware.
-`quick` is an intentionally short smoke test and does not establish equilibrium.
-The [tested points](models/DO-DAO.md#cold-start-qualification-and-runtime)
-and remaining observed-profile discrepancies delimit current qualification.
+Allow one to several hours for each model. See the [DO/DAO guide](models/DO-DAO.md).
 
 ### PG 1159 hot helium–carbon–oxygen atmospheres
 
-`PG1159Config` solves He, C and O in NLTE for the atmospheric structure; the
-trace elements in `mass_fractions` (N, Ne, F, Si, P, S, Ar, Fe) enter NLTE line
-formation on the finished structure. The atomic data are installed with
-OpenWD.
-
-```python
-from wd_spectra import PG1159Config, run_model
-
-run = run_model(
-    PG1159Config(effective_temperature=110_000, logg=7.0,  # PG 1424+535 defaults
-                 refine_upper_atmosphere=True),
-    "results/pg1159-110000",
-)
-```
-
-`refine_upper_atmosphere=True` (the default) converges the layers above
-`tau_Ross = 1e-2` to local radiative equilibrium after the main solve and
-certifies the refined structure again; the tested cold starts use it. For the hottest stars add
-`include_radiative_acceleration=True` (used for PG 1159-035 at 140000 K).
-Single-threaded cold starts of the three tested stars take 55–90 minutes.
-
-A PG 1159 result is `spectrum-qualified` when it passes the flux, local
-energy, population, source and boundary checks that protect the emergent
-spectrum, and `converged` only with a full-rank temperature certificate as
-well. `run.convergence_verified` and `require_convergence=True` accept only
-`converged`, so leave `require_convergence` off and read the status from the
-saved metadata:
+`PG1159Config` solves He, C and O in NLTE for the atmospheric structure. The
+other elements in `mass_fractions` (N, Ne, F, Si, P, S, Ar, Fe) enter the NLTE
+line formation on the final structure. The defaults are the published
+parameters of PG 1424+535.
 
 ```python
 import json
+from wd_spectra import PG1159Config, run_model
+
+run = run_model(PG1159Config(effective_temperature=110_000, logg=7.0),
+                "results/pg1159-110000")
 status = json.loads((run.output_directory / "metadata.json").read_text())
 print(status["model_metadata"]["atmosphere_convergence_status"])
 ```
 
-The CLI equivalent is:
+- `spectrum-qualified` means that the flux, local energy, population, source
+  and boundary checks pass.
+- `converged` also requires a full-rank temperature certificate.
+- `run.convergence_verified` and `require_convergence=True` accept only
+  `converged`. Thus, read the status from `metadata.json` as shown.
+- For the hottest stars, add `include_radiative_acceleration=True`.
 
-```bash
-python examples/one_shot_pg1159.py --output results/pg1159-110000
+See the [PG 1159 guide](models/PG1159.md).
+
+### D6 carbon–oxygen atmospheres
+
+`D6Config` describes a hydrogen- and helium-free atmosphere. The defaults are
+the Hollands et al. (2025) solution for SDSS J1637+3631.
+
+```python
+from wd_spectra import D6Config, run_model
+
+config = D6Config(effective_temperature=15_680, logg=6.3,
+                  abundances={"C": 0.0, "O": 0.27, "Ne": -1.86, "Mg": -2.33,
+                              "Al": -4.0, "Si": -1.76, "S": -2.84, "Ca": -2.85,
+                              "Fe": -3.0})
+run = run_model(config, "results/d6-15680")
 ```
 
-See the [PG 1159 guide](models/PG1159.md) for the physics and the
-[tested stars](tested-temperature-ranges.md).
+See the [D6 guide](models/D6.md).
 
-## Output files
+### DAH magnetic hydrogen atmospheres
 
-`run.spectrum_path` locates the saved spectrum table, and
-`run.output_directory` contains the complete run record.
+`DAHConfig` adds a uniform or offset-dipole magnetic field to a DA
+atmosphere. This example uses the parameters of J2149−0728 from Hardy et al.
+(2023).
 
-`spectrum.txt` has three columns: vacuum wavelength (Å), surface flux and
-continuum flux (both erg s⁻¹ cm⁻² Å⁻¹). The continuum is the emergent flux of
-the same converged structure, populations and transfer with every bound-bound
-opacity and emissivity removed. Molecular bands (C₂) and the Lyman-α far wing
-count as lines. Bound-free, free-free, collision-induced absorption,
-electron/Rayleigh scattering and the dissolved-level (occupation-probability)
-pseudo-continuum are kept, as in TLUSTY/SYNSPEC, so the Balmer and other
-series edges are smoothed rather than sharp. OpenWD keeps the full dissolved
-fraction up to the first series member; SYNSPEC stops at the transition to
-`i + 3` (H-gamma for the Balmer series). On TLUSTY 208's own LTE DA model
-(10,000 K, log g 8) this continuum agrees with the SYNSPEC 54 continuum within
-3 per cent, and lies up to 1.7 per cent below it between H-gamma and H-beta. H I Rayleigh scattering includes its resonance
-enhancement redward of Lyman α, so the hydrogen continuum dips near
-1220–1260 Å. DAH continua keep the magnetic bound-free and cyclotron opacity.
-`run.spectrum.continuum_flux_lambda` holds the same array, and
-`metadata.json` records the exact terms under `spectrum_metadata.continuum_flux`.
-Divide the flux by the continuum for a normalized spectrum.
+```python
+from wd_spectra import DAHConfig, run_model
 
-- `model-run.json`: input request, selected physics, cold-start provenance,
-  completion status, and numerical qualification.
-- Established presets also write `atmosphere.npz`, `spectrum.txt`, and
-  `metadata.json`; the latter contains the atmosphere certificate.
-- Cool dense/molecular calculations retain their detailed solver products and
-  independent audits under `worker/`. Their dedicated checkers determine
-  `run.convergence_verified`; do not reconstruct them with an unrelated EOS.
-- DQ writes the common atmosphere/spectrum/metadata files and retains its
-  certificate, input provenance, progress and independent spectrum under
-  `worker/`. `worker/run.json` records the independent flux ratio and checksum;
-  the fine-grid data are in `worker/independent-spectrum.npz`.
-- The notebook optionally saves PNG and PDF plots alongside the numerical
-  results. Display normalization does not change the saved physical flux.
+config = DAHConfig(effective_temperature=22_642, logg=8.37,
+                   magnetic_field_megagauss=45.09, field_geometry="dipole",
+                   dipole_inclination_deg=66.0,
+                   dipole_offset_radius=(0.0, 0.0, 0.17))
+run = run_model(config, "results/dah-22642")
+```
 
-Established presets use formal-integral spectrum synthesis; DQ instead uses
-its refractive transfer on an independent wavelength grid. Neither rescales
-the flux. A spectrum's `bolometric_flux`
-property integrates the supplied wavelengths only. To check total flux against
-sigma Teff^4, the grid must cover the thermal spectrum and resolve its lines.
-See [spectrum accuracy](limitations.md#spectrum-accuracy-and-reference-comparisons).
+See the [DAH guide](models/DAH.md).
 
-## Explicit presets and command-line examples
+### sdB hot subdwarfs
 
-The `compute_da`, `compute_daz`, `compute_db`, `compute_dab` and `compute_dz`
-interfaces return both an atmosphere and a spectrum in memory. They remain
-useful when you deliberately want a particular preset, but they do **not**
-provide the automatic workflow selection: `compute_dab` stays atomic unless you
-pass `DABConfig(include_molecules=True, ...)`, which is what `run_model` does
-for metal-free DABs. Prefer `run_model` when changing parameters across regimes.
+`SdBConfig` calculates an LTE H/He structure, then NLTE H/He populations and
+line formation on that structure. This example uses the parameters of HD 4539.
 
-`compute_dq`, `compute_do`, `compute_dao` and `compute_pg1159` also return
-an atmosphere and spectrum in memory and run the same calculation as
-`run_model` with the corresponding configuration. See the
-[direct DQ example](models/DQ.md#run-a-model).
+```python
+from wd_spectra import SdBConfig, run_model
 
-The `examples/one_shot_*.py` scripts use these explicit presets, for example:
+config = SdBConfig(effective_temperature=23_200, logg=5.20, log_helium_to_hydrogen=-2.27)
+run = run_model(config, "results/sdb-23200")
+```
+
+`run_model` does not add metals to sdB models. The [sdB guide](models/sdB.md)
+gives the command-line driver for trace metals.
+
+## Quality levels
+
+The `quality` option sets the numerical resolution. It does not change the
+physics.
+
+| Quality | Depth points | Use |
+| --- | --- | --- |
+| `quick` | 20 | Test the interface only. The result does not converge. |
+| `standard` | 40 | Default. Use it for most models. |
+| `production` | 80 | Higher resolution. Required for the dense-helium DB workflow. |
+
+Some classes use other depth counts or have their own limits. DQ accepts only
+`standard`. sdB accepts `standard` and `production`. The model guides give the
+details.
+
+## Threads
+
+The compiled hydrogen line profiles use up to 8 threads by default. To set the
+number of threads, set `OPENWD_NUM_THREADS` before you start Python:
+
+```bash
+export OPENWD_NUM_THREADS=4
+```
+
+To run several models at the same time, run each in a separate process. Set
+`OPENWD_NUM_THREADS=1`, `OMP_NUM_THREADS=1` and `OPENBLAS_NUM_THREADS=1` for
+each process. DQ and the dense-helium DB workflow always run in a separate
+single-threaded process.
+
+## Command-line scripts
+
+The `examples/one_shot_*.py` scripts run one model from the command line, for
+example:
 
 ```bash
 python examples/one_shot_da.py --teff 12000 --logg 8 --quality standard
 ```
 
-Run a script with `--help` for its options. No saved atmosphere is needed.
-For a deeper explanation of selection and certification, see the
-[technical reference](development/history/reliability-2026-09-07.md).
+Run a script with `--help` to see its options.
+
+## Next steps
+
+- [Model guides](models/README.md): physics, options and paper comparisons
+  for each class.
+- [Tested ranges](tested-temperature-ranges.md): the parameters that were
+  run from a cold start.
+- [Limitations](limitations.md): known accuracy limits.
+- [DZ fitting example](examples/fitting-dz.md): fit abundances to an observed
+  spectrum.

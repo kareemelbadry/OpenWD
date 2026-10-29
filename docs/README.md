@@ -1,41 +1,52 @@
 # OpenWD documentation
 
-OpenWD turns a white dwarf's temperature, surface gravity, and composition
-into a model atmosphere and surface spectrum. Start with one fresh calculation,
-inspect its convergence status, then change the parameters for your application.
+OpenWD calculates white-dwarf model atmospheres and spectra from Teff, log g
+and composition. To use OpenWD with an AI assistant, start with
+[AGENTS.md](../AGENTS.md).
 
-## Using OpenWD
+## Start here
 
-Using an AI assistant? Start with the [agent quick start](../AGENTS.md) for
-environment checks, a runnable spectrum example, and links for each task.
+- [Installation](installation.md): requirements, the C extension and the one
+  external data file.
+- [Getting started](getting-started.md): first run, outputs, convergence and
+  one example for each class.
+- [Example notebook](../examples/generate_spectrum.ipynb): calculate and plot
+  a DA, DB, DAB, DZ or DQ spectrum.
 
-1. [Get started](getting-started.md): install, run a model, and read the outputs.
-2. [Interactive notebook](../examples/generate_spectrum.ipynb): edit parameters
-   and plot the resulting spectrum. A second notebook
-   [fits DZ abundances to an observed spectrum](../examples/fit_dz_spectrum.ipynb).
-3. [Choose a model](models/README.md): DA, DAZ, DB, DAB/DBA, DZ/DBZ, DQ,
-   DO/DAO, PG 1159, D6, DAH and [sdB](models/sdB.md).
-4. [Caveats and limitations](limitations.md): convergence, accuracy, and
-   [tested temperatures and compositions](tested-temperature-ranges.md).
+## Model guides
 
-## Developing OpenWD
+The [model guide index](models/README.md) compares the classes.
 
-- [Development and regression policy](development/README.md): local workflow
-  and checks that protect existing models.
-- [Performance](development/performance.md): compiled acceleration and threads.
-- [Solver diagnostics](development/solver-telemetry.md): interpreting iteration
-  logs and convergence evidence.
-- [Hot DA/DAO trace metals](development/hot-daz-trace-metals.md): experimental
-  fixed-host NLTE metals (C, N, O, Al, Si, P, S, Fe, Ni) and the G191-B2B
-  benchmark; development record, not a validated preset.
-- [Niobium, zinc, copper and nickel lines: HS 0209+0832](development/niobium.md):
-  bundled Nb I--VI data, optional Zn, Cu and Ni IV--VI lines, and a nine-metal
-  H/He model compared with the FUSE and STIS spectra.
-- [Hot subdwarf (sdB) H/He models](development/sdb-hybrid.md):
-  LTE-structure + NLTE H/He hybrid for 20-40 kK sdBs, with MALI and opt-in
-  helium-solver options, numerical checks and observed comparisons.
-- [Research history](development/history/README.md): dated investigations,
-  rejected experiments, and detailed validation records. These are not the
-  current user instructions.
+- [DA](models/DA.md): hydrogen atmospheres.
+- [DB](models/DB.md): helium atmospheres, including the dense-helium workflow.
+- [DAB/DBA](models/DAB.md): mixed hydrogen–helium atmospheres.
+- [DZ/DBZ/DAZ](models/DZ.md): helium or hydrogen atmospheres with metals.
+- [DQ](models/DQ.md): helium atmospheres with trace carbon and C₂.
+- [DO/DAO](models/DO-DAO.md): hot NLTE helium and hydrogen–helium atmospheres.
+- [PG 1159](models/PG1159.md): hot NLTE helium–carbon–oxygen atmospheres.
+- [D6](models/D6.md): carbon–oxygen atmospheres without hydrogen or helium.
+- [DAH](models/DAH.md): magnetic hydrogen atmospheres.
+- [sdB](models/sdB.md): hot subdwarf atmospheres.
 
-See also the [data attribution and licenses](../THIRD_PARTY_NOTICES.md).
+## Reference
+
+- [Limitations](limitations.md): known accuracy limits.
+- [Tested ranges](tested-temperature-ranges.md): parameters run from a cold
+  start.
+- [Output files](getting-started.md#outputs): files, units and convergence
+  flags.
+- [DZ fitting example](examples/fitting-dz.md): fit abundances to an observed
+  spectrum, with the [fitting notebook](../examples/fit_dz_spectrum.ipynb).
+
+## Validation
+
+- [Observational comparisons: DZ, DBZ and DAZ](validation/dz-observational-comparisons.md)
+- [Independently corroborated Kurucz lines](validation/independent-kurucz.md)
+- [Metal population consistency](validation/metal-population-consistency.md)
+
+## For developers
+
+- [Development guide](development/README.md): tests, regression policy,
+  performance and development records.
+
+Data attribution and licenses: [third-party notices](../THIRD_PARTY_NOTICES.md).
