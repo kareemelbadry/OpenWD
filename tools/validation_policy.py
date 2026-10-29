@@ -60,6 +60,13 @@ def requires_full(paths, *, contents=None):
             continue
         if p.parts[0] == "docs":
             continue
+        # Prose outside the package. Files under src/ can be package data.
+        if p.suffix == ".md" and p.parts[0] != "src":
+            continue
+        # Research figure scripts only write plots. No model, test or numerical
+        # checker imports them (tests/test_validation_provenance_policy.py).
+        if p.parts[0] == "research" and p.suffix == ".py" and p.name.startswith("plot_"):
+            continue
         # The selection planner is tested by the ordinary CI policy tests;
         # changing it does not change a model equation or numerical checker.
         if path == "tools/validation_policy.py":
