@@ -86,16 +86,7 @@ COLD = tuple(COLD_TESTS) + (
     "daz-galex1931",
 )
 D6_REGRESSION_TEST = "tests/test_d6_regression.py::test_j1637_two_step_warm_trajectory"
-REGRESSIONS = {
-    "d6-j1637-" + reference: D6_REGRESSION_TEST + f"[{reference}]"
-    for reference in (
-        "warm_v1-legacy",
-        "warm_v2_feii-historical",
-        "warm_v3_independent-historical",
-        "warm_v4_rap-historical",
-        "warm_v5_excited_parent-current",
-    )
-}
+REGRESSIONS = {"d6-j1637": D6_REGRESSION_TEST}
 
 
 def commands(tier, cases=()):
@@ -105,12 +96,6 @@ def commands(tier, cases=()):
             "components": pytest + ["tests", "-m", "not canary and not spectral"],
             "cool-components": pytest + ["research/cool_models"],
         }
-    if tier == "regression":
-        # Keep the public aggregate selector, but give every frozen version
-        # its own process, log, result and work guard. CI runs them on
-        # separate workers; none can consume another version's time budget.
-        cases = tuple(name for case in cases for name in
-                      (REGRESSIONS if case == "d6-j1637" else (case,)))
     available = SPECTRA if tier == "spectra" else REGRESSIONS if tier == "regression" else COLD
     if set(cases) - set(available):
         raise ValueError(f"unknown {tier} cases: {sorted(set(cases) - set(available))}")

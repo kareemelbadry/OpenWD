@@ -16,7 +16,6 @@
   "tests/test_d6.py": 4.9,
   "tests/test_d6_public.py": 2.7,
   "tests/test_d6_regression.py": 0.1,
-  "tests/test_d6_regression_atomic_scope.py": 18.5,
   "tests/test_da_lower_boundary.py": 10.1,
   "tests/test_da_public_spectrum.py": 35.7,
   "tests/test_dab_allard_policy.py": 0.1,
