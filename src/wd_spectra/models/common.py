@@ -41,7 +41,7 @@ _MODEL_FAMILY_PHYSICS_REVISIONS = {
     "DA": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
     "DB": "helium-reos3-c1-2026-10-23",
     "DAB": "hydrogen-stark-density-floor-2026-10-05:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:helium-reos3-c1-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
-    "DQ": "helium-reos3-c1-2026-10-23",
+    "DQ": "dq-shared-solver-v1:helium-reos3-ideal-excess:carbon-red-wing-boltzmann:rogers-young-he-minus:partial-wave-he-minus-2026-10-29",
     "DAO": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
     "DAH": "dah-rwa-magnetic-eos-v5:hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
     # Shared metal physics revised by the 2026-09-30 DZ audit: ground-term
