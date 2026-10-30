@@ -12,7 +12,7 @@ from wd_spectra import D6Config
 from wd_spectra.models.common import AtmosphereConvergenceWarning
 from d6_regression_support import (
     ARRAYS, METRICS, STEPS, assert_trajectory_matches, atomic_input_scope,
-    fixed_spectrum, trajectory,
+    current_config, fixed_spectrum, trajectory,
 )
 
 DIRECTORY = Path(__file__).parent / "data/d6_regressions/warm_v5_excited_parent_o_i"
@@ -25,7 +25,7 @@ def test_frozen_j1637_seed_certificate_and_reference_integrity():
     assert manifest["schema"] == 1
     assert hashlib.sha256(path.read_bytes()).hexdigest() == manifest["output_sha256"]
     assert hashlib.sha256(SEED.read_bytes()).hexdigest() == manifest["seed_sha256"]
-    assert manifest["config"] == json.loads(json.dumps(asdict(D6Config())))
+    assert current_config(manifest["config"]) == json.loads(json.dumps(asdict(D6Config())))
     assert manifest["steps"] == STEPS and manifest["metrics"] == list(METRICS)
     assert manifest["cold_start_qualification"] is False
     assert manifest["source_request"]["config"] == manifest["config"]

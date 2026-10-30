@@ -14,7 +14,6 @@ from wd_spectra.constants import LIGHT_SPEED, PLANCK
 from wd_spectra.d6 import (
     TOPbaseLevelPhotoionization,
     read_tlusty_rap_lte_photoionization,
-    resonance_average_topbase_photoionization,
 )
 from wd_spectra.metals import (
     AtomicDatabase, EV_TO_ERG, EV_TO_WAVENUMBER, ground_term_levels, read_stout_atomic_ion,
@@ -105,8 +104,6 @@ def test_bundled_rap_feii_excitation_is_already_above_lowest_j():
     np.testing.assert_allclose(section.cross_section(photon), expected,
                                rtol=3e-13, atol=0.)
     assert expected > 2e-18
-    averaged = resonance_average_topbase_photoionization(loaded, .01)
-    assert all(s.absolute_photon_grid for s in averaged.sections)
 
 
 def test_absolute_table_interpolates_zero_pairs_without_inventing_coverage():

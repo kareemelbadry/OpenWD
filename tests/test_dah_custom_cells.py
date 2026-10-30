@@ -11,7 +11,7 @@ from wd_spectra.atmosphere import gray_hydrogen_atmosphere
 from wd_spectra.eos import hummer_mihalas_hydrogen_lte
 from wd_spectra import magnetic
 from wd_spectra.magnetic import (
-    BalmerBroadening, MagneticPhysics, SurfaceCells, synthesize_magnetic_hydrogen_spectrum,
+    MagneticPhysics, SurfaceCells, synthesize_magnetic_hydrogen_spectrum,
 )
 from wd_spectra.models import dah
 from wd_spectra.magnetic_eos import atmosphere_with_magnetic_hydrogen_eos
@@ -44,8 +44,6 @@ def test_custom_public_geometry_matches_direct_transfer(atmosphere, tmp_path, fa
     transitions = dah.read_h2db_transition_database(data.h2db_balmer_subset) if field > 1 else None
     energies = dah.read_h2db_energy_database(data.h2db_balmer_subset) if field > 1 else None
     physics = MagneticPhysics(transitions, energies,
-        broadening=BalmerBroadening(include_self_broadening=False),
-        balmer_profile=config.balmer_profile, normalize_balmer_strength=config.normalize_balmer_strength,
         include_rwa_photoionization=config.include_rwa_photoionization,
         include_magnetic_eos=config.include_magnetic_eos,
         include_centered_motion=config.include_centered_motion,
@@ -138,28 +136,16 @@ def test_custom_structure_identity_tracks_field_and_weights_not_sky_basis(fake_m
     assert not physical.atmosphere.metadata["fixed_synthesis_request_verified"]
 
 
-def test_custom_mean_field_structure_uses_actual_weighted_field(fake_model, monkeypatch, atmosphere):
-    # A weak placeholder in DAHConfig must not send a strong custom map to
-    # the ordinary DA solver, nor set the magnetic structure to that field.
+def test_custom_strong_map_sets_structure_convection_from_its_weighted_field(fake_model):
+    # A weak placeholder in DAHConfig must not give a strong custom map a
+    # convective structure or the weak-field line physics.
     geometry = replace(cells(), field_strength_megagauss=np.array([10., 30.]))
     config = DAHConfig(effective_temperature=15000., logg=8., magnetic_field_megagauss=.001,
-                      atmosphere_structure="mean-field", quality="quick")
-    captured = {}
-    opacity_factory = dah.magnetic_structure_opacity
-    def opacity(field, physics):
-        captured["field"] = field
-        return opacity_factory(field, physics)
-    def structure(*args, **kwargs):
-        captured.update(kwargs)
-        return atmosphere
-    monkeypatch.setattr(dah, "magnetic_structure_opacity", opacity)
-    monkeypatch.setattr(dah, "radiative_equilibrium_hydrogen_atmosphere", structure)
+                      quality="quick")
     result = compute_dah(config, np.array([4800., 4900.]), surface_cells=geometry)
-    assert "host_config" not in fake_model
-    assert captured["field"] == 25.
-    assert captured["mixing_length_alpha"] is None
-    assert captured["hydrogen_eos_function"] is not None
-    assert result.metadata["structure_field_megagauss"] == 25.
+    assert fake_model["host_config"].mixing_length_alpha is None
+    assert result.metadata["visible_mean_field_megagauss"] == 25.
+    assert result.metadata["structure_field_megagauss"] == 0.
     assert fake_model["physics"].line_regime == "h2db"
 
 
@@ -222,10 +208,9 @@ def test_custom_null_point_in_h2db_map_takes_zero_field_lines(atmosphere):
     data = ModelData.default()
     physics = MagneticPhysics(dah.read_h2db_transition_database(data.h2db_balmer_subset),
                               dah.read_h2db_energy_database(data.h2db_balmer_subset),
-                              broadening=BalmerBroadening(include_self_broadening=False),
                               line_regime="h2db")
-    # 0.25 A resolves the narrow line cores of the top layers.
-    wave, cache = np.linspace(6200., 6950., 3001), {}
+    # 0.025 A resolves the narrow Kurucz/Griem line cores of the top layers.
+    wave, cache = np.linspace(6200., 6950., 30001), {}
     null, _ = magnetic._line_manifolds(atmosphere, wave, 0., physics, "h2db", cache, False)
     np.testing.assert_array_equal(null.minus, null.plus)
     weak, _ = magnetic._line_manifolds(atmosphere, wave, .2, physics, "h2db", cache, False)
@@ -234,7 +219,7 @@ def test_custom_null_point_in_h2db_map_takes_zero_field_lines(atmosphere):
 
 
 @pytest.mark.parametrize("centered_motion", [False, True])
-def test_null_cell_resets_mean_field_eos_without_changing_structure(atmosphere, centered_motion):
+def test_null_cell_resets_magnetic_eos_without_changing_structure(atmosphere, centered_motion):
     data = ModelData.default()
     energies = dah.read_h2db_energy_database(data.h2db_balmer_subset)
     physics = MagneticPhysics(dah.read_h2db_transition_database(data.h2db_balmer_subset), energies,
@@ -255,7 +240,7 @@ def test_null_cell_resets_mean_field_eos_without_changing_structure(atmosphere, 
     assert shared.metadata["magnetic_eos_field_megagauss"] == 138.75
 
 
-def test_public_mean_field_null_cell_uses_zero_field_continuum_state(atmosphere, monkeypatch):
+def test_public_null_cell_uses_zero_field_continuum_state(atmosphere, monkeypatch):
     # Observe the actual EOS passed to continuum synthesis, while retaining
     # the real opacity/transfer calculation on this diagnostic fixed state.
     continuum = magnetic.magnetic_continuum
@@ -272,12 +257,11 @@ def test_public_mean_field_null_cell_uses_zero_field_continuum_state(atmosphere,
         return continuum(local, wave, field, *args, **kwargs)
     monkeypatch.setattr(magnetic, "magnetic_continuum", check_continuum)
     geometry = replace(cells(), field_strength_megagauss=np.array([0., 185.]))
-    config = DAHConfig(effective_temperature=15000., logg=8., atmosphere_structure="mean-field",
+    config = DAHConfig(effective_temperature=15000., logg=8.,
                        polarized_transfer="full-stokes-iquv", return_stokes=True)
     with pytest.warns(AtmosphereConvergenceWarning):
         result = compute_dah(config, np.linspace(4800., 4930., 11), surface_cells=geometry,
                              initial_atmosphere=atmosphere, relax_atmosphere=False)
     assert seen == [0.]
-    assert result.atmosphere.metadata["magnetic_eos_field_megagauss"] == 138.75
     for name in ("surface_flux_lambda", "surface_flux_q_lambda", "surface_flux_u_lambda", "surface_flux_v_lambda"):
         assert np.all(np.isfinite(getattr(result.spectrum, name)))

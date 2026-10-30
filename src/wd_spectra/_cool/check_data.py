@@ -8,7 +8,6 @@ from .research_paths import data_directory
 
 SHA256 = {
     "H2-He_2011.cia": "4f0eb9cd69a1c383f53a1431495bae0c01a30a41cc1b8433c2d726763ff45431",
-    "1H2__RACPPK.states.bz2": "276f5a36d094e7e1417c44f11c1d173417e92629c5f747b6a862bcce5c374a81",
 }
 
 

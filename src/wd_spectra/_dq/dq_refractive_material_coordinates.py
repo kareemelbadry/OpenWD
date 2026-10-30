@@ -6,7 +6,7 @@ to the proposal map; no accepted EOS, opacity or flux equation is changed.
 from dataclasses import replace
 import numpy as np
 from wd_spectra.adaptive_structure import _positive_interface_values
-from .convective_consistency_experiment import MaterialCoefficients
+from .material_coefficients import MaterialCoefficients
 from .dq_refractive_material import grey_ml2_loss_factor, static_index
 
 

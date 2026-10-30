@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 from wd_spectra.dense_eos import HeliumREOS3Table
 from wd_spectra.constants import BOLTZMANN,HELIUM_MASS
-from smooth_reos3_experiment import SmoothREOS3
+from wd_spectra._cool.smooth_reos3 import SmoothREOS3
 from dense_helium_materials import DenseExactMaterials
-from convective_consistency_experiment import MaterialCoefficients
+from wd_spectra._cool.convective_materials import MaterialCoefficients
 from test_discrete_dense_transport_seed import Column
 
 

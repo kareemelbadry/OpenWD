@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import brentq, root
 
-from .._cool.dense_helium_fluid_experiment import (
+from .._cool.dense_helium_fluid import (
     KB_EV, FluidState, RadialGrid, neutral_pair_ev,
 )
 

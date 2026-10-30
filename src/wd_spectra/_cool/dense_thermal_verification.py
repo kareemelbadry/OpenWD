@@ -9,7 +9,7 @@ def thermal_diagnostics(wave,depths,planck,mean,absorption_fraction,convective_f
         raise ValueError('mass diagnostics require both actual mass and absorption')
     def balance(selection):
         if column_mass is not None:
-            from .mass_conservative_feautrier import mass_energy
+            from wd_spectra._mass_feautrier import mass_energy
             return mass_energy(wave[selection],column_mass,planck[selection],mean[selection],absorption[selection])
         return discrete_radiative_cell_energy_balance(wave[selection],depths[selection],
             planck[selection],mean[selection],absorption_fraction[selection])

@@ -377,7 +377,7 @@ class HotEquations:
 
 
 def solve(seed,model,wave,*,maximum_iterations=60,iteration_callback=None,populations=None,
-          fixed_temperature=False,initial_jacobian=None,jacobian_callback=None,nlte_fraction=1.,
+          fixed_temperature=False,jacobian_callback=None,nlte_fraction=1.,
           flux_tolerance=3e-3,temperature_tolerance=3e-4,initial_trust_radius=.04):
     for tolerance in (flux_tolerance,temperature_tolerance):
         if not np.isfinite(tolerance) or tolerance<=0:
@@ -431,16 +431,7 @@ def solve(seed,model,wave,*,maximum_iterations=60,iteration_callback=None,popula
             if np.max(abs(damped(mid)))>radius:lo=mid
             else:hi=mid
         return NonlinearProposal(damped(hi),limited=True)
-    supplied = initial_jacobian
     def evaluate(state,jacobian):
-        nonlocal supplied
-        if jacobian and supplied is not None:
-            np.testing.assert_allclose(state,supplied['x'],rtol=0,atol=1e-12)
-            actual=equations.residual(state)
-            np.testing.assert_allclose(actual.residual,supplied['residual'],rtol=1e-6,atol=1e-9)
-            result=NonlinearEvaluation(actual.residual,supplied['jacobian'],actual.payload)
-            supplied=None
-            return result
         evaluated=equations.evaluate(state,jacobian)
         if jacobian and jacobian_callback is not None:
             jacobian_callback(state,evaluated)

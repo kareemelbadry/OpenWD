@@ -1,18 +1,15 @@
-"""Magnetic hydrogen continuum opacity: RWA photoionization and cyclotron.
+"""Magnetic hydrogen continuum opacity: RWA photoionization.
 
 The bound-free opacity follows the stationary-state rigid-wavefunction
 approximation (RWA) of Rohrmann (2026, A&A, doi:10.1051/0004-6361/202658917):
 field-dependent H2db state energies and polarization-specific thresholds,
 Wigner geometric factors and the published branching fractions, applied to the
-atmosphere's own (field-dependent) shell populations.  Electron cyclotron
-absorption between adjacent Landau levels follows Vera-Rueda & Rohrmann
-(2024, A&A 687, A141), with its causal dispersion partner.
+atmosphere's own (field-dependent) shell populations.
 """
 
 from __future__ import annotations
 
 
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
 
@@ -22,11 +19,8 @@ from numpy.typing import ArrayLike, NDArray
 from .atmosphere import Atmosphere
 from .constants import (
     BOLTZMANN,
-    ELECTRON_MASS,
-    ELEMENTARY_CHARGE_ESU,
     HYDROGEN_IONIZATION_ENERGY,
     LIGHT_SPEED,
-    PI,
     PLANCK,
 )
 from .magnetic_atomic import (
@@ -730,207 +724,7 @@ def _explicit_rwa_atomic_kernels(
     return tuple(output)
 
 
-@dataclass(frozen=True)
-class FreeElectronManifolds:
-    """Magneto-ionic free-electron coefficients of the three circular modes.
-
-    ``absorption`` (thermal free--free), ``scattering`` (magnetic Thomson)
-    and ``dispersion`` are :class:`~wd_spectra.magnetic.PolarizedOpacity`-
-    compatible ``(minus, pi, plus)`` triples in cm^2 g^-1.
-    """
-
-    absorption: tuple[FloatArray, FloatArray, FloatArray]
-    scattering: tuple[FloatArray, FloatArray, FloatArray]
-    dispersion: tuple[FloatArray, FloatArray, FloatArray]
-
-
-def hydrogen_free_free_mass_absorption_coefficient(
-    atmosphere: Atmosphere, wavelength_angstrom: ArrayLike
-) -> FloatArray:
-    """Zero-field e--p bremsstrahlung exactly as in the ordinary continuum."""
-
-    from .opacity import hydrogen_free_free_extinction_per_cm
-
-    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    per_cm = hydrogen_free_free_extinction_per_cm(atmosphere, wavelength)
-    return per_cm / atmosphere.mass_density[np.newaxis, :]
-
-
-def magnetized_free_electron_manifolds(
-    atmosphere: Atmosphere,
-    wavelength_angstrom: ArrayLike,
-    field_strength_megagauss: float,
-    field_ray_cosine: float,
-) -> FreeElectronManifolds:
-    """Free-electron absorption, scattering and dispersion in a field.
-
-    Cold magneto-ionic (Drude) response of electrons with collision
-    frequency ``nu`` and radiation damping ``gamma_rad = 2 e^2 w^2/(3 m c^3)``:
-    the circular mode ``q`` (``q=+1`` co-rotating) sees
-
-    ``R_q = (w^2 + G^2) / ((w - q w_c)^2 + G^2)``,   ``G = nu + gamma_rad``,
-
-    times its zero-field value, for both thermal free--free absorption and
-    Thomson scattering, and the Kramers--Kronig dispersion of the same
-    response.  ``nu`` is taken from the package's zero-field free--free
-    opacity itself (``kappa_ff / sigma_T = nu / gamma_rad``), so ``B -> 0``
-    recovers the ordinary free--free and Thomson opacities exactly, the
-    ``q=+1`` resonance carries the classical integrated strength
-    ``4 pi^2 e^2 / (m c)`` per electron, its thermal fraction is
-    ``nu/(nu + gamma_rad)``, and far from resonance the Faraday rotation
-    falls as ``w_c / w^2``.  The co-rotating resonance is Doppler broadened
-    (``sigma = w_c sqrt(kT/m c^2) |cos|``) with a Voigt profile; the other
-    modes are far from resonance.  Quantizing-field corrections to the
-    free--free Gaunt factor are not included.
-    """
-
-    from .opacity import electron_scattering_mass_coefficient
-
-    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
-    field = float(field_strength_megagauss)
-    cosine = abs(float(field_ray_cosine))
-    free_free = hydrogen_free_free_mass_absorption_coefficient(atmosphere, wavelength)
-    thomson = np.broadcast_to(
-        electron_scattering_mass_coefficient(atmosphere)[np.newaxis, :], free_free.shape
-    )
-    omega = 2.0 * PI * LIGHT_SPEED / (wavelength[:, np.newaxis] * 1.0e-8)
-    radiative = 2.0 * ELEMENTARY_CHARGE_ESU**2 * omega**2 / (
-        3.0 * ELECTRON_MASS * LIGHT_SPEED**3
-    )
-    collision = radiative * free_free / np.maximum(thomson, np.finfo(float).tiny)
-    damping = collision + radiative
-    cyclotron = ELEMENTARY_CHARGE_ESU * field * 1.0e6 / (ELECTRON_MASS * LIGHT_SPEED)
-    numerator = omega**2 + damping**2
-    total = free_free + thomson
-    absorption, scattering, dispersion = [], [], []
-    for q in (-1, 0, 1):
-        detuning = omega - q * cyclotron
-        if q == 1 and field > 0.0:
-            doppler = (
-                cyclotron
-                * np.sqrt(BOLTZMANN * atmosphere.temperature[np.newaxis, :] / (ELECTRON_MASS * LIGHT_SPEED**2))
-                * cosine
-            ) * np.ones_like(omega)
-            profile, phase = _complex_voigt_profile_per_angular_frequency(
-                -detuning, doppler, damping
-            )
-            factor = numerator * PI / damping * profile
-            phase_factor = numerator * PI / damping * phase
-        else:
-            lorentz = detuning**2 + damping**2
-            factor = numerator / lorentz
-            phase_factor = numerator / damping * (-detuning) / lorentz
-        absorption.append(free_free * factor)
-        scattering.append(thomson * factor)
-        dispersion.append(total * phase_factor)
-    return FreeElectronManifolds(tuple(absorption), tuple(scattering), tuple(dispersion))
-
-
-def isotropic_free_electron_opacity(
-    atmosphere: Atmosphere,
-    wavelength_angstrom: ArrayLike,
-    field_strength_megagauss: float,
-    *,
-    angular_quadrature_order: int = 12,
-) -> tuple[FloatArray, FloatArray]:
-    """Angle-averaged Stokes-I free-electron (absorption, scattering).
-
-    Averages ``eta_I`` over ``0 <= |cos| <= 1`` because the Doppler width of
-    the co-rotating resonance depends on the angle.
-    """
-
-    nodes, weights = np.polynomial.legendre.leggauss(int(angular_quadrature_order))
-    cosines = 0.5 * (nodes + 1.0)
-    weights = 0.5 * weights
-    absorption = scattering = 0.0
-    for cosine, weight in zip(cosines, weights):
-        manifolds = magnetized_free_electron_manifolds(
-            atmosphere, wavelength_angstrom, field_strength_megagauss, cosine
-        )
-        c2 = cosine**2
-        for store, triple in (("a", manifolds.absorption), ("s", manifolds.scattering)):
-            minus, pi_, plus = triple
-            eta = 0.5 * pi_ * (1.0 - c2) + 0.25 * (minus + plus) * (1.0 + c2)
-            if store == "a":
-                absorption = absorption + weight * eta
-            else:
-                scattering = scattering + weight * eta
-    return np.asarray(absorption), np.asarray(scattering)
-
-
-def _humlicek_complex_probability(argument: ArrayLike) -> NDArray[np.complex128]:
-    """Evaluate ``w(z)=exp(-z^2) erfc(-iz)`` without a SciPy dependency.
-
-    Humlicek's four-region rational approximation (shared with the metal
-    line profiles). Its accuracy is ample for the much larger uncertainties
-    in the collision width, while it supplies the causal imaginary profile
-    that a pseudo-Voigt approximation alone cannot provide.
-    """
-
-    from ._faddeeva import humlicek_w4
-
-    z = np.asarray(argument, dtype=np.complex128)
-    if np.any(~np.isfinite(z)) or np.any(np.imag(z) < 0.0):
-        raise ValueError("complex probability arguments require Im(z)>=0")
-    return humlicek_w4(np.real(z), np.imag(z))
-
-
-def _complex_voigt_profile_per_angular_frequency(
-    offset: FloatArray,
-    gaussian_sigma: FloatArray,
-    lorentz_hwhm: FloatArray,
-) -> tuple[FloatArray, FloatArray]:
-    """Return area-normalized Voigt absorption and its dispersion partner."""
-
-    frequency_offset, sigma, gamma = np.broadcast_arrays(
-        np.asarray(offset, dtype=np.float64),
-        np.asarray(gaussian_sigma, dtype=np.float64),
-        np.asarray(lorentz_hwhm, dtype=np.float64),
-    )
-    if (
-        np.any(~np.isfinite(frequency_offset))
-        or np.any(~np.isfinite(sigma))
-        or np.any(~np.isfinite(gamma))
-        or np.any(sigma < 0.0)
-        or np.any(gamma <= 0.0)
-    ):
-        raise ValueError("Voigt widths must be finite with sigma>=0 and gamma>0")
-
-    absorption = np.empty_like(frequency_offset)
-    dispersion = np.empty_like(frequency_offset)
-    lorentz_limit = sigma <= np.sqrt(np.finfo(np.float64).eps) * gamma
-    denominator = frequency_offset**2 + gamma**2
-    absorption[lorentz_limit] = (
-        gamma[lorentz_limit] / (PI * denominator[lorentz_limit])
-    )
-    dispersion[lorentz_limit] = (
-        frequency_offset[lorentz_limit]
-        / (PI * denominator[lorentz_limit])
-    )
-
-    finite_doppler = ~lorentz_limit
-    if np.any(finite_doppler):
-        normalization = np.sqrt(2.0) * sigma[finite_doppler]
-        argument = (
-            frequency_offset[finite_doppler]
-            + 1j * gamma[finite_doppler]
-        ) / normalization
-        probability = _humlicek_complex_probability(argument)
-        profile_normalization = np.sqrt(2.0 * PI) * sigma[finite_doppler]
-        absorption[finite_doppler] = (
-            np.real(probability) / profile_normalization
-        )
-        dispersion[finite_doppler] = (
-            np.imag(probability) / profile_normalization
-        )
-    return absorption, dispersion
-
-
 __all__ = [
-    "FreeElectronManifolds",
-    "hydrogen_free_free_mass_absorption_coefficient",
-    "isotropic_free_electron_opacity",
-    "magnetized_free_electron_manifolds",
     "MAGNETIC_ATOMIC_FIELD_MEGAGAUSS",
     "ROHRMANN_2026_DOI",
     "ROHRMANN_2026_ZENODO_DOI",

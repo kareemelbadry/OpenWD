@@ -32,7 +32,6 @@ from wd_spectra import (
     helium_i_resonance_hwhm_angstrom,
     helium_i_resonance_stark_hwhm_angstrom,
     helium_i_resonance_line_mass_absorption_coefficient,
-    helium_i_line_mass_absorption_coefficient,
     helium_i_rydberg_bound_free_linear_absorption_coefficient,
     helium_minus_free_free_coefficient,
     helium_rayleigh_scattering_cross_section,
@@ -669,25 +668,3 @@ def test_compiled_helium_lorentz_kernel_matches_numpy_fallback(monkeypatch):
     np.testing.assert_allclose(
         accelerated, fallback, rtol=2.0e-13, atol=1.0e-13 * float(np.max(fallback))
     )
-
-
-def test_montreal_neutral_broadening_uses_deridder_wings_when_available():
-    path = ModelData.default().helium_i_stark
-    if not path.exists():
-        pytest.skip("optional Zenodo profile table not downloaded")
-    atmosphere = gray_helium_atmosphere(12_000.0, 8.0, n_depth=8)
-    wavelength = np.linspace(5800.0, 5950.0, 1501)
-    table = read_helium_stark_table(path)
-    unsold = helium_i_line_mass_absorption_coefficient(
-        atmosphere, wavelength, table, neutral_broadening="unsold"
-    )
-    montreal = helium_i_line_mass_absorption_coefficient(
-        atmosphere, wavelength, table, neutral_broadening="montreal"
-    )
-    core = np.argmin(np.abs(wavelength - 5877.289448))
-    red_wing = np.argmin(np.abs(wavelength - 5900.0))
-    # In a neutral, line-forming layer the tabulated Deridder width is larger
-    # than Unsold: oscillator strength moves out of the core and into wings.
-    depth = 4
-    assert montreal[core, depth] < unsold[core, depth]
-    assert montreal[red_wing, depth] > unsold[red_wing, depth]

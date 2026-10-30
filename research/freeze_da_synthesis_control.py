@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 from wd_spectra import models
 from wd_spectra.models import stellar
+from wd_spectra.models.common import config_from_stored
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "examples/results/example/da-12000K-20260908T070221Z-3280a330"
@@ -22,7 +23,7 @@ def main():
             "The regression reference is immutable; review any replacement"
         )
     metadata = json.loads((SOURCE / "metadata.json").read_text())
-    cfg = models.DAConfig(**metadata["config"])
+    cfg = config_from_stored(models.DAConfig, metadata["config"])
     state = models.load_atmosphere_checkpoint(
         SOURCE / "atmosphere.npz",
         cfg.effective_temperature,

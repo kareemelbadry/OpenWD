@@ -15,10 +15,7 @@ from wd_spectra.helium_nlte import (
     helium_ii_photoionization_cross_section,
     helium_ii_shell_transition,
     remap_coupled_helium_state,
-    solve_neutral_helium_statistical_equilibrium,
-    solve_hydrogenic_helium_statistical_equilibrium,
     solve_coupled_helium_statistical_equilibrium,
-    synthesize_hydrogenic_helium_spectrum,
 )
 from wd_spectra.helium import _helium_i_op_shell_cross_section
 from wd_spectra.helium_nlte import _prepare_helium_line_transfer_problem
@@ -141,21 +138,6 @@ def test_optional_tlusty_storey_hummer_helium_collision_reader(tmp_path):
     )
 
 
-def test_neutral_helium_planck_field_recovers_lte():
-    atmosphere = gray_helium_atmosphere(40_000.0, 8.0, n_depth=12)
-    state = solve_neutral_helium_statistical_equilibrium(atmosphere)
-    assert state.population_density.shape == (atmosphere.n_depth, 14)
-    np.testing.assert_allclose(
-        state.departure_coefficient, 1.0, rtol=5.0e-12, atol=5.0e-12
-    )
-    np.testing.assert_allclose(
-        state.continuum_departure_coefficient,
-        1.0,
-        rtol=5.0e-12,
-        atol=5.0e-12,
-    )
-
-
 def test_coupled_helium_planck_field_recovers_lte_and_conserves_particles(tmp_path):
     archive = tmp_path / "ccc.zip"
     _write_small_ccc_archive(archive)
@@ -257,53 +239,6 @@ def test_coupled_helium_supports_tmap_sized_n32_top_closure(tmp_path):
         rtol=3.0e-10,
         atol=3.0e-10,
     )
-
-
-def test_helium_ii_planck_field_recovers_lte(tmp_path):
-    archive = tmp_path / "ccc.zip"
-    _write_small_ccc_archive(archive)
-    collisions = read_ccc_hydrogen_collision_data(archive, maximum_level=3)
-    atmosphere = gray_helium_atmosphere(80_000.0, 8.0, n_depth=12)
-    state = solve_hydrogenic_helium_statistical_equilibrium(
-        atmosphere,
-        collisions,
-        maximum_level=3,
-    )
-    np.testing.assert_allclose(
-        state.departure_coefficient, 1.0, rtol=2.0e-12, atol=2.0e-12
-    )
-    np.testing.assert_allclose(
-        state.continuum_departure_coefficient,
-        1.0,
-        rtol=2.0e-12,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        np.sum(state.population_density, axis=1)
-        + state.doubly_ionized_he_density,
-        np.sum(state.lte_population_density, axis=1)
-        + state.lte_doubly_ionized_he_density,
-        rtol=2.0e-13,
-    )
-
-    wavelength = np.geomspace(100.0, 20_000.0, 80)
-    # Compare the atomic coefficients in the exact LTE limit. The legacy
-    # synthesizer uses four scattering iterations; the released LTE formal
-    # solver now closes scattering directly and is not that numerical method.
-    from wd_spectra.helium_nlte import helium_nlte_transfer_coefficients
-    from wd_spectra.helium import helium_continuum_mass_absorption_coefficient
-    from wd_spectra.spectrum import planck_lambda_angstrom
-    c = helium_nlte_transfer_coefficients(
-        atmosphere, wavelength, state, maximum_level=3,
-        include_helium_i_lines=False, include_helium_i_resonance_lines=False,
-        include_helium_ii_lines=False)
-    lte = helium_continuum_mass_absorption_coefficient(
-        atmosphere, wavelength, include_electron_scattering=False,
-        include_rayleigh_scattering=False)
-    np.testing.assert_allclose(c.true_absorption, lte, rtol=3e-12)
-    np.testing.assert_allclose(c.thermal_emissivity,
-        lte*planck_lambda_angstrom(wavelength[:, None], atmosphere.temperature[None, :]),
-        rtol=3e-12)
 
 
 def test_helium_collision_extrapolation_preserves_positive_strength_and_balance():

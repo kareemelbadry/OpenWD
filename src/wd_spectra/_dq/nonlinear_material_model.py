@@ -309,16 +309,10 @@ def propose(system, state, ev, jacobian, radius):
     solved = solve_bounded_material_trial(
         evaluated, state.size, lower, upper
     )
-    corner_info = {}
     from .dq_eos_corner_subspace import refine_corner_subspace
     solved, subspace_info = refine_corner_subspace(
         system, state, solved, radius, evaluated, bounds=(lower, upper)
     )
-    # Adjoining-piece search is retained as a separate experiment: it did
-    # not improve the J1311 physical gates enough to justify default cost.
-    if getattr(getattr(system,'eos_trial_owner',None),'search_eos_corners',False):
-        from .dq_eos_knot_search import search_corners
-        solved, corner_info = search_corners(system,state,solved,radius,evaluated)
     compatible_solved, compatible_direction, compatible_cost = compatible_temperature_trial(
         system, model, state, radius
     )
@@ -394,7 +388,7 @@ def propose(system, state, ev, jacobian, radius):
         stable_coordinate_release_count=int(np.count_nonzero(
             lower[system.n:] < -radius
         )),
-        seconds=time.monotonic()-started, **corner_info, **subspace_info,
+        seconds=time.monotonic()-started, **subspace_info,
         **manifold_info)
 
 

@@ -174,10 +174,10 @@ def select_physics(config, *, data=None, policy=PhysicsSelectionPolicy()):
         )
         return PhysicsSelection(
             "dah",
-            f"Magnetic pure-H LTE ({regime}; maximum visible field {maximum:.4g} MG), {config.balmer_profile} profiles on {config.atmosphere_structure} structure",
+            f"Magnetic pure-H LTE ({regime}; maximum visible field {maximum:.4g} MG), kurucz-griem profiles on nonmagnetic structure",
             {"maximum_visible_field_megagauss": maximum,
-             "balmer_profile": config.balmer_profile,
-             "atmosphere_structure": config.atmosphere_structure},
+             "balmer_profile": "kurucz-griem",
+             "atmosphere_structure": "nonmagnetic"},
             False,
             False,
         )

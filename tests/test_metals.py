@@ -54,9 +54,7 @@ from wd_spectra.metals import (
     read_verner_photoionization_database,
     selected_metal_lines,
     strong_uv_resonance_minimum_half_window_angstrom,
-    unsold_helium_impact_rate_coefficient,
     unsold_hydrogen_impact_rate_coefficient,
-    unsold_neutral_metal_impact_rate_coefficient,
 )
 
 
@@ -512,7 +510,6 @@ def test_helium_checkpoint_resamples_all_structure_coordinates():
         n_continuum_wavelength=80,
         include_lines=False,
         mixing_length_alpha=None,
-        structure_solver="adaptive-newton",
         n_angle=1,
         initial_temperature=8000.0 * (1.0 + 0.1 * source_tau**0.1),
         initial_column_mass=source_mass,
@@ -954,11 +951,15 @@ def test_unsold_helium_width_reproduces_hammond_ca_k_unsold_estimate():
     ion = AtomicIon(
         "Ca", 1, 40.078, 11.871719, levels, (ca_k, excited)
     )
-    predicted = unsold_helium_impact_rate_coefficient(ion, ca_k, 5200.0)
     hydrogen = unsold_hydrogen_impact_rate_coefficient(ion, ca_k, 5200.0)
-    measured = ca_ii_helium_impact_rate_coefficient(3934.777, 5200.0)
-    assert predicted is not None
     assert hydrogen is not None
+    predicted = neutral_impact_rate_from_hydrogen(
+        ion,
+        hydrogen,
+        perturber_atomic_mass_u=4.002602,
+        perturber_static_polarizability_a3=0.204956,
+    )
+    measured = ca_ii_helium_impact_rate_coefficient(3934.777, 5200.0)
     # Hammond (1975) quotes 3.34e-9 cm3 s-1 for his own Unsold estimate of
     # Ca II K in He at 5200 K, roughly half of his laboratory width.  The
     # hydrogenic <r^2> must carry the 1/Z^2 of the Ca+ core (Z = 2).
@@ -966,8 +967,16 @@ def test_unsold_helium_width_reproduces_hammond_ca_k_unsold_estimate():
     assert 0.45 < float(predicted) / float(measured) < 0.65
     assert float(hydrogen) > float(predicted)
 
-    excited_rate = unsold_helium_impact_rate_coefficient(ion, excited, 5200.0)
-    assert excited_rate is not None
+    excited_hydrogen = unsold_hydrogen_impact_rate_coefficient(
+        ion, excited, 5200.0
+    )
+    assert excited_hydrogen is not None
+    excited_rate = neutral_impact_rate_from_hydrogen(
+        ion,
+        excited_hydrogen,
+        perturber_atomic_mass_u=4.002602,
+        perturber_static_polarizability_a3=0.204956,
+    )
     assert float(excited_rate) > 2.0 * float(predicted)
 
 
@@ -997,66 +1006,6 @@ def test_unsold_width_uses_parent_limit_above_first_ionization_limit():
     )
     assert rate is not None
     assert 1.0e-9 < float(rate) < 1.0e-7
-
-
-def test_unsold_bulk_oxygen_perturber_has_polarizability_mass_scaling():
-    ion = AtomicIon(
-        "Ca",
-        1,
-        ATOMIC_MASS_U["Ca"],
-        IONIZATION_ENERGY_EV["Ca"][1],
-        (
-            AtomicLevel(1, 0.0, 2.0, "4s 2S"),
-            AtomicLevel(2, 25_414.4, 4.0, "4p 2P"),
-        ),
-        (),
-    )
-    line = AtomicTransition(1, 2, 1.4e8, "E1", 3934.8, 0.63)
-    hydrogen = unsold_hydrogen_impact_rate_coefficient(ion, line, 15_000.0)
-    oxygen = unsold_neutral_metal_impact_rate_coefficient(
-        ion, line, 15_000.0, "O"
-    )
-    assert hydrogen is not None and oxygen is not None
-    reduced_h = ATOMIC_MASS_U["Ca"] * 1.00784 / (
-        ATOMIC_MASS_U["Ca"] + 1.00784
-    )
-    reduced_o = ATOMIC_MASS_U["Ca"] * ATOMIC_MASS_U["O"] / (
-        ATOMIC_MASS_U["Ca"] + ATOMIC_MASS_U["O"]
-    )
-    expected_scale = (0.802 / 0.666793) ** 0.4 * (
-        reduced_h / reduced_o
-    ) ** 0.3
-    assert oxygen / hydrogen == pytest.approx(expected_scale)
-
-
-def test_unsold_bulk_neon_perturber_has_polarizability_mass_scaling():
-    ion = AtomicIon(
-        "Mg",
-        0,
-        ATOMIC_MASS_U["Mg"],
-        IONIZATION_ENERGY_EV["Mg"][0],
-        (
-            AtomicLevel(1, 21_850.4, 3.0, "3s.3p.(3Po)"),
-            AtomicLevel(2, 47_957.1, 3.0, "3s.3d.(3D)"),
-        ),
-        (),
-    )
-    line = AtomicTransition(1, 2, 9.0e7, "E1", 3830.44, 0.59)
-    hydrogen = unsold_hydrogen_impact_rate_coefficient(ion, line, 12_000.0)
-    neon = unsold_neutral_metal_impact_rate_coefficient(
-        ion, line, 12_000.0, "Ne"
-    )
-    assert hydrogen is not None and neon is not None
-    reduced_h = ATOMIC_MASS_U["Mg"] * 1.00784 / (
-        ATOMIC_MASS_U["Mg"] + 1.00784
-    )
-    reduced_ne = ATOMIC_MASS_U["Mg"] * ATOMIC_MASS_U["Ne"] / (
-        ATOMIC_MASS_U["Mg"] + ATOMIC_MASS_U["Ne"]
-    )
-    expected_scale = (0.394299 / 0.666793) ** 0.4 * (
-        reduced_h / reduced_ne
-    ) ** 0.3
-    assert neon / hydrogen == pytest.approx(expected_scale)
 
 
 def test_explicit_hydrogen_width_can_be_rescaled_to_neutral_neon():
@@ -1254,7 +1203,6 @@ def test_adaptive_hydrogen_structure_retains_trace_metal_feedback_metadata(
         include_lyman_lines=False,
         include_metal_lines=True,
         mixing_length_alpha=None,
-        structure_solver="adaptive-newton",
         n_angle=1,
         metal_database=database,
         metal_abundances={"Mg": -5.0},
@@ -1292,7 +1240,6 @@ def test_adaptive_helium_structure_retains_trace_metal_feedback_metadata(
         include_lines=False,
         include_metal_lines=True,
         mixing_length_alpha=None,
-        structure_solver="adaptive-newton",
         n_angle=1,
         metal_database=database,
         metal_abundances={"Mg": -7.0},
@@ -1329,7 +1276,6 @@ def test_adaptive_helium_checkpoint_resumes_with_fresh_energy_tangents():
         include_lines=False,
         include_helium_ii_lines=False,
         mixing_length_alpha=1.25,
-        structure_solver="adaptive-newton",
         n_angle=1,
         initial_temperature=seed.temperature,
         initial_column_mass=seed.column_mass,

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import numpy as np
 import pytest
-from radiative_rate_proposal import radiative_rates
+from wd_spectra._cool.radiative_rates import radiative_rates
 from wd_spectra.constants import STEFAN_BOLTZMANN
 
 

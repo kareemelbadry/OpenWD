@@ -59,7 +59,7 @@ def coupled_linear_source(tau, planck, absorption, scattering, n_angle=4, chunk_
 
 
 def pure_helium_opacities(atmosphere, wave, *, lines=True):
-    from wd_spectra.models import ModelData, DBConfig
+    from wd_spectra.models import ModelData
     from wd_spectra.models.stellar import _helium_tables
     if not lines:
         # Continuum (with the dissolved-level pseudo-continuum) and no lines.
@@ -73,8 +73,7 @@ def pure_helium_opacities(atmosphere, wave, *, lines=True):
     absorption = helium.helium_continuum_mass_absorption_coefficient(
         atmosphere, wave, include_electron_scattering=False, include_rayleigh_scattering=False)
     absorption += helium.helium_i_line_mass_absorption_coefficient(
-        atmosphere, wave, hi, include_occupation_probability=True,
-        neutral_broadening=DBConfig().neutral_broadening)
+        atmosphere, wave, hi, include_occupation_probability=True)
     absorption += helium.helium_i_resonance_line_mass_absorption_coefficient(
         atmosphere, wave, include_occupation_probability=True)
     absorption += helium.helium_ii_line_mass_absorption_coefficient(
@@ -101,13 +100,13 @@ def main():
     if args.output.exists():
         raise ValueError('refusing to overwrite spectrum audit')
     args.output.mkdir(parents=True)
-    from . import check_cool_db_transport_seed as runner
+    from . import dense_db_runner as runner
     from wd_spectra.models import ModelData
     from wd_spectra.dense_eos import read_helium_reos3_table
-    from .dense_helium_molecular_experiment import MolecularDenseEOS, BULK_MINIMUM_TEMPERATURE
-    from .dense_helium_atomic_experiment import atomic_dense_experiment
-    from .dense_helium_fluid_experiment import KB_EV
-    from .smooth_reos3_experiment import SmoothREOS3
+    from .dense_helium_eos import MolecularDenseEOS, BULK_MINIMUM_TEMPERATURE
+    from .dense_helium_scope import atomic_dense_experiment
+    from .dense_helium_fluid import KB_EV
+    from .smooth_reos3 import SmoothREOS3
     model = MolecularDenseEOS(SmoothREOS3(read_helium_reos3_table(
         ModelData.default().helium_reos3), BULK_MINIMUM_TEMPERATURE, 17000), args.interaction_table,
         helium_minus_table=args.dense_heminus_ff)
@@ -125,7 +124,7 @@ def main():
         density = saved['experimental_density']
         column_mass = saved['experimental_column_mass']
     wave = np.geomspace(100., args.maximum_wavelength, args.wavelength_count)
-    from .heminus_join_experiment import heminus_join_scope,METADATA_KEY,HARD_JOIN
+    from .heminus_join import heminus_join_scope,METADATA_KEY,HARD_JOIN
     join_policy=meta['atmosphere'].get(METADATA_KEY,HARD_JOIN)
     with heminus_join_scope(join_policy),atomic_dense_experiment(runner, model, opacity_factory=model.opacity_factory):
         atmosphere = runner.atmosphere_at(teff, pressure, temperature, tau,
@@ -182,7 +181,7 @@ def main():
         np.testing.assert_allclose(previous[:, 1], emergent_flux(depths, source, n_angle=4), rtol=1e-12)
     for angles in args.angles:
         if mass_conservative:
-            from .mass_conservative_feautrier import mass_field
+            from wd_spectra._mass_feautrier import mass_field
             source,field=mass_field(depths,planck,absorption,scattering,column_mass=atmosphere.column_mass,
                                    n_angle=angles,reconstruct_intensity=reconstruct_intensity)
             _,independent=mass_field(depths,source,absorption+scattering,np.zeros_like(scattering),

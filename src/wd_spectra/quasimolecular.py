@@ -503,18 +503,6 @@ def _read_allard_hydrogen_line_profile(
     )
 
 
-def read_allard_neutral_lyman_alpha_table(
-    paths_by_temperature: dict[float, str | Path],
-) -> AllardNeutralLymanAlphaTable:
-    """Read and order a temperature grid of external unified Lyalpha tables."""
-
-    profiles = tuple(
-        read_allard_neutral_lyman_alpha_profile(path, temperature)
-        for temperature, path in sorted(paths_by_temperature.items())
-    )
-    return AllardNeutralLymanAlphaTable(profiles=profiles)
-
-
 def read_allard_tlusty205_tables(
     directory: str | Path,
     *,
@@ -608,12 +596,6 @@ def read_allard_temperature_dependent_tables(
         source_directory=directory,
         source_sha256=source_sha256,
     )
-
-
-# Clearer generic names for new code; retain the historical public names above
-# so existing users of the Lyalpha temperature-grid reader are unaffected.
-AllardHydrogenLineProfile = AllardNeutralLymanAlphaProfile
-AllardHydrogenLineTable = AllardNeutralLymanAlphaTable
 
 
 def _bracket(grid: FloatArray, value: float) -> tuple[int, float]:

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from wd_spectra import atmosphere
-from extended_thermal_wavelength_experiment import extend_grid,extended_quadrature
+from wd_spectra._cool.dense_db_driver import extend_grid,extended_quadrature
 
 
 def test_existing_nodes_are_bitwise_preserved():
@@ -35,10 +35,10 @@ def test_driver_forwards_transfer_choice_through_helium_solver(
     import sys
     from wd_spectra import adaptive_structure as adaptive, gray_helium_atmosphere
     from wd_spectra._cool import (
-        check_cool_db_transport_seed as runner,
-        dense_helium_molecular_experiment as experiment,
-        extended_thermal_wavelength_experiment as driver,
-        stable_feautrier_experiment as stable,
+        dense_db_runner as runner,
+        dense_helium_eos as experiment,
+        dense_db_driver as driver,
+        stable_transfer as stable,
         dense_direct_spectrum as direct,
     )
     from wd_spectra.models import stellar

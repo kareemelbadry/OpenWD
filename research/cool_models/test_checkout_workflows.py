@@ -15,6 +15,13 @@ def test_data_path_is_explicit_and_independent_of_working_directory(monkeypatch,
     assert research_paths.data_directory() == tmp_path / "tables"
 
 
+def test_source_paths_list_the_actual_checkout_from_another_cwd(monkeypatch, tmp_path):
+    paths = research_paths.source_paths()
+    assert Path("wd_spectra/adaptive_structure.py") in paths
+    monkeypatch.chdir(tmp_path)
+    assert research_paths.source_paths() == paths
+
+
 def test_dense_recipe_has_no_temperature_switch_or_supplied_state(tmp_path):
     low, audit = commands(5000, tmp_path, tmp_path / "table.npz")
     high, _ = commands(8000, tmp_path, tmp_path / "table.npz")
@@ -38,5 +45,5 @@ def test_external_data_check_fails_closed(monkeypatch, tmp_path):
 
 
 def test_bundled_hnc_cache_is_the_qualified_generated_table():
-    table = Path(__file__).parent / "data/molecular-hnc-electron-domain-table.npz"
+    table = research_paths.REPOSITORY / "wd_spectra/data/runtime/cool-models/molecular-hnc-electron-domain-table.npz"
     assert hashlib.sha256(table.read_bytes()).hexdigest() == "b72c73cec42f5f2661742bb9a4051283abc36185f5059d213d4ab0db2c8607f4"

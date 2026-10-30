@@ -18,6 +18,7 @@ from wd_spectra import (
     save_model_result,
 )
 from wd_spectra._compat import trapezoid
+from wd_spectra.models.common import config_from_stored
 from wd_spectra.constants import STEFAN_BOLTZMANN
 
 parser = argparse.ArgumentParser()
@@ -34,7 +35,7 @@ if kind == "dz":
     with np.load(
         Path("tests/data/spectral_regressions") / (args.case + ".npz")
     ) as saved:
-        config = DZConfig(**json.loads(str(saved["config_json"])))
+        config = config_from_stored(DZConfig, json.loads(str(saved["config_json"])))
     teff = config.effective_temperature
 else:
     config = {"da": DAConfig, "db": DBConfig, "dab": DABConfig}[kind](

@@ -9,7 +9,7 @@ The outer solve always reconstructs the real chemistry/opacity/transfer.
 from contextlib import contextmanager
 from contextvars import ContextVar
 import numpy as np
-from .convective_consistency_experiment import MaterialCoefficients
+from .material_coefficients import MaterialCoefficients
 from .dq_reos_secant_thermodynamics import reos_secant_thermodynamics
 from .dq_reos_secant_response import thermodynamic_response
 

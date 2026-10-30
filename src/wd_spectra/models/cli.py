@@ -14,6 +14,7 @@ from .d6 import D6Config
 from .dah import DAHConfig
 from .pg1159 import PG1159Config
 from .stellar import (
+    _H3PLUS_PARTITION_MODEL,
     DAConfig,
     DABConfig,
     DBConfig,
@@ -97,10 +98,6 @@ def one_shot_main(spectral_type: str) -> None:
         parser.add_argument("--lyman-profiles", choices=("allard", "stark"),
                             default=(DZConfig().lyman_profile_source
                                      if kind == "DZ" else "allard"))
-    if kind == "DA":
-        parser.add_argument("--h3plus-partition",
-                            choices=("neale-tennyson-1995", "none"),
-                            default="neale-tennyson-1995")
     if kind == "DAB":
         parser.add_argument("--log-h-he", type=float, default=-2.0)
     if kind == "DZ":
@@ -110,8 +107,6 @@ def one_shot_main(spectral_type: str) -> None:
     if kind == "DZ":
         parser.add_argument("--abundance", action="append", type=_assignment,
                             help="replace defaults with Element=log10(N/He)")
-        parser.add_argument("--dense-helium-eos", choices=("ideal", "reos3"),
-                            default=DZConfig().dense_helium_eos)
         parser.add_argument("--strong-line-atomic-data",
                             choices=("stout", "nist-asd"),
                             default=DZConfig().strong_line_atomic_data)
@@ -291,7 +286,6 @@ def one_shot_main(spectral_type: str) -> None:
             logg=defaults.logg if args.logg is None else args.logg,
             quality=args.quality,
             lyman_profile_source=args.lyman_profiles,
-            h3plus_partition_model=args.h3plus_partition,
         )
         composition = "hydrogen"
         compute = compute_da
@@ -323,7 +317,6 @@ def one_shot_main(spectral_type: str) -> None:
             abundances=dict(args.abundance) if args.abundance else defaults.abundances,
             log_hydrogen_abundance=args.log_h_he,
             quality=args.quality,
-            dense_helium_eos=args.dense_helium_eos,
             strong_line_atomic_data=args.strong_line_atomic_data,
             lyman_profile_source=args.lyman_profiles,
         )
@@ -351,10 +344,7 @@ def one_shot_main(spectral_type: str) -> None:
             checkpoint_kwargs.update(
                 include_molecules=molecular,
                 include_negative_hydrogen=molecular,
-                trihydrogen_ion_partition_model=(
-                    None if config.h3plus_partition_model == "none"
-                    else config.h3plus_partition_model
-                ),
+                trihydrogen_ion_partition_model=_H3PLUS_PARTITION_MODEL,
             )
         atmosphere = load_atmosphere_checkpoint(
             args.restart_atmosphere,

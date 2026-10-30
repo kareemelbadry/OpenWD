@@ -11,7 +11,7 @@ from scipy.linalg import eigh_tridiagonal
 from scipy.special import logsumexp
 from wd_spectra.constants import BOLTZMANN, HELIUM_MASS, ELECTRON_MASS, PLANCK
 from .chang_helium_potential import dimer_ground_hartree, HARTREE_EV
-from .dense_helium_fluid_experiment import KB_EV
+from .dense_helium_fluid import KB_EV
 
 
 @dataclass(frozen=True)

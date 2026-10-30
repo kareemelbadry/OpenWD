@@ -36,6 +36,9 @@ from .common import (
     warn_if_atmosphere_not_converged,
 )
 from .stellar import (
+    _H3PLUS_PARTITION_MODEL,
+    _METAL_MINIMUM_OSCILLATOR_STRENGTH,
+    _STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
     _allard_lyman_profiles_for_effective_temperature,
     _da_self_broadening_prescription,
     _metal_structure_line_budget,
@@ -72,35 +75,21 @@ class DAZConfig:
     # (h2_lines; Xu et al. 2013 detect them below ~14,000 K).  When enabled,
     # molecules are kept in the EOS at any temperature.  Final spectrum only.
     h2_lyman_werner_lines: bool = False
-    h3plus_partition_model: Literal["neale-tennyson-1995", "none"] = (
-        "neale-tennyson-1995"
-    )
     mixing_length_alpha: float | None = 0.7
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
-    atmosphere_solver: Literal["adaptive-newton"] = "adaptive-newton"
     maximum_metal_charge: int = 3
     # Flux conservation, as for DZ: the structure absorbs the opacity-sampled
     # synthesis line list on photosphere-concentrated depths, and the formal
-    # solution subdivides each depth interval.  None/0/1 restore the
-    # historical line-centered structure and bare-grid formal solution.
+    # solution subdivides each depth interval.  0/1 restore uniform depths
+    # and the bare-grid formal solution.
     structure_maximum_metal_lines: int | None = None
-    structure_minimum_metal_oscillator_strength: float | None = None
-    structure_opacity_sampling_resolution: float | None = 1000.0
     photospheric_depth_concentration: float = 1.0
     formal_maximum_metal_lines: int | None = None
-    formal_minimum_metal_oscillator_strength: float = 1.0e-4
     synthesis_transfer_depth_refinement: int = 4
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = "chianti-reduced"
     metal_neutral_h_broadening: Literal["barklem", "unsold"] = "barklem"
     strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
-    # Kurucz electron-impact Stark constants for Stout E1 lines without a
-    # tabulated Stark width, as DZConfig.kurucz_electron_stark.  False
-    # restores the previous default without electron broadening for them.
-    kurucz_electron_stark: bool = True
-    # Legacy bare/custom-atom import switch, as DZConfig.si_ii_kurucz_transitions.
-    # The qualified default atom already includes its selected Si II lines.
-    si_ii_kurucz_transitions: bool = True
 
 
 def compute_daz(
@@ -136,7 +125,6 @@ def compute_daz(
         ("ca_ii_resonance_source", ("chianti-reduced", "lte")),
         ("strong_line_atomic_data", ("stout", "nist-asd")),
         ("lyman_profile_source", ("allard", "stark")),
-        ("h3plus_partition_model", ("neale-tennyson-1995", "none")),
     ):
         if getattr(config, name) not in choices:
             raise ValueError(f"{name} must be one of {choices}")
@@ -155,8 +143,7 @@ def compute_daz(
     atomic = read_stout_atomic_database(
         data.stout, elements=elements, maximum_charge=config.maximum_metal_charge
     )
-    if config.si_ii_kurucz_transitions:
-        atomic = augment_silicon_ii_kurucz_transitions(atomic)
+    atomic = augment_silicon_ii_kurucz_transitions(atomic)
     if config.strong_line_atomic_data == "nist-asd":
         paths = [
             data.nist_asd_strong / filename
@@ -171,8 +158,7 @@ def compute_daz(
         atomic = read_barklem_neutral_hydrogen_broadening(
             data.barklem_neutral_h_broadening, atomic
         )
-    if config.kurucz_electron_stark:
-        atomic = atomic_database_with_kurucz_electron_stark(atomic)
+    atomic = atomic_database_with_kurucz_electron_stark(atomic)
     photo = read_verner_photoionization_database(
         data.verner_photoionization,
         elements=elements,
@@ -191,23 +177,11 @@ def compute_daz(
     )
     if formal_lines < 1:
         raise ValueError("metal line limits must be positive")
-    if config.structure_opacity_sampling_resolution is not None:
-        # Flux conservation needs the structure to absorb the synthesis line
-        # list; opacity sampling keeps its cost nearly independent of it.
-        if config.structure_maximum_metal_lines is None:
-            structure_lines = formal_lines
-            line_policy = "opacity sampling: synthesis line list"
-        structure_minimum_oscillator_strength = (
-            config.formal_minimum_metal_oscillator_strength
-            if config.structure_minimum_metal_oscillator_strength is None
-            else config.structure_minimum_metal_oscillator_strength
-        )
-    else:
-        structure_minimum_oscillator_strength = (
-            0.01
-            if config.structure_minimum_metal_oscillator_strength is None
-            else config.structure_minimum_metal_oscillator_strength
-        )
+    # Flux conservation needs the structure to absorb the synthesis line
+    # list; opacity sampling keeps its cost nearly independent of it.
+    if config.structure_maximum_metal_lines is None:
+        structure_lines = formal_lines
+        line_policy = "opacity sampling: synthesis line list"
     allard = None
     if config.lyman_profile_source == "allard":
         allard = _allard_lyman_profiles_for_effective_temperature(
@@ -226,11 +200,6 @@ def compute_daz(
     if molecules:
         data.require(data.h2_h2_cia)
         cia = read_borysow_h2_h2_cia_table(data.h2_h2_cia)
-    h3 = (
-        None
-        if config.h3plus_partition_model == "none"
-        else config.h3plus_partition_model
-    )
     broadening = _da_self_broadening_prescription(
         config.effective_temperature, config.balmer_self_broadening_prescription
     )
@@ -258,14 +227,11 @@ def compute_daz(
             correlated_microfields=True,
             include_molecules=molecules,
             include_negative_hydrogen=molecules,
-            trihydrogen_ion_partition_model=h3,
+            trihydrogen_ion_partition_model=_H3PLUS_PARTITION_MODEL,
             mixing_length_alpha=config.mixing_length_alpha,
-            structure_solver=config.atmosphere_solver,
-            minimum_metal_oscillator_strength=structure_minimum_oscillator_strength,
+            minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
             maximum_metal_lines=structure_lines,
-            metal_line_opacity_sampling_resolution=(
-                config.structure_opacity_sampling_resolution
-            ),
+            metal_line_opacity_sampling_resolution=_STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
             depth_concentration=config.photospheric_depth_concentration,
             initial_temperature=None if atmosphere is None else atmosphere.temperature,
             initial_column_mass=None if atmosphere is None else atmosphere.column_mass,
@@ -284,7 +250,7 @@ def compute_daz(
         ),
         include_molecular_absorption=molecules,
         include_dense_helium_metal_ionization=False,
-        minimum_metal_oscillator_strength=config.formal_minimum_metal_oscillator_strength,
+        minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
         maximum_metal_lines=formal_lines,
         transfer_depth_refinement=config.synthesis_transfer_depth_refinement,
         ca_ii_resonance_collision_strengths=(
@@ -303,26 +269,26 @@ def compute_daz(
             abundance_reference="hydrogen",
             atomic_lines=getattr(atomic, "source", "Stout"),
             strong_line_atomic_data=config.strong_line_atomic_data,
-            kurucz_electron_stark=config.kurucz_electron_stark,
+            kurucz_electron_stark=True,
             h2_lyman_werner_lines=config.h2_lyman_werner_lines,
-            si_ii_kurucz_transitions=config.si_ii_kurucz_transitions,
+            si_ii_kurucz_transitions=True,
             metal_neutral_hydrogen_broadening=config.metal_neutral_h_broadening,
             maximum_metal_charge=config.maximum_metal_charge,
             metal_electron_feedback=True,
             metal_opacity_in_structure=True,
             structure_maximum_metal_lines=structure_lines,
             structure_metal_line_budget_policy=line_policy,
-            structure_minimum_metal_oscillator_strength=structure_minimum_oscillator_strength,
-            structure_opacity_sampling_resolution=config.structure_opacity_sampling_resolution,
+            structure_minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
+            structure_opacity_sampling_resolution=_STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
             photospheric_depth_concentration=config.photospheric_depth_concentration,
             synthesis_transfer_depth_refinement=config.synthesis_transfer_depth_refinement,
             summed_metal_number_fraction=metal_fraction,
             metal_thermodynamic_derivatives="trace-metal approximation: Q-MHD hydrogen derivatives",
             molecular_equilibrium=molecules,
-            h3plus_partition_model=h3,
+            h3plus_partition_model=_H3PLUS_PARTITION_MODEL,
             balmer_self_broadening=broadening,
             dense_helium_ionization=False,
-            atmosphere_solver=config.atmosphere_solver,
+            atmosphere_solver="adaptive-newton",
             ca_ii_resonance_source=config.ca_ii_resonance_source,
             ca_ii_resonance_source_applied_in_structure=False,
             atmosphere_mode=(

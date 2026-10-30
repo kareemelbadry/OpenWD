@@ -11,7 +11,7 @@ def direct_result(result,n_angle,*,mass_conservative=False):
     atmosphere=result.atmosphere
     if 'experimental_dense_helium' not in atmosphere.metadata:
         raise ValueError('direct research synthesis requires explicitly experimental dense-helium metadata')
-    from .heminus_join_experiment import METADATA_KEY,HARD_JOIN,active_policy
+    from .heminus_join import METADATA_KEY,HARD_JOIN,active_policy
     if atmosphere.metadata.get(METADATA_KEY,HARD_JOIN)!=active_policy():
         raise ValueError('synthesis must retain the declared He-minus wavelength join')
     wave=result.spectrum.wavelength_angstrom
@@ -22,7 +22,7 @@ def direct_result(result,n_angle,*,mass_conservative=False):
     if declared!=mass_conservative:
         raise ValueError('synthesis must use the same declared mass/optical-depth transfer as the structure')
     if mass_conservative:
-        from .mass_conservative_feautrier import mass_field
+        from wd_spectra._mass_feautrier import mass_field
         source,field=mass_field(depths,planck,absorption,scattering,
             column_mass=atmosphere.column_mass,n_angle=n_angle,reconstruct_intensity=True)
         _,independent=mass_field(depths,source,absorption+scattering,np.zeros_like(scattering),

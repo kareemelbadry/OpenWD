@@ -64,8 +64,8 @@ the original source in scientific uses. See [third-party notices](../../../../TH
 - SHA-256 of the decompressed subset:
   `8dc64ef88de44a91d59ec431b631149a87afca70f7a805a5b0537db4af1e0b39`.
 
-`augment_silicon_ii_kurucz_transitions` (DZ/DAZ option
-`si_ii_kurucz_transitions`) reads it in missing-transition mode and keeps only
+`augment_silicon_ii_kurucz_transitions` (always applied by DZ/DAZ) reads it
+in missing-transition mode and keeps only
 transitions whose two levels both match existing Stout Si II levels (0.1 cm^-1
 and equal weight). Stout contains the 3s3p(3Po)3d 2Fo levels at 131677.1 and
 131918.8 cm^-1 but no transitions to them, so the 3s3p2 2D - 2Fo lines at

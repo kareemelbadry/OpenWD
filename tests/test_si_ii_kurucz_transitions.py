@@ -5,7 +5,7 @@ from wd_spectra.metals import (
     augment_silicon_ii_kurucz_transitions,
     read_stout_atomic_database,
 )
-from wd_spectra.models import DAZConfig, DZConfig, ModelData
+from wd_spectra.models import ModelData
 
 
 @pytest.fixture(scope="module")
@@ -71,8 +71,3 @@ def test_idempotent_and_no_op_without_si_ii(stout):
         ModelData.default().stout, elements=("Mg",), maximum_charge=2
     )
     assert augment_silicon_ii_kurucz_transitions(magnesium) is magnesium
-
-
-def test_option_defaults_on():
-    assert DZConfig().si_ii_kurucz_transitions is True
-    assert DAZConfig().si_ii_kurucz_transitions is True

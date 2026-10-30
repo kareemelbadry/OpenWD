@@ -10,7 +10,9 @@ import numpy as np
 from wd_spectra import D6Config, compute_d6
 from wd_spectra.d6 import _bulk_atmosphere, radiative_equilibrium_d6_atmosphere
 from wd_spectra.models.common import ModelData, numerical_resolution
-from wd_spectra.models.d6 import _atomic_inputs, _N_DEPTH, _STRUCTURE_LINES
+from wd_spectra.models.d6 import (
+    _LINE_PROFILE_EDGE_OPTICAL_DEPTH, _atomic_inputs, _N_DEPTH, _STRUCTURE_LINES,
+)
 
 STEPS = 2
 ARRAYS = ("temperature", "gas_pressure", "mass_density", "electron_density")
@@ -24,6 +26,19 @@ TRAJECTORY_RTOL = dict(temperature=2e-5, gas_pressure=1e-12,
                        mass_density=1e-4, electron_density=1e-4)
 METRIC_RTOL = 5e-3
 METRIC_ATOL = (1e-7, 1e-6, 1e-6, 1e-10)
+
+
+# Former D6Config fields that frozen manifests still record, at the values
+# the public model now fixes.
+RETIRED_CONFIG = {"linear_stark_profile": "manifold",
+                  "line_profile_edge_optical_depth": _LINE_PROFILE_EDGE_OPTICAL_DEPTH}
+
+
+def current_config(recorded):
+    """A recorded D6 configuration without its retired fields, or None if they differ."""
+    if any(recorded.get(key, value) != value for key, value in RETIRED_CONFIG.items()):
+        return None
+    return {key: value for key, value in recorded.items() if key not in RETIRED_CONFIG}
 
 
 @lru_cache(maxsize=1)
@@ -103,10 +118,9 @@ def solve_structure(column_mass, optical_depth, temperature, callback=None):
         metal_series_pseudocontinuum_elements=config.metal_series_pseudocontinuum_elements,
         topbase_photoionization_database=topbase,
         include_linear_stark_quasistatic=config.include_linear_stark_quasistatic,
-        linear_stark_profile=config.linear_stark_profile,
         microturbulent_velocity_kms=config.microturbulent_velocity_kms,
         include_oxygen_i_series_stark=config.include_oxygen_i_series_stark,
-        profile_edge_optical_depth=config.line_profile_edge_optical_depth,
+        profile_edge_optical_depth=_LINE_PROFILE_EDGE_OPTICAL_DEPTH,
         n_angle=min(resolution.n_angle, 3), mixing_length_alpha=config.mixing_length_alpha,
         initial_temperature=temperature, initial_column_mass=column_mass,
         initial_rosseland_optical_depth=optical_depth,

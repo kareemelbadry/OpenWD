@@ -1,0 +1,214 @@
+"""Dense-He pair interactions and integral-equation fluid solves.
+
+Neutral He: Young, McMahan & Ross (1981), PRB 24, 5119, Eq. 1,
+epsilon/k=10.8 K, r_m=2.9673 Angstrom, alpha=13.1 (Sec. IV).
+He--He+: Bruno et al. (2010), Phys. Plasmas 17, 112315, Eqs. 3, 6,
+Sec. II.A.2. Bonding and antibonding channels are kept SEPARATE.
+Electron insertion: Kowalski's 2006 thesis, Eqs. 164--166, Table 2.
+
+The neutral PY solve uses the compressibility route; the HNC closure uses
+its generating-functional chemical potential. Neither is claimed to
+reproduce Kowalski's published chemical potentials.
+"""
+from dataclasses import dataclass
+import numpy as np
+from scipy.fft import dst
+from scipy.optimize import brentq, root
+from scipy.special import gammainc, logsumexp
+from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
+
+EV = 1.602176634e-12
+KB_EV = BOLTZMANN / EV
+
+
+def neutral_pair_ev(radius):
+    """Young et al. exp-six potential, with its physical repulsive core.
+
+The analytic exp-six expression turns down unphysically at extremely small
+r. Its inner stationary point defines the infinite core, not a fitted radius.
+"""
+    r = np.asarray(radius, dtype=float)
+    if np.any(~np.isfinite(r)) or np.any(r <= 0):
+        raise ValueError('pair distances must be finite and positive')
+    a, rm, eps = 13.1, 2.9673, 10.8 * KB_EV
+    x = r / rm
+    inner = brentq(lambda z: a*(1-z)+7*np.log(z), .01, .8)
+    safe = np.maximum(x, inner)
+    v = eps/(a-6) * (6*np.exp(a*(1-safe)) - a/safe**6)
+    return np.where(x < inner, np.inf, v)
+
+
+def ion_pair_ev(radius):
+    """Return the two published He--He+ channels in eV (Bruno 2010).
+
+These transport fits omit the far-asymptotic polarization tail. Their use
+in dense-fluid chemistry therefore needs comparison to actual ab initio
+curves, not just a converged fluid iteration.
+"""
+    r = np.asarray(radius, dtype=float)
+    if np.any(~np.isfinite(r)) or np.any(r <= 0):
+        raise ValueError('pair distances must be finite and positive')
+    x = r/1.081-1
+    e = np.exp(-2.23*x)
+    bonding = 2.4730*(e**2-2*e+.2205*x**3*(1+4.3890*x)*e**2)
+    antibonding = 359.*np.exp(-4.184*r+.649*r**2-.08528*r**3)
+    return np.stack((bonding, antibonding))
+
+
+def bound_neighbour_count(grid, temperature, number_density, gamma):
+    """Mean number of He bound (E < 0) to a trace He+ in its bonding channel.
+
+    The He+ solute is solved with the equal-weight Mayer average of both
+    channels, so bonding-channel pairs carry weight 1/2 and HNC correlation
+    exp(gamma). Of the classical pair states at separation r, the fraction with
+    relative energy below zero is P(3/2, -V/kT) (regularized lower incomplete
+    gamma). At low density this tends to n/K(He2+): the classical bound volume
+    equals the Chang-level association constant to 3-5% above 3000 K.
+    """
+    bonding = ion_pair_ev(grid.r)[0]
+    depth = -bonding/(KB_EV*temperature)
+    bound = .5*np.exp(depth+gamma)*np.where(depth > 0, gammainc(1.5, np.maximum(depth, 0.)), 0.)
+    return number_density*grid.zero(bound)
+
+
+def electron_insertion_ev(temperature, density):
+    """The thesis fit as PRINTED, with no silent smoothing or extrapolation.
+
+T in K, rho in g/cm3. The printed join at rho=.05 is continuous but not
+C1; this is deliberately not patched with a guessed coefficient. This
+function alone is NOT a nonideal ionization treatment. The linear branch
+is Kowalski's fit to DFT electron energies at 0.5-4 g/cm3 (thesis Fig. 31),
+so densities up to 4 g/cm3 lie inside the fitted data. Its T dependence is
+weak and the thesis shows it down to 10 K against 10-100 K data (Fig. 32).
+"""
+    t, rho = np.broadcast_arrays(np.asarray(temperature, float)*KB_EV,
+                                np.asarray(density, float))
+    if (np.any(~np.isfinite(t)) or np.any(~np.isfinite(rho))
+            or np.any(t < 1e-3) or np.any(t > 1.5)
+            or np.any(rho < 0) or np.any(rho > 4)):
+        raise ValueError('electron fit outside 0.001--1.5 eV, 0--4 g/cm3 research domain')
+    polynomial = np.polynomial.polynomial.polyval(t,
+        [1.0313, 2.99678, 10.3747, 2.99498, -1.27844, -3.10191])
+    alpha = 8.60384*np.exp(-4.83886*t+1.97586*t*t)*polynomial
+    rho0, cl = .05, 4.5382
+    return np.where(rho < rho0, 10*alpha*rho**2+cl*rho,
+                    alpha*rho+10*alpha*rho0**2+(cl-alpha)*rho0)
+
+
+@dataclass
+class RadialGrid:
+    """Spherical Fourier transforms: k in A^-1, r in A, no r=0 division."""
+    points: int = 1023
+    extent: float = 24.
+
+    def __post_init__(self):
+        if self.points < 31 or self.extent <= 0:
+            raise ValueError('invalid radial grid')
+        self.dr = self.extent/(self.points+1)
+        self.dk = np.pi/self.extent
+        self.r = np.arange(1, self.points+1)*self.dr
+        self.k = np.arange(1, self.points+1)*self.dk
+
+    def forward(self, f):
+        return 2*np.pi*self.dr*dst(self.r*f, type=1, axis=-1)/self.k
+
+    def inverse(self, f):
+        return self.dk/(4*np.pi**2)*dst(self.k*f, type=1, axis=-1)/self.r
+
+    def zero(self, f):
+        # Integrand vanishes at both missing endpoints for compact f.
+        return 4*np.pi*self.dr*np.sum(self.r**2*f, axis=-1)
+
+
+@dataclass
+class FluidState:
+    gamma: np.ndarray
+    direct: np.ndarray
+    structure: np.ndarray
+    g: np.ndarray
+    residual: float
+    evaluations: int
+
+
+def solve_neutral_py(grid, temperature, number_density, initial=None):
+    """Solve neutral OZ/PY, accepting only its actual fixed-point residual.
+
+Number density here is atoms/A^3, NOT atoms/cm^3.
+"""
+    if temperature <= 0 or not np.isfinite(temperature) or number_density < 0:
+        raise ValueError('invalid fluid state')
+    f = np.expm1(-neutral_pair_ev(grid.r)/(KB_EV*temperature))
+
+    def fields(gamma):
+        c = f*(1+gamma)
+        ck = grid.forward(c)
+        s = 1/(1-number_density*ck)
+        return c, s, grid.inverse((s-1)*ck)
+
+    evaluations = 0
+    def residual(gamma):
+        nonlocal evaluations
+        evaluations += 1
+        return gamma-fields(gamma)[2]
+
+    guess = np.zeros(grid.points) if initial is None else np.asarray(initial)
+    result = root(residual, guess, method='krylov',
+                  options={'fatol': 2e-10, 'maxiter': 300})
+    c, s, computed = fields(result.x)
+    error = float(np.max(abs(result.x-computed)))
+    # Compute g from closure, avoiding cancellation in the excluded core.
+    g = (1+f)*(1+result.x)
+    s0 = 1/(1-number_density*grid.zero(c))
+    if (not np.isfinite(error) or error > 2e-8 or np.min(g) < -2e-8
+            or np.min(s) <= 0 or s0 <= 0):
+        raise RuntimeError(f'neutral PY failed: rho={number_density*HELIUM_MASS*1e24:g}, '
+                           f'T={temperature:g}, residual={error:g}, {result.message}')
+    return FluidState(result.x, c, s, g, error, evaluations)
+
+
+def solve_hnc(grid, temperature, number_density, potential, *, solvent=None, initial=None):
+    """Explicit alternative fluid approximation, with positive g by construction.
+
+    HNC is a standard integral-equation closure, not a rescue for a failed
+    atmosphere. Both bulk and trace calculations must request it explicitly.
+    The returned chemical potential uses its generating free-energy functional.
+    """
+    if (not np.isfinite(temperature) or temperature <= 0
+            or not np.isfinite(number_density) or number_density < 0):
+        raise ValueError('invalid HNC thermodynamic state')
+    potential = np.asarray(potential, float)
+    if (potential.ndim not in (1, 2) or potential.shape[-1] != grid.points
+            or np.any(np.isnan(potential)) or np.any(np.isneginf(potential))):
+        raise ValueError('invalid HNC pair potential')
+    if initial is not None and (np.shape(initial) != (grid.points,)
+                                or np.any(~np.isfinite(initial))):
+        raise ValueError('invalid HNC initial correlation')
+    log_boltzmann = -potential/(KB_EV*temperature)
+    if log_boltzmann.ndim == 2:
+        log_boltzmann = logsumexp(log_boltzmann, axis=0)-np.log(len(log_boltzmann))
+    evaluations = 0
+
+    def fields(gamma):
+        h = np.expm1(log_boltzmann+gamma)
+        c = h-gamma
+        ck = grid.forward(c)
+        s = 1/(1-number_density*ck) if solvent is None else solvent.structure
+        return h, c, s, grid.inverse((s-1)*ck)
+
+    def residual(gamma):
+        nonlocal evaluations
+        evaluations += 1
+        return gamma-fields(gamma)[-1]
+
+    result = root(residual, np.zeros(grid.points) if initial is None else initial,
+                  method='krylov', options={'fatol': 2e-10, 'maxiter': 300})
+    h, c, s, computed = fields(result.x)
+    error = float(np.max(abs(result.x-computed)))
+    s0 = 1/(1-number_density*grid.zero(c)) if solvent is None else 1.
+    if (not np.isfinite(error) or error > 2e-8 or np.any(~np.isfinite(h))
+            or np.any(~np.isfinite(s)) or np.min(s) <= 0 or s0 <= 0):
+        raise RuntimeError(f'HNC failed: T={temperature:g}, n={number_density:g}, '
+                           f'residual={error:g}, {result.message}')
+    mu = number_density*KB_EV*temperature*grid.zero(.5*h*result.x-c)
+    state = FluidState(result.x, c, s, np.exp(log_boltzmann+result.x), error, evaluations)
+    return state, mu

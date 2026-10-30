@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     )
     from .molecules import H2H2CollisionInducedAbsorptionTable
     from .hydrogen_self import BarklemSelfBroadeningTable
-    from .jackson_lyman import JacksonLymanProfileTable
     from .quasimolecular import AllardUnifiedLymanTable
 
 
@@ -370,7 +369,6 @@ def synthesize_balmer_spectrum(
     include_series_pseudocontinuum: bool = False,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
@@ -532,7 +530,6 @@ def synthesize_balmer_spectrum(
                 atmosphere,
                 wavelength,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
             )
             if include_neutral_lyman_alpha_wing:
                 line_opacity += (
@@ -541,13 +538,7 @@ def synthesize_balmer_spectrum(
                         wavelength,
                         allard_table=(
                             unified_allard_table.lines.get((1, 2))
-                            if (
-                                unified_allard_table is not None
-                                and not (
-                                    jackson_lyman_table is not None
-                                    and (1, 2) in jackson_lyman_table.lines
-                                )
-                            )
+                            if unified_allard_table is not None
                             else None
                         ),
                     )
@@ -741,7 +732,6 @@ def synthesize_balmer_spectrum(
                 include_series_pseudocontinuum=include_series_pseudocontinuum,
                 include_neutral_lyman_alpha_wing=include_neutral_lyman_alpha_wing,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
                 n_angle=n_angle,
                 backend=backend,
                 _return_radiation_field=True,
@@ -933,12 +923,6 @@ def synthesize_balmer_spectrum(
                 if include_lyman and unified_allard_table is not None
                 else "disabled"
             ),
-            "jackson_lyman_profiles": (
-                "Xenomorph electron+ion Stark with quasi-H2+; "
-                "depth-interpolated in log(T), log(ne); Doppler-convolved"
-                if include_lyman and jackson_lyman_table is not None
-                else "disabled"
-            ),
             "neutral_lyman_alpha_wing": (
                 "Rohrmann-Althaus-Kepler 2011 H-H b-a/X-B plus H-H2 E1-E3/E1-E4 at 6000 K"
                 if (
@@ -1018,7 +1002,6 @@ def synthesize_hydrogen_spectrum(
     include_series_pseudocontinuum: bool = False,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
@@ -1073,7 +1056,6 @@ def synthesize_hydrogen_spectrum(
         include_series_pseudocontinuum=include_series_pseudocontinuum,
         include_neutral_lyman_alpha_wing=include_neutral_lyman_alpha_wing,
         unified_allard_table=unified_allard_table,
-        jackson_lyman_table=jackson_lyman_table,
         metal_database=metal_database,
         metal_abundances=metal_abundances,
         metal_photoionization_database=metal_photoionization_database,
@@ -1117,7 +1099,6 @@ def synthesize_helium_spectrum(
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
-    neutral_broadening: Literal["none", "unsold", "montreal"] = "unsold",
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     log_hydrogen_abundance: float | None = None,
@@ -1143,7 +1124,6 @@ def synthesize_helium_spectrum(
     ca_ii_helium_impact_scale: float = 1.0,
     ca_ii_resonance_scattering_fraction: float = 0.0,
     ca_ii_resonance_collision_strengths: str | None = None,
-    ca_ii_resonance_redistribution: Literal["complete", "coherent"] = "complete",
     c2_cross_section_table: object | None = None,
     include_dense_helium_metal_ionization: bool = True,
     metal_occupation_probability_partitions: bool = False,
@@ -1262,7 +1242,6 @@ def synthesize_helium_spectrum(
         absorption += helium_i_line_mass_absorption_coefficient(
             atmosphere, wavelength, stark_table,
             include_occupation_probability=include_occupation_probability,
-            neutral_broadening=neutral_broadening,
         )
         if include_uv_resonance_lines:
             absorption += helium_i_resonance_line_mass_absorption_coefficient(
@@ -1356,8 +1335,6 @@ def synthesize_helium_spectrum(
                 ca_ii_resonance_collision_strengths,
             )
             ca_ii_crd_atmosphere = atmosphere
-            if ca_ii_resonance_redistribution not in ("complete", "coherent"):
-                raise ValueError("ca_ii_resonance_redistribution must be 'complete' or 'coherent'")
 
             def ca_ii_line_extinction(grid):
                 def extinction(keys, profile_table):
@@ -1390,17 +1367,6 @@ def synthesize_helium_spectrum(
                 total = sum(ordinary.values())
                 share = np.divide(1.0, total, out=np.zeros_like(total), where=total > 0)
                 return {key: joint * value * share for key, value in ordinary.items()}
-
-            if ca_ii_resonance_redistribution == "coherent":
-                # Monochromatic coherent scattering with the same
-                # probabilities (the pre-2026-09-30 treatment), for controls.
-                for key, extinction in ca_ii_line_extinction(wavelength).items():
-                    metal_line_scattering += (
-                        ca_ii_probabilities[key].probability[np.newaxis, :]
-                        * extinction
-                    )
-                absorption -= metal_line_scattering
-                ca_ii_probabilities = None
         elif ca_ii_resonance_scattering_fraction > 0.0 and calcium_lines_enabled:
             ca_ii = metal_database.ions.get(("Ca", 1))
             if ca_ii is not None:
@@ -1714,15 +1680,8 @@ def synthesize_helium_spectrum(
                 and unified_allard_table is not None
             ),
             "hydrogen_allard_stark_weight": float(allard_stark_weight),
-            "neutral_helium_line_broadening": neutral_broadening,
-            "neutral_helium_line_broadening_provenance": (
-                "max(Unsold, Deridder-van-Rensbergen-1976); "
-                "singlets max with Ali-Griem resonance; 4121/4713 Unsold-only"
-                if neutral_broadening == "montreal"
-                else "Unsold-1955"
-                if neutral_broadening == "unsold"
-                else "disabled"
-            ),
+            "neutral_helium_line_broadening": "unsold",
+            "neutral_helium_line_broadening_provenance": "Unsold-1955",
             "n_angle": int(n_angle),
         },
     )

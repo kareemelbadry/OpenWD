@@ -9,9 +9,7 @@ LTE reference, so a Planck field recovers the LTE populations.
 
 from __future__ import annotations
 
-from bisect import bisect_right
 from dataclasses import dataclass, field, replace
-from functools import lru_cache
 from itertools import combinations
 import math
 from pathlib import Path
@@ -41,8 +39,6 @@ from ._hydrogenic_stark import (
     COMPOSITE_POINTS,
     composite_static_profile,
     composite_static_profile_value,
-    formula4_extreme_shift,
-    hydrogenic_stark_pattern,
 )
 from .metals import (
     LINE_WINDOW_MAX_FRACTION,
@@ -184,94 +180,6 @@ def _holtsmark_microfield_distribution(beta: ArrayLike) -> FloatArray:
     return np.maximum(result.reshape(value.shape), 0.0)
 
 
-@lru_cache(maxsize=1)
-def _ion_dynamic_holtsmark_table() -> tuple[FloatArray, FloatArray, FloatArray]:
-    r"""Tabulate a moving-ion extension of the static Holtsmark profile.
-
-    The formula-4 Holtsmark function is a distribution of positive
-    microfield magnitudes.  Its symmetric line profile is therefore
-    ``U(abs(beta))/2``.  A finite microfield correlation time replaces the
-    static delta response of each field realization by an impact-limit
-    Lorentzian.  Convolving the *static ion term alone* provides the desired
-    unified behavior: ion motion fills the otherwise empty line center,
-    while the Holtsmark wings are recovered outside the dynamic core.
-
-    The tabulation is lazy because ordinary DA/DB/DZ calculations never use
-    this hot-ion correction.  A wide periodic grid makes FFT wraparound
-    negligible over the beta<=30 support used by the TMAP approximation.
-    """
-
-    full_beta = np.linspace(-160.0, 160.0, 65_537, dtype=np.float64)
-    spacing = float(full_beta[1] - full_beta[0])
-    static_profile = 0.5 * _holtsmark_microfield_distribution(
-        np.abs(full_beta)
-    )
-    static_profile /= trapezoid(static_profile, full_beta)
-    static_transform = np.fft.rfft(np.fft.ifftshift(static_profile))
-    dynamic_hwhm = np.geomspace(3.0e-3, 12.0, 37)
-    nonnegative = full_beta >= 0.0
-    table = np.empty((dynamic_hwhm.size, np.count_nonzero(nonnegative)))
-    for index, hwhm in enumerate(dynamic_hwhm):
-        lorentz = hwhm / (PI * (full_beta**2 + hwhm**2))
-        lorentz /= trapezoid(lorentz, full_beta)
-        convolved = np.fft.fftshift(np.fft.irfft(
-            static_transform * np.fft.rfft(np.fft.ifftshift(lorentz)),
-            n=full_beta.size,
-        )) * spacing
-        convolved = np.maximum(convolved, 0.0)
-        convolved /= trapezoid(convolved, full_beta)
-        table[index] = convolved[nonnegative]
-    return (
-        np.ascontiguousarray(full_beta[nonnegative]),
-        np.ascontiguousarray(dynamic_hwhm),
-        np.ascontiguousarray(table),
-    )
-
-
-def _ion_dynamic_holtsmark_distribution(
-    beta: ArrayLike,
-    lorentz_hwhm_beta: float,
-) -> FloatArray:
-    """Return the symmetric Holtsmark profile with a moving-ion core.
-
-    ``lorentz_hwhm_beta`` is the microfield decorrelation HWHM divided by
-    the transition's static Stark frequency scale.  The zero-width limit is
-    exactly the normalized two-sided static profile.
-    """
-
-    value = np.asarray(beta, dtype=np.float64)
-    hwhm = float(lorentz_hwhm_beta)
-    if np.any(~np.isfinite(value)) or np.any(value < 0.0):
-        raise ValueError("beta must be finite and non-negative")
-    if not np.isfinite(hwhm) or hwhm < 0.0:
-        raise ValueError("lorentz_hwhm_beta must be finite and non-negative")
-    if hwhm == 0.0:
-        return 0.5 * _holtsmark_microfield_distribution(value)
-    beta_grid, hwhm_grid, table = _ion_dynamic_holtsmark_table()
-    if hwhm <= hwhm_grid[0]:
-        fraction = hwhm / hwhm_grid[0]
-        static = 0.5 * _holtsmark_microfield_distribution(value)
-        first = np.interp(
-            value, beta_grid, table[0], left=table[0, 0], right=0.0
-        )
-        return (1.0 - fraction) * static + fraction * first
-    upper = int(np.searchsorted(hwhm_grid, hwhm, side="right"))
-    upper = min(upper, hwhm_grid.size - 1)
-    lower = upper - 1
-    log_fraction = (
-        (np.log(hwhm) - np.log(hwhm_grid[lower]))
-        / (np.log(hwhm_grid[upper]) - np.log(hwhm_grid[lower]))
-        if upper != lower else 0.0
-    )
-    lower_profile = np.interp(
-        value, beta_grid, table[lower], left=table[lower, 0], right=0.0
-    )
-    upper_profile = np.interp(
-        value, beta_grid, table[upper], left=table[upper, 0], right=0.0
-    )
-    return (1.0 - log_fraction) * lower_profile + log_fraction * upper_profile
-
-
 def _hydrogenic_stark_pattern_key(
     transition: AtomicTransition,
     enabled: bool,
@@ -296,7 +204,6 @@ def _hydrogenic_stark_pattern_key(
 
 def _static_stark_profile(
     beta: FloatArray,
-    lorentz_hwhm_beta: float,
     pattern: tuple[int, int] | None,
 ) -> FloatArray:
     """Two-sided static profile: formula-4 Holtsmark or hydrogenic components.
@@ -307,23 +214,11 @@ def _static_stark_profile(
     """
 
     if pattern is None:
-        return _ion_dynamic_holtsmark_distribution(beta, lorentz_hwhm_beta)
+        return 0.5 * _holtsmark_microfield_distribution(beta)
     lower_n, upper_n = pattern
-    if float(lorentz_hwhm_beta) == 0.0:
-        return 0.5 * composite_static_profile_value(
-            composite_static_profile(lower_n, upper_n), beta
-        )
-    shifts, strengths = hydrogenic_stark_pattern(lower_n, upper_n)
-    extreme = formula4_extreme_shift(lower_n, upper_n)
-    value = np.zeros_like(np.asarray(beta, dtype=np.float64))
-    for shift, strength in zip(shifts, strengths):
-        if shift <= 0.0:
-            continue
-        ratio = shift / extreme
-        value += strength / ratio * _ion_dynamic_holtsmark_distribution(
-            np.asarray(beta) / ratio, float(lorentz_hwhm_beta) / ratio
-        )
-    return value
+    return 0.5 * composite_static_profile_value(
+        composite_static_profile(lower_n, upper_n), beta
+    )
 
 
 def _static_pattern_arrays(
@@ -369,7 +264,6 @@ def _accumulate_metal_line_profiles_python(
     minimum_half_window: FloatArray,
     static_frequency_scale: FloatArray,
     static_amplitude: FloatArray,
-    static_ion_motion_hwhm_beta: FloatArray,
     population_scale: FloatArray,
     lower_departure: FloatArray,
     upper_departure: FloatArray,
@@ -433,7 +327,6 @@ def _accumulate_metal_line_profiles_python(
                         static_amplitude[line_index, depth]
                         * _static_stark_profile(
                             beta[inside_static_support],
-                            static_ion_motion_hwhm_beta[line_index, depth],
                             None if static_pattern is None
                             else static_pattern[line_index],
                         )
@@ -481,7 +374,6 @@ def _accumulate_metal_line_profiles(
     minimum_half_window: FloatArray,
     static_frequency_scale: FloatArray,
     static_amplitude: FloatArray,
-    static_ion_motion_hwhm_beta: FloatArray,
     population_scale: FloatArray,
     lower_departure: FloatArray,
     upper_departure: FloatArray,
@@ -515,7 +407,7 @@ def _accumulate_metal_line_profiles(
 
     compiled = (
         None
-        if _rt is None or np.any(static_ion_motion_hwhm_beta > 0.0)
+        if _rt is None
         else getattr(_rt, "accumulate_metal_line_profiles", None)
     )
     if compiled is not None and depth_major and not _METAL_PROFILE_DEPTH_MAJOR:
@@ -526,7 +418,7 @@ def _accumulate_metal_line_profiles(
         _accumulate_metal_line_profiles(
             wavelength, planck, center, integrated_strength, gaussian_sigma,
             lorentz_hwhm, minimum_half_window, static_frequency_scale,
-            static_amplitude, static_ion_motion_hwhm_beta, population_scale,
+            static_amplitude, population_scale,
             lower_departure, upper_departure, exponential,
             wave_absorption, wave_emissivity, retain_inverted_emissivity,
             static_pattern=static_pattern,
@@ -547,7 +439,6 @@ def _accumulate_metal_line_profiles(
             minimum_half_window,
             static_frequency_scale,
             static_amplitude,
-            static_ion_motion_hwhm_beta,
             population_scale,
             lower_departure,
             upper_departure,
@@ -722,41 +613,6 @@ def _profile_weighted_line_means_python(
     return mean_intensity, mean_lambda
 
 
-def _profile_weighted_line_means(
-    wavelength: FloatArray,
-    intensity: FloatArray,
-    lambda_diagonal: FloatArray | None,
-    center: FloatArray,
-    gaussian_sigma: FloatArray,
-    lorentz_hwhm: FloatArray,
-    *,
-    integrated_strength: FloatArray | None = None,
-    static_frequency_scale: FloatArray | None = None,
-    static_amplitude: FloatArray | None = None,
-    static_ion_motion_hwhm_beta: FloatArray | None = None,
-    static_pattern: Sequence[tuple[int, int] | None] | None = None,
-) -> tuple[FloatArray, FloatArray]:
-    """Compute radiative-rate means with the formal-solution profile.
-
-    The compiled kernel supplies the ordinary impact/Voigt means.  TMAD
-    formula-4 lines use the pointwise maximum of that impact cross-section
-    and a quasi-static linear-Stark cross-section.  Override only those few
-    components in Python so their statistical-equilibrium radiative rates
-    and final formal solution use the same profile definition.
-    """
-
-    fields = (intensity,) if lambda_diagonal is None else (intensity, lambda_diagonal)
-    means = _profile_weighted_line_field_means(
-        wavelength, fields, center, gaussian_sigma, lorentz_hwhm,
-        integrated_strength=integrated_strength,
-        static_frequency_scale=static_frequency_scale,
-        static_amplitude=static_amplitude,
-        static_ion_motion_hwhm_beta=static_ion_motion_hwhm_beta,
-        static_pattern=static_pattern,
-    )
-    return means[0], (np.zeros_like(means[0]) if lambda_diagonal is None else means[1])
-
-
 def _profile_weighted_line_field_means(
     wavelength: FloatArray,
     fields: Sequence[FloatArray],
@@ -768,7 +624,6 @@ def _profile_weighted_line_field_means(
     integrated_strength: FloatArray | None = None,
     static_frequency_scale: FloatArray | None = None,
     static_amplitude: FloatArray | None = None,
-    static_ion_motion_hwhm_beta: FloatArray | None = None,
     static_pattern: Sequence[tuple[int, int] | None] | None = None,
 ) -> list[FloatArray]:
     """Profile means of several (wavelength, depth) fields in one pass.
@@ -831,17 +686,11 @@ def _profile_weighted_line_field_means(
     strength = np.asarray(integrated_strength, dtype=np.float64)
     field_scale = np.asarray(static_frequency_scale, dtype=np.float64)
     amplitude = np.asarray(static_amplitude, dtype=np.float64)
-    ion_motion_hwhm = (
-        np.zeros_like(field_scale)
-        if static_ion_motion_hwhm_beta is None
-        else np.asarray(static_ion_motion_hwhm_beta, dtype=np.float64)
-    )
     if strength.shape != center.shape:
         raise ValueError("integrated_strength must have one value per line")
     if (
         field_scale.shape != gaussian_sigma.shape
         or amplitude.shape != gaussian_sigma.shape
-        or ion_motion_hwhm.shape != gaussian_sigma.shape
     ):
         raise ValueError("static profile arrays must have shape (line, depth)")
 
@@ -892,7 +741,7 @@ def _profile_weighted_line_field_means(
             static_cross_section[inside] = (
                 local_amplitude
                 * _static_stark_profile(
-                    beta[inside], ion_motion_hwhm[line_index, depth],
+                    beta[inside],
                     None if static_pattern is None
                     else static_pattern[line_index],
                 )
@@ -1079,7 +928,6 @@ def _impact_profile_damping_rate(
     include_electron_stark: bool = True,
     element: str | None = None,
     charge: int | None = None,
-    tabulated_electron_stark_width_scale: float = 1.0,
     include_semiclassical_ovi_stark_widths: bool = False,
 ) -> float:
     """Return the Lorentz damping rate prescribed by a TMAD profile flag."""
@@ -1102,13 +950,6 @@ def _impact_profile_damping_rate(
         )
     )
     if tabulated_fwhm is not None:
-        if not np.isfinite(tabulated_electron_stark_width_scale) or (
-            tabulated_electron_stark_width_scale <= 0.0
-        ):
-            raise ValueError(
-                "tabulated_electron_stark_width_scale must be finite and positive"
-            )
-        tabulated_fwhm *= tabulated_electron_stark_width_scale
         center_cm = transition.wavelength_vacuum_angstrom * 1.0e-8
         electron_rate = (
             tabulated_fwhm
@@ -1162,107 +1003,6 @@ def _is_ovi_high_series_formula4(
         and parameters[4] >= 5.0
         and abs(parameters[5] - parameters[4] - 1.0) < 0.25
     )
-
-
-
-def _static_linear_stark_scale(
-    scales: Mapping[tuple, float] | None,
-    element: str,
-    charge: int,
-    lower_n: float,
-    upper_n: float,
-) -> float:
-    """Frequency scale of TMAP's formula-4 quasi-static wing for one line.
-
-    ``scales`` is keyed by ``(element, charge, lower_n, upper_n)`` or, for a
-    whole ion, ``(element, charge)``; the transition key takes precedence.
-    A scale of 0 removes the quasi-static wing, leaving the impact profile
-    (TMAP's behaviour when an ion's lines use tabulated Stark widths, e.g.
-    the LINE1 ``STARK OVI`` option).
-    """
-
-    if scales is None:
-        return 1.0
-    scale = scales.get(
-        (element, int(charge), int(round(lower_n)), int(round(upper_n))),
-        scales.get((element, int(charge)), 1.0),
-    )
-    scale = float(scale)
-    if not np.isfinite(scale) or scale < 0.0:
-        raise ValueError(
-            "static linear-Stark frequency scales must be finite and nonnegative"
-        )
-    return scale
-
-
-def _ion_microfield_motion_rate(
-    atmosphere: Atmosphere,
-    lte_state: MetalLTEState,
-    radiator_atomic_mass_u: float,
-) -> FloatArray:
-    """Return the inverse ion-microfield correlation time ``v/R0``.
-
-    A charged perturber changes the local microfield on approximately its
-    ion-sphere crossing time.  The velocity is averaged with the same
-    ``Z**(3/2) n_i`` weights that define TMAP's Holtsmark field.  The rate is
-    converted to a Lorentz HWHM only for the quasi-static ion profile; it is
-    not added to the electron-impact damping constant.
-    """
-
-    atomic_mass_unit = 1.660_539_068_92e-24
-    temperature = np.asarray(atmosphere.temperature, dtype=np.float64)
-    charged_density = np.zeros(atmosphere.n_depth, dtype=np.float64)
-    microfield_weight = np.zeros_like(charged_density)
-    speed_weight = np.zeros_like(charged_density)
-
-    def add_population(
-        population: FloatArray,
-        charge: int,
-        perturber_atomic_mass_u: float,
-    ) -> None:
-        if charge <= 0:
-            return
-        density = np.asarray(population, dtype=np.float64)
-        reduced_mass_u = (
-            radiator_atomic_mass_u * perturber_atomic_mass_u
-            / (radiator_atomic_mass_u + perturber_atomic_mass_u)
-        )
-        mean_relative_speed = np.sqrt(
-            8.0
-            * BOLTZMANN
-            * temperature
-            / (PI * reduced_mass_u * atomic_mass_unit)
-        )
-        weight = charge**1.5 * density
-        charged_density[:] += density
-        microfield_weight[:] += weight
-        speed_weight[:] += weight * mean_relative_speed
-
-    host_population = lte_state.host_ion_number_density
-    if host_population is not None:
-        host_mass = (
-            _HYDROGEN_ATOMIC_MASS_U
-            if lte_state.reference_species == "H"
-            else _HELIUM_ATOMIC_MASS_U
-        )
-        for charge in range(1, host_population.shape[0]):
-            add_population(host_population[charge], charge, host_mass)
-    for element, populations in lte_state.ion_number_density.items():
-        mass = ATOMIC_MASS_U.get(element)
-        if mass is None:
-            continue
-        for charge in range(1, populations.shape[0]):
-            add_population(populations[charge], charge, float(mass))
-
-    valid = (charged_density > 0.0) & (microfield_weight > 0.0)
-    result = np.zeros(atmosphere.n_depth, dtype=np.float64)
-    if np.any(valid):
-        ion_sphere_radius = (
-            3.0 / (4.0 * PI * charged_density[valid])
-        ) ** (1.0 / 3.0)
-        effective_speed = speed_weight[valid] / microfield_weight[valid]
-        result[valid] = effective_speed / ion_sphere_radius
-    return np.ascontiguousarray(result)
 
 
 def _tlusty_van_regemorter_gbar(u: float, minimum: float = 0.25) -> float:
@@ -2255,139 +1995,6 @@ def read_norad_oxygen_vi_photoionization_data(
     )
 
 
-def read_tlusty_forbidden_collision_strengths(
-    path: str | Path,
-    atomic_database: AtomicDatabase,
-    element: str,
-    charge: int,
-    *,
-    threshold_relative_tolerance: float = 0.02,
-) -> Mapping[
-    tuple[str, int, int, int], ConstantEffectiveCollisionStrength
-]:
-    """Map TLUSTY ``ICOL=4`` collision-only links onto a TMAD term atom.
-
-    The public TLUSTY light-metal atoms include low forbidden links with a
-    constant effective collision strength even when no radiative transition
-    exists.  TMAD's compact RBB/CBB representation can omit those pairs.  A
-    level is matched by continuum threshold, statistical weight, and the LS
-    fields present in both labels; ambiguous matches are rejected.
-    """
-
-    source_path = Path(path)
-    lines = source_path.read_text(encoding="ascii").splitlines()
-    try:
-        level_start = next(
-            index for index, line in enumerate(lines)
-            if line.startswith("****** Levels")
-        ) + 1
-        continuum_start = next(
-            index for index, line in enumerate(lines)
-            if line.startswith("****** Continuum transitions")
-        )
-        line_start = next(
-            index for index, line in enumerate(lines[continuum_start + 1 :], continuum_start + 1)
-            if "Line transitions" in line
-        ) + 1
-    except StopIteration as error:
-        raise ValueError(f"{path} is not a supported TLUSTY model atom") from error
-
-    tlusty_levels: list[tuple[float, float, str]] = []
-    for line in lines[level_start:continuum_start]:
-        fields = line.split()
-        if len(fields) < 2:
-            continue
-        try:
-            threshold = float(fields[0])
-            weight = float(fields[1])
-        except ValueError as error:
-            raise ValueError(
-                f"malformed TLUSTY level record in {path}: {line}"
-            ) from error
-        label_match = re.search(r"'([^']*)'", line)
-        tlusty_levels.append((
-            threshold,
-            weight,
-            "" if label_match is None else label_match.group(1).strip(),
-        ))
-
-    symbol = element.strip().capitalize()
-    ion = atomic_database.ions.get((symbol, int(charge)))
-    if ion is None:
-        raise ValueError(
-            f"model atom has no {symbol} ion with charge {int(charge)}"
-        )
-    ionization_frequency = (
-        float(ion.ionization_energy_ev) * EV_TO_ERG / PLANCK
-    )
-    target_threshold = np.asarray([
-        ionization_frequency - level.energy_wavenumber * LIGHT_SPEED
-        for level in ion.levels
-    ])
-
-    def matched_level(record: tuple[float, float, str]) -> int | None:
-        threshold, weight, label = record
-        relative = np.abs(target_threshold / threshold - 1.0)
-        candidates = relative <= float(threshold_relative_tolerance)
-        candidates &= np.isclose(
-            np.asarray([level.statistical_weight for level in ion.levels]),
-            weight,
-            rtol=0.0,
-            atol=1.0e-5,
-        )
-        for index, level in enumerate(ion.levels):
-            if not candidates[index]:
-                continue
-            label_match = _spectroscopic_term_labels_match(level.label, label)
-            if label_match is False:
-                candidates[index] = False
-        indices = np.flatnonzero(candidates)
-        if indices.size != 1:
-            return None
-        return int(ion.levels[int(indices[0])].index)
-
-    level_mapping = tuple(matched_level(record) for record in tlusty_levels)
-    result: dict[
-        tuple[str, int, int, int], ConstantEffectiveCollisionStrength
-    ] = {}
-    for line in lines[line_start:]:
-        fields = line.split()
-        if len(fields) != 9:
-            continue
-        try:
-            lower = int(fields[0])
-            upper = int(fields[1])
-            collision_type = int(fields[4])
-            collision_strength = float(fields[8])
-        except ValueError:
-            continue
-        if (
-            collision_type != 4
-            or collision_strength <= 0.0
-            or not (1 <= lower <= len(level_mapping))
-            or not (1 <= upper <= len(level_mapping))
-        ):
-            continue
-        mapped_lower = level_mapping[lower - 1]
-        mapped_upper = level_mapping[upper - 1]
-        if mapped_lower is None or mapped_upper is None or mapped_lower == mapped_upper:
-            continue
-        lower_index, upper_index = sorted(
-            (mapped_lower, mapped_upper),
-            key=lambda index: next(
-                level.energy_wavenumber for level in ion.levels
-                if level.index == index
-            ),
-        )
-        result[(symbol, int(charge), lower_index, upper_index)] = (
-            ConstantEffectiveCollisionStrength(
-                value=collision_strength,
-                source=f"TLUSTY ICOL=4: {source_path.name}",
-            )
-        )
-    return MappingProxyType(result)
-
-
 @dataclass(frozen=True)
 class TmadLTEBoundBoundCoupling:
     """One TMAD line connecting an explicit term to an LTE reservoir term.
@@ -2477,284 +2084,6 @@ class ConstantEffectiveCollisionStrength:
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
         return float(max(self.value, 0.0))
-
-
-@dataclass(frozen=True)
-class TabulatedElectronExcitationRateCoefficient:
-    """Temperature-dependent upward electron-excitation coefficient.
-
-    Some R-matrix publications tabulate Maxwellian rate coefficients directly
-    rather than effective collision strengths.  Retaining that representation
-    avoids a lossy or opaque conversion and lets the statistical-equilibrium
-    solver impose the inverse coefficient by detailed balance.  Positive
-    rates are interpolated logarithmically and clipped at the tabulated
-    temperature limits.
-    """
-
-    temperature_kelvin: tuple[float, ...]
-    upward_rate_coefficient_cm3_s: tuple[float, ...]
-    source: str
-
-    def __post_init__(self) -> None:
-        grid = self.temperature_kelvin
-        rate = self.upward_rate_coefficient_cm3_s
-        if (
-            len(grid) < 2
-            or len(grid) != len(rate)
-            or any(not math.isfinite(value) or value <= 0.0 for value in grid)
-            or any(not math.isfinite(value) or value <= 0.0 for value in rate)
-            or any(right <= left for left, right in zip(grid, grid[1:]))
-        ):
-            raise ValueError(
-                "tabulated excitation rates must be positive and ordered"
-            )
-
-    def upward_rate_coefficient(self, temperature: float) -> float:
-        if temperature <= 0.0:
-            raise ValueError("temperature must be positive")
-        grid = self.temperature_kelvin
-        rate = self.upward_rate_coefficient_cm3_s
-        if temperature <= grid[0]:
-            return float(rate[0])
-        if temperature >= grid[-1]:
-            return float(rate[-1])
-        lower = bisect_right(grid, temperature) - 1
-        weight = math.log(temperature / grid[lower]) / math.log(
-            grid[lower + 1] / grid[lower]
-        )
-        return float(math.exp(
-            math.log(rate[lower])
-            + weight * math.log(rate[lower + 1] / rate[lower])
-        ))
-
-
-_BARKLEM_OI_TEMPERATURE_K = (
-    1_000.0, 3_000.0, 5_000.0, 8_000.0, 12_000.0, 20_000.0, 50_000.0,
-)
-
-# Upward LS-term rate coefficients from Barklem (2007), A&A 462, 781,
-# Table 4. Terms are ordered 2p4 3P, 2p4 1D, 2p4 1S, 3s 5So, 3s 3So,
-# 3p 5P, and 3p 3P. Exact zeros in the LS calculation are omitted.
-_BARKLEM_OI_TERM_RATE_CM3_S = MappingProxyType({
-    (0, 1): (5.72e-21, 2.98e-13, 1.38e-11, 1.24e-10, 4.31e-10, 1.18e-9, 2.71e-9),
-    (0, 2): (5.13e-31, 4.28e-17, 3.07e-14, 1.34e-12, 1.10e-11, 5.84e-11, 2.35e-10),
-    (0, 3): (1.03e-55, 9.33e-25, 1.30e-18, 3.42e-15, 2.53e-13, 7.37e-12, 1.32e-10),
-    (0, 4): (3.40e-57, 3.46e-25, 7.53e-19, 2.66e-15, 2.47e-13, 9.56e-12, 3.04e-10),
-    (0, 5): (6.35e-64, 9.03e-28, 1.53e-20, 1.72e-16, 2.99e-14, 1.91e-12, 8.95e-11),
-    (0, 6): (5.48e-65, 4.89e-28, 1.26e-20, 1.88e-16, 3.96e-14, 3.00e-12, 1.77e-10),
-    (1, 2): (1.91e-20, 4.17e-13, 1.24e-11, 8.25e-11, 2.31e-10, 5.15e-10, 1.05e-9),
-    (1, 4): (3.34e-49, 6.87e-24, 6.11e-19, 3.75e-16, 1.50e-14, 3.24e-13, 5.85e-12),
-    (1, 6): (6.34e-56, 9.66e-26, 9.93e-20, 2.63e-16, 2.18e-14, 8.02e-13, 2.57e-11),
-    (2, 6): (8.85e-45, 4.53e-22, 1.41e-17, 7.98e-15, 3.30e-13, 6.05e-12, 6.50e-11),
-    (3, 4): (9.98e-10, 2.36e-8, 3.89e-8, 4.57e-8, 4.48e-8, 3.74e-8, 2.03e-8),
-    (3, 5): (1.11e-15, 6.23e-10, 1.02e-8, 4.97e-8, 1.20e-7, 2.38e-7, 4.12e-7),
-    (3, 6): (1.98e-17, 4.43e-11, 8.34e-10, 3.95e-9, 8.36e-9, 1.30e-8, 1.26e-8),
-    (4, 5): (9.91e-14, 1.65e-9, 1.09e-8, 2.86e-8, 4.38e-8, 5.25e-8, 4.02e-8),
-    (4, 6): (3.44e-15, 9.26e-10, 1.29e-8, 5.65e-8, 1.26e-7, 2.31e-7, 3.62e-7),
-    (5, 6): (2.56e-9, 3.51e-8, 5.83e-8, 6.98e-8, 6.89e-8, 5.81e-8, 3.23e-8),
-})
-
-
-def barklem_oi_electron_collision_data(
-    atomic_database: AtomicDatabase,
-) -> Mapping[
-    tuple[str, int, int, int], TabulatedElectronExcitationRateCoefficient
-]:
-    """Project Barklem's seven-term O I R-matrix rates onto fine levels.
-
-    Barklem (2007) tabulates LS-term excitation coefficients. Within each
-    nearly degenerate upper term, the total coefficient is distributed in
-    proportion to final-state statistical weight. Applying that same sum from
-    every lower fine component preserves the published term rate when the
-    lower term has a statistical population, while the solver retains exact
-    fine-level detailed balance.
-    """
-
-    ion = atomic_database.ions.get(("O", 0))
-    if ion is None:
-        raise ValueError("atomic database has no O I ion")
-    predicates = (
-        lambda label: ".2p4.(3P<" in label,
-        lambda label: ".2p4.(1D<" in label,
-        lambda label: ".2p4.(1S<" in label,
-        lambda label: ".3s.(5So<" in label,
-        lambda label: ".3s.(3So<" in label,
-        lambda label: ".3p.(5P<" in label,
-        lambda label: ".3p.(3P<" in label,
-    )
-    terms = tuple(tuple(
-        level for level in ion.levels if predicate(level.label)
-    ) for predicate in predicates)
-    expected_weights = (9.0, 5.0, 1.0, 5.0, 3.0, 15.0, 9.0)
-    term_weights = tuple(sum(
-        level.statistical_weight for level in levels
-    ) for levels in terms)
-    if any(not levels for levels in terms) or not np.allclose(
-        term_weights, expected_weights, rtol=0.0, atol=1.0e-12
-    ):
-        raise ValueError(
-            "O I fine levels do not match Barklem's seven LS terms: "
-            f"weights={term_weights!r}"
-        )
-
-    source = "Barklem (2007) A&A 462, 781, Table 4 R-matrix rates"
-    output = {}
-    for (lower_term, upper_term), term_rates in (
-        _BARKLEM_OI_TERM_RATE_CM3_S.items()
-    ):
-        upper_weight = term_weights[upper_term]
-        for lower in terms[lower_term]:
-            for upper in terms[upper_term]:
-                fine_fraction = upper.statistical_weight / upper_weight
-                output[("O", 0, lower.index, upper.index)] = (
-                    TabulatedElectronExcitationRateCoefficient(
-                        temperature_kelvin=_BARKLEM_OI_TEMPERATURE_K,
-                        upward_rate_coefficient_cm3_s=tuple(
-                            value * fine_fraction for value in term_rates
-                        ),
-                        source=source,
-                    )
-                )
-    return MappingProxyType(output)
-
-
-def read_barklem_mgi_electron_collision_data(
-    directory: str | Path,
-    atomic_database: AtomicDatabase,
-    *,
-    calculation: str = "ccc",
-) -> Mapping[
-    tuple[str, int, int, int], TabulatedElectronExcitationRateCoefficient
-]:
-    """Read Barklem et al. (2017) Mg I close-coupling collision rates.
-
-    The CDS ``J/A+A/606/A11`` delivery tabulates LS-term effective collision
-    strengths for the 25 lowest Mg I terms.  The selected CCC or BSR matrices
-    are converted to upward rate coefficients using the published term
-    energies.  Each term rate is then projected onto Stout fine levels so its
-    sum is preserved exactly for every lower fine component.  Reverse rates
-    retain exact fine-level detailed balance in the population solver.
-    """
-
-    method = calculation.strip().lower()
-    suffix_by_method = {"ccc": "c", "bsr": "b"}
-    if method not in suffix_by_method:
-        raise ValueError("calculation must be 'ccc' or 'bsr'")
-    root = Path(directory)
-    states_path = root / "states.dat"
-    states = []
-    for line in states_path.read_text(encoding="ascii").splitlines():
-        fields = line.split()
-        if not fields:
-            continue
-        if len(fields) != 4:
-            raise ValueError(f"malformed Barklem Mg I state: {line}")
-        index, label, weight, energy_ev = fields
-        states.append((int(index), label, float(weight), float(energy_ev)))
-    if len(states) < 2 or [row[0] for row in states] != list(
-        range(1, len(states) + 1)
-    ):
-        raise ValueError("Barklem Mg I states must be sequential and nonempty")
-
-    ion = atomic_database.ions.get(("Mg", 0))
-    if ion is None:
-        raise ValueError("atomic database has no Mg I ion")
-
-    terms = []
-    for _, label, expected_weight, _ in states:
-        try:
-            configuration, term = label.split("_", maxsplit=1)
-        except ValueError as error:
-            raise ValueError(f"unsupported Barklem Mg I label: {label}") from error
-        if configuration == "3s2":
-            configuration_prefix = "3s2."
-        elif configuration.startswith("3s"):
-            configuration_prefix = f"3s.{configuration[2:]}."
-        else:
-            raise ValueError(f"unsupported Barklem Mg I configuration: {label}")
-        term_prefix = f"({term[0]}{term[1]}"
-        levels = tuple(
-            level
-            for level in ion.levels
-            if (
-                level.label.startswith(configuration_prefix)
-                and term_prefix in level.label
-            )
-        )
-        actual_weight = sum(level.statistical_weight for level in levels)
-        if not levels or not np.isclose(
-            actual_weight, expected_weight, rtol=0.0, atol=1.0e-12
-        ):
-            raise ValueError(
-                f"Mg I levels do not match Barklem term {label}: "
-                f"weight={actual_weight!r}, expected={expected_weight!r}"
-            )
-        terms.append(levels)
-
-    suffix = suffix_by_method[method]
-    table_pattern = re.compile(rf"^(\d+)k_{suffix}\.dat$")
-    temperature_and_matrix = []
-    for path in root.iterdir():
-        match = table_pattern.match(path.name)
-        if match is None:
-            continue
-        matrix = np.loadtxt(path, dtype=np.float64)
-        expected_shape = (len(states), len(states))
-        if matrix.shape != expected_shape:
-            raise ValueError(
-                f"{path} has shape {matrix.shape}, expected {expected_shape}"
-            )
-        if (
-            np.any(~np.isfinite(matrix))
-            or np.any(matrix < 0.0)
-            or not np.allclose(matrix, matrix.T, rtol=0.0, atol=1.0e-12)
-        ):
-            raise ValueError(f"{path} is not a finite symmetric rate matrix")
-        temperature_and_matrix.append((float(match.group(1)), matrix))
-    temperature_and_matrix.sort(key=lambda item: item[0])
-    if len(temperature_and_matrix) < 2:
-        raise ValueError(
-            f"fewer than two Barklem Mg I {method.upper()} rate matrices"
-        )
-    temperature_grid = tuple(item[0] for item in temperature_and_matrix)
-    source = (
-        f"Barklem et al. (2017) A&A 606, A11, CDS J/A+A/606/A11 "
-        f"{method.upper()} rates"
-    )
-    output = {}
-    for lower_term in range(len(states)):
-        _, _, lower_weight, lower_energy_ev = states[lower_term]
-        for upper_term in range(lower_term + 1, len(states)):
-            _, _, _, upper_energy_ev = states[upper_term]
-            term_rates = tuple(
-                8.63e-6
-                * matrix[lower_term, upper_term]
-                / (lower_weight * math.sqrt(temperature))
-                * math.exp(
-                    -(upper_energy_ev - lower_energy_ev)
-                    * EV_TO_ERG
-                    / (BOLTZMANN * temperature)
-                )
-                for temperature, matrix in temperature_and_matrix
-            )
-            if any(rate <= 0.0 for rate in term_rates):
-                continue
-            upper_weight = sum(
-                level.statistical_weight for level in terms[upper_term]
-            )
-            for lower in terms[lower_term]:
-                for upper in terms[upper_term]:
-                    fine_fraction = upper.statistical_weight / upper_weight
-                    output[("Mg", 0, lower.index, upper.index)] = (
-                        TabulatedElectronExcitationRateCoefficient(
-                            temperature_kelvin=temperature_grid,
-                            upward_rate_coefficient_cm3_s=tuple(
-                                value * fine_fraction for value in term_rates
-                            ),
-                            source=source,
-                        )
-                    )
-    return MappingProxyType(output)
 
 
 @dataclass(frozen=True)
@@ -3397,7 +2726,6 @@ class TmadStructureModelAtom:
         tuple[int, tuple[float, ...]]
         | ChiantiTermCollisionStrength
         | ConstantEffectiveCollisionStrength
-        | TabulatedElectronExcitationRateCoefficient
         | PSM20AngularMomentumMixingCollision
         | BTMQuadrupoleAngularMomentumMixingCollision,
     ]
@@ -3516,169 +2844,6 @@ def read_chianti_term_collision_strengths(
         )
         for key, components in grouped.items()
     })
-
-
-def atomic_database_with_chianti_radiative_transitions(
-    atomic_database: AtomicDatabase,
-    path: str | Path,
-    element: str,
-    charge: int,
-) -> AtomicDatabase:
-    """Fill missing bound-bound transitions from a CHIANTI ``wgfa`` file.
-
-    CHIANTI and Stout use the same energy-ordered fine-structure indices for
-    several ions assembled from the CHIANTI level set.  Some local line-list
-    snapshots can nevertheless omit individual radiative records.  This helper only adds a line
-    when both indexed levels already exist and that endpoint pair is absent,
-    so it cannot alter the partition function or duplicate an existing line.
-    The CHIANTI ``gf`` value is converted to the absorption oscillator
-    strength by dividing by the lower-level statistical weight.
-    """
-
-    symbol = element.strip().capitalize()
-    ion_key = (symbol, int(charge))
-    if ion_key not in atomic_database.ions:
-        raise ValueError(f"atomic database has no {symbol} {charge:+d} ion")
-    ion = atomic_database.ions[ion_key]
-    level_by_index = {level.index: level for level in ion.levels}
-    existing_pairs = {
-        (transition.lower_index, transition.upper_index)
-        for transition in ion.transitions
-    }
-    additions = []
-    source_path = Path(path)
-    for raw_line in source_path.read_text(encoding="ascii").splitlines():
-        record = raw_line.strip()
-        if not record or record.startswith("%"):
-            continue
-        if record == "-1":
-            break
-        fields = record.split()
-        if len(fields) < 5:
-            continue
-        try:
-            lower_index = int(fields[0])
-            upper_index = int(fields[1])
-            wavelength = abs(float(fields[2]))
-            weighted_oscillator_strength = float(fields[3])
-            einstein_a = float(fields[4])
-        except ValueError:
-            continue
-        pair = (lower_index, upper_index)
-        if (
-            lower_index not in level_by_index
-            or upper_index not in level_by_index
-            or pair in existing_pairs
-            or wavelength <= 0.0
-            or weighted_oscillator_strength <= 0.0
-            or einstein_a <= 0.0
-        ):
-            continue
-        lower_level = level_by_index[lower_index]
-        upper_level = level_by_index[upper_index]
-        delta_wavenumber = (
-            upper_level.energy_wavenumber - lower_level.energy_wavenumber
-        )
-        if delta_wavenumber <= 0.0:
-            continue
-        implied_wavelength = 1.0e8 / delta_wavenumber
-        # Refuse to combine unrelated index conventions.  A modest allowance
-        # covers theoretical versus observed wavelengths without permitting a
-        # silently wrong level mapping.
-        if abs(implied_wavelength / wavelength - 1.0) > 0.03:
-            # Level lists assembled from the same source often share a
-            # leading block and diverge only when one database inserts extra
-            # configurations.  Retain individually verified pairs from that
-            # common block and skip later incompatible indices.
-            continue
-        additions.append(AtomicTransition(
-            lower_index=lower_index,
-            upper_index=upper_index,
-            einstein_a=einstein_a,
-            transition_type="E1",
-            wavelength_vacuum_angstrom=wavelength,
-            absorption_oscillator_strength=(
-                weighted_oscillator_strength
-                / lower_level.statistical_weight
-            ),
-        ))
-        existing_pairs.add(pair)
-    if not additions:
-        raise ValueError(
-            f"{path} adds no transitions to {symbol} {charge:+d}"
-        )
-    ions = dict(atomic_database.ions)
-    ions[ion_key] = AtomicIon(
-        element=ion.element,
-        charge=ion.charge,
-        atomic_mass_u=ion.atomic_mass_u,
-        ionization_energy_ev=ion.ionization_energy_ev,
-        levels=ion.levels,
-        transitions=tuple(sorted(
-            (*ion.transitions, *additions),
-            key=lambda transition: (
-                transition.wavelength_vacuum_angstrom,
-                transition.lower_index,
-                transition.upper_index,
-            ),
-        )),
-        source=f"{ion.source}; missing radiative lines from CHIANTI {source_path.name}",
-    )
-    return AtomicDatabase(
-        MappingProxyType(ions),
-        source=f"{atomic_database.source}; augmented with CHIANTI {source_path.name}",
-    )
-
-
-def fine_structure_collision_data_from_tmad(
-    model_atom: TmadStructureModelAtom,
-    formal_atomic_database: AtomicDatabase,
-) -> Mapping[tuple[str, int, int, int], tuple[int, tuple[float, ...]]]:
-    """Project term-level TMAD Van Regemorter data onto formal components.
-
-    The public formal atoms split an LS term into its fine-structure levels,
-    while the compact CBB record supplies one term-averaged ``gbar``.  Each
-    fine component must retain its own oscillator strength but inherit that
-    term ``gbar``.  Falling back to the generic value can under-estimate the
-    O V 3p--3d triplet collision rate by nearly a factor of three.
-
-    General fitted effective collision strengths cannot be distributed over
-    fine components without additional branching data, so formula 26 records
-    deliberately remain on the compact atom.
-    """
-
-    projected = {}
-    for compact_key, record in model_atom.collision_data.items():
-        formula, parameters = record
-        if formula != 1 or len(parameters) < 2:
-            continue
-        symbol, charge, lower_index, upper_index = compact_key
-        lower_components = set(model_atom.formal_level_mapping.get(
-            (symbol, charge, lower_index), ()
-        ))
-        upper_components = set(model_atom.formal_level_mapping.get(
-            (symbol, charge, upper_index), ()
-        ))
-        if not lower_components or not upper_components:
-            continue
-        ion = formal_atomic_database.ions[(symbol, charge)]
-        for transition in ion.transitions:
-            lower_key = (symbol, charge, transition.lower_index)
-            upper_key = (symbol, charge, transition.upper_index)
-            if lower_key in lower_components and upper_key in upper_components:
-                projected[(
-                    symbol,
-                    charge,
-                    transition.lower_index,
-                    transition.upper_index,
-                )] = (
-                    1,
-                    (
-                        transition.absorption_oscillator_strength,
-                        parameters[1],
-                    ),
-                )
-    return MappingProxyType(projected)
 
 
 def read_tmad_structure_model_atom(
@@ -5421,18 +4586,11 @@ def hot_metal_line_nlte_coefficients(
     maximum_lines: int | None = 20_000,
     include_classical_electron_stark: bool = True,
     include_static_linear_stark: bool = True,
-    static_linear_stark_frequency_scales: Mapping[
-        tuple[str, int, int, int], float
-    ] | None = None,
-    tabulated_electron_stark_width_scale: float = 1.0,
     include_semiclassical_ovi_stark_widths: bool = False,
-    include_ovi_high_series_ion_dephasing: bool = False,
     elements: tuple[str, ...] | None = None,
     transition_keys: Iterable[tuple[str, int, int, int]] | None = None,
     retain_inverted_emissivity: bool = False,
-    include_ion_dynamic_stark_core: bool = False,
     hydrogenic_linear_stark_components: bool = False,
-    extend_strong_uv_resonance_wings: bool = True,
     strong_uv_resonance_core_optical_depth: float = 1.0e3,
     line_center_opacity: dict | None = None,
     profile_block_tolerance: float = 0.0,
@@ -5463,27 +4621,11 @@ def hot_metal_line_nlte_coefficients(
     highly excited C IV/O VI lines in compact PG1159 atmospheres.  TMAD RBB
     formula 4 additionally uses TMAP's quasi-static linear-Stark wing: the
     pointwise maximum of the impact Voigt cross-section and the Holtsmark
-    microfield cross-section.  ``static_linear_stark_frequency_scales`` can
-    supply ion-dynamic corrections keyed by ``(element, charge, lower_n,
-    upper_n)`` or ``(element, charge)``; a scale of 0 removes the wing.  A
-    scale contracts the quasi-static frequency coordinate and
-    raises its amplitude by the reciprocal factor, preserving the area of
-    the pure static component.  Neutral-perturber unified profiles belong to
+    microfield cross-section.  Neutral-perturber unified profiles belong to
     the cool DZ path and are intentionally absent.
-    For O VI high-series lines, the optional ion-dephasing term adds the
-    strong-collision limit set by the local microfield correlation time to
-    the impact core.  This closes a consistency gap when the same-shell
-    heavy-ion collisions are present in the statistical-equilibrium atom:
-    those collisions redistribute the level populations and also destroy
-    line coherence.  The rate is capped by field decorrelation rather than
-    by the much larger sum of independent ``l``-mixing rates, avoiding a
-    double count of the quasi-static microfield wing.
 
     The lower/upper departure form recovers the existing LTE opacity and
-    Kirchhoff source when all departures are unity.  The optional ion-motion
-    correction convolves the quasi-static ion term with the independently
-    calculated microfield decorrelation width; it does not alter oscillator
-    strengths or add empirical damping to the electron-impact core.
+    Kirchhoff source when all departures are unity.
     """
 
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
@@ -5588,16 +4730,6 @@ def hot_metal_line_nlte_coefficients(
     )
     microfield_charge_sum += np.sqrt(2.0) * helium_electron_density
     microfield_scale = np.maximum(microfield_charge_sum, 0.0) ** (2.0 / 3.0)
-    ion_motion_rate_by_mass: dict[float, FloatArray] = {}
-
-    def ion_motion_rate(atomic_mass_u: float) -> FloatArray:
-        rate = ion_motion_rate_by_mass.get(atomic_mass_u)
-        if rate is None:
-            rate = _ion_microfield_motion_rate(
-                atmosphere, lte_state, atomic_mass_u
-            )
-            ion_motion_rate_by_mass[atomic_mass_u] = rate
-        return rate
 
     profile_batch: dict[str, list[FloatArray | float]] = {
         "center": [],
@@ -5607,7 +4739,6 @@ def hot_metal_line_nlte_coefficients(
         "minimum_half_window": [],
         "static_frequency_scale": [],
         "static_amplitude": [],
-        "static_ion_motion_hwhm_beta": [],
         "static_pattern": [],
         "population_scale": [],
         "lower_departure": [],
@@ -5628,7 +4759,6 @@ def hot_metal_line_nlte_coefficients(
             np.asarray(profile_batch["minimum_half_window"], dtype=np.float64),
             np.stack(profile_batch["static_frequency_scale"]),
             np.stack(profile_batch["static_amplitude"]),
-            np.stack(profile_batch["static_ion_motion_hwhm_beta"]),
             np.stack(profile_batch["population_scale"]),
             np.stack(profile_batch["lower_departure"]),
             np.stack(profile_batch["upper_departure"]),
@@ -5717,9 +4847,6 @@ def hot_metal_line_nlte_coefficients(
                 include_electron_stark=include_classical_electron_stark,
                 element=ion.element,
                 charge=ion.charge,
-                tabulated_electron_stark_width_scale=(
-                    tabulated_electron_stark_width_scale
-                ),
                 include_semiclassical_ovi_stark_widths=(
                     include_semiclassical_ovi_stark_widths
                 ),
@@ -5728,14 +4855,6 @@ def hot_metal_line_nlte_coefficients(
                 atmosphere.electron_density, atmosphere.temperature
             )
         ])
-        if (
-            include_ovi_high_series_ion_dephasing
-            and _is_ovi_high_series_formula4(line, ion.element, ion.charge)
-        ):
-            # A field realization loses phase memory at v/R0.  In the
-            # damping-rate convention used by the Voigt profile, an angular
-            # coherence HWHM of 1/tau corresponds to Gamma=2/tau.
-            damping_rate += 2.0 * ion_motion_rate(ion.atomic_mass_u)
         lorentz_hwhm = (
             center_cm**2 * damping_rate / (4.0 * PI * LIGHT_SPEED) * 1.0e8
         )
@@ -5752,7 +4871,6 @@ def hot_metal_line_nlte_coefficients(
             strong_uv_resonance_minimum_half_window_angstrom(
                 ion, line, lower_level
             )
-            if extend_strong_uv_resonance_wings else 0.0
         )
         if resonance_half_window > 0.0:
             center_optical_depth = _line_center_vertical_optical_depth(
@@ -5772,7 +4890,6 @@ def hot_metal_line_nlte_coefficients(
             atmosphere.n_depth, dtype=np.float64
         )
         static_amplitude = np.zeros_like(static_frequency_scale)
-        static_ion_motion_hwhm_beta = np.zeros_like(static_frequency_scale)
         static_parameters = (
             include_static_linear_stark
             and line.profile_formula == 4
@@ -5788,15 +4905,10 @@ def hot_metal_line_nlte_coefficients(
             stark_sum = (
                 upper_n * (upper_n - 1.0) + lower_n * (lower_n - 1.0)
             )
-            dynamic_scale = _static_linear_stark_scale(
-                static_linear_stark_frequency_scales,
-                ion.element, ion.charge, lower_n, upper_n,
-            )
             valid = microfield_scale > 0.0
-            if dynamic_scale > 0.0 and stark_sum > 0.0 and np.any(valid):
+            if stark_sum > 0.0 and np.any(valid):
                 static_frequency_scale[valid] = (
-                    dynamic_scale
-                    * stark_sum
+                    stark_sum
                     * microfield_scale[valid]
                     / (1.385 * stark_charge)
                 )
@@ -5804,17 +4916,8 @@ def hot_metal_line_nlte_coefficients(
                     0.0368
                     * stark_charge
                     * line.absorption_oscillator_strength
-                    / (
-                        dynamic_scale
-                        * stark_sum
-                        * microfield_scale[valid]
-                    )
+                    / (stark_sum * microfield_scale[valid])
                 )
-                if include_ion_dynamic_stark_core:
-                    static_ion_motion_hwhm_beta[valid] = (
-                        ion_motion_rate(ion.atomic_mass_u)[valid]
-                        / (2.0 * PI * static_frequency_scale[valid])
-                    )
 
         profile_batch["center"].append(center)
         profile_batch["integrated_strength"].append(
@@ -5825,9 +4928,6 @@ def hot_metal_line_nlte_coefficients(
         profile_batch["minimum_half_window"].append(minimum_half_window)
         profile_batch["static_frequency_scale"].append(static_frequency_scale)
         profile_batch["static_amplitude"].append(static_amplitude)
-        profile_batch["static_ion_motion_hwhm_beta"].append(
-            static_ion_motion_hwhm_beta
-        )
         profile_batch["static_pattern"].append(
             _hydrogenic_stark_pattern_key(
                 line, hydrogenic_linear_stark_components
@@ -6470,22 +5570,6 @@ def reduced_light_metal_wavelength(
     return np.ascontiguousarray(wavelength[wavelength > 0.0])
 
 
-def _mali_radiative_occupations(photon, inverse, diagonal, old_source):
-    """Positive MALI rates with the same unpreconditioned fixed point.
-
-    The two subtracted terms must use one lambda. Independently clipping
-    the external photon occupation breaks the rate cancellation, especially
-    when the profile-integrated thermodynamic inverse differs from 1+J.
-    """
-    if old_source<0 or not np.isfinite(old_source):
-        return photon,inverse
-    coefficient=min(max(diagonal,0.),.999,inverse/(1.+old_source))
-    if old_source>0:
-        coefficient=min(coefficient,photon/old_source)
-    coefficient*=1.-16.*np.finfo(float).eps
-    return photon-coefficient*old_source,inverse-coefficient*(1.+old_source)
-
-
 def _positive_rate_equilibrium(matrix, conservation_weight, total_population):
     """Dispatch the positive rate solve to C, retaining the NumPy reference."""
     compiled = None if _rt is None else getattr(_rt, "positive_rate_equilibrium", None)
@@ -6569,18 +5653,11 @@ def solve_reduced_light_metal_levels_nlte(
         tuple[int, tuple[float, ...]]
         | ChiantiTermCollisionStrength
         | ConstantEffectiveCollisionStrength
-        | TabulatedElectronExcitationRateCoefficient
         | PSM20AngularMomentumMixingCollision
         | BTMQuadrupoleAngularMomentumMixingCollision,
     ] | None = None,
-    static_linear_stark_frequency_scales: Mapping[
-        tuple[str, int, int, int], float
-    ] | None = None,
     include_semiclassical_ovi_stark_widths: bool = False,
-    include_ovi_high_series_ion_dephasing: bool = False,
-    include_ion_dynamic_stark_core: bool = False,
     hydrogenic_linear_stark_components: bool = False,
-    electron_excitation_collision_scale: float = 1.0,
     approximate_lambda_diagonal: ArrayLike | None = None,
     previous_population_state: ReducedLightMetalLevelState | None = None,
     total_recombination_rate_coefficients: Mapping[
@@ -6646,11 +5723,6 @@ def solve_reduced_light_metal_levels_nlte(
         raise ValueError("mean_intensity must have shape (wavelength, depth)")
     if np.any(np.diff(wavelength) <= 0.0):
         raise ValueError("wavelength must be strictly increasing")
-    collision_scale = float(electron_excitation_collision_scale)
-    if not np.isfinite(collision_scale) or collision_scale < 0.0:
-        raise ValueError(
-            "electron_excitation_collision_scale must be finite and non-negative"
-        )
     lambda_diagonal = (
         None
         if approximate_lambda_diagonal is None
@@ -6917,7 +5989,6 @@ def solve_reduced_light_metal_levels_nlte(
                         tuple,
                         ChiantiTermCollisionStrength,
                         ConstantEffectiveCollisionStrength,
-                        TabulatedElectronExcitationRateCoefficient,
                         PSM20AngularMomentumMixingCollision,
                         BTMQuadrupoleAngularMomentumMixingCollision,
                     ),
@@ -6960,7 +6031,6 @@ def solve_reduced_light_metal_levels_nlte(
     component_integrated_strength: list[float] = []
     component_static_frequency_scale: list[FloatArray] = []
     component_static_amplitude: list[FloatArray] = []
-    component_static_ion_motion_hwhm_beta: list[FloatArray] = []
     component_static_pattern: list[tuple[int, int] | None] = []
     atomic_mass_unit = 1.660_539_068_92e-24
     integrated_cross_section = (
@@ -6992,26 +6062,12 @@ def solve_reduced_light_metal_levels_nlte(
     rate_microfield_scale = np.maximum(
         rate_microfield_charge_sum, 0.0
     ) ** (2.0 / 3.0)
-    rate_ion_motion = (
-        _ion_microfield_motion_rate(
-            atmosphere,
-            lte_state,
-            stages[next(iter(charges))].atomic_mass_u,
-        )
-        if (
-            include_ion_dynamic_stark_core
-            or include_ovi_high_series_ion_dephasing
-        )
-        else np.zeros(atmosphere.n_depth, dtype=np.float64)
-    )
 
     def static_rate_profile_parameters(
         line: AtomicTransition,
-        charge: int,
-    ) -> tuple[FloatArray, FloatArray, FloatArray]:
+    ) -> tuple[FloatArray, FloatArray]:
         frequency_scale = np.zeros(atmosphere.n_depth, dtype=np.float64)
         static_amplitude = np.zeros_like(frequency_scale)
-        ion_motion_hwhm_beta = np.zeros_like(frequency_scale)
         if (
             line.profile_formula != 4
             or len(line.profile_parameters) < 6
@@ -7019,7 +6075,7 @@ def solve_reduced_light_metal_levels_nlte(
             or line.profile_parameters[4] <= 0.0
             or line.profile_parameters[5] <= 0.0
         ):
-            return frequency_scale, static_amplitude, ion_motion_hwhm_beta
+            return frequency_scale, static_amplitude
         stark_charge = line.profile_parameters[3]
         lower_n = line.profile_parameters[4]
         upper_n = line.profile_parameters[5]
@@ -7027,14 +6083,10 @@ def solve_reduced_light_metal_levels_nlte(
             upper_n * (upper_n - 1.0)
             + lower_n * (lower_n - 1.0)
         )
-        dynamic_scale = _static_linear_stark_scale(
-            static_linear_stark_frequency_scales, symbol, charge, lower_n, upper_n,
-        )
         valid = rate_microfield_scale > 0.0
-        if dynamic_scale > 0.0 and stark_sum > 0.0 and np.any(valid):
+        if stark_sum > 0.0 and np.any(valid):
             frequency_scale[valid] = (
-                dynamic_scale
-                * stark_sum
+                stark_sum
                 * rate_microfield_scale[valid]
                 / (1.385 * stark_charge)
             )
@@ -7042,18 +6094,9 @@ def solve_reduced_light_metal_levels_nlte(
                 0.0368
                 * stark_charge
                 * line.absorption_oscillator_strength
-                / (
-                    dynamic_scale
-                    * stark_sum
-                    * rate_microfield_scale[valid]
-                )
+                / (stark_sum * rate_microfield_scale[valid])
             )
-            if include_ion_dynamic_stark_core:
-                ion_motion_hwhm_beta[valid] = (
-                    rate_ion_motion[valid]
-                    / (2.0 * PI * frequency_scale[valid])
-                )
-        return frequency_scale, static_amplitude, ion_motion_hwhm_beta
+        return frequency_scale, static_amplitude
 
     for lower, upper, transition, fine_components in bound_bound:
         first_component = len(component_center)
@@ -7101,33 +6144,21 @@ def solve_reduced_light_metal_levels_nlte(
                     electron_density, temperature
                 )
             ])
-            if (
-                include_ovi_high_series_ion_dephasing
-                and _is_ovi_high_series_formula4(
-                    rate_line, ion.element, ion.charge
-                )
-            ):
-                damping += 2.0 * rate_ion_motion
             component_center.append(rate_center)
             component_gaussian.append(gaussian)
             component_lorentz.append(
                 rate_center_cm**2 * damping
                 / (4.0 * PI * LIGHT_SPEED) * 1.0e8
             )
-            (
-                static_scale,
-                static_amplitude,
-                static_ion_motion_hwhm_beta,
-            ) = static_rate_profile_parameters(rate_line, ion.charge)
+            static_scale, static_amplitude = static_rate_profile_parameters(
+                rate_line
+            )
             component_integrated_strength.append(
                 integrated_cross_section
                 * rate_line.absorption_oscillator_strength
             )
             component_static_frequency_scale.append(static_scale)
             component_static_amplitude.append(static_amplitude)
-            component_static_ion_motion_hwhm_beta.append(
-                static_ion_motion_hwhm_beta
-            )
             component_static_pattern.append(
                 _hydrogenic_stark_pattern_key(
                     rate_line, hydrogenic_linear_stark_components
@@ -7180,33 +6211,21 @@ def solve_reduced_light_metal_levels_nlte(
                 electron_density, temperature
             )
         ])
-        if (
-            include_ovi_high_series_ion_dephasing
-            and _is_ovi_high_series_formula4(
-                transition, ion.element, ion.charge
-            )
-        ):
-            damping += 2.0 * rate_ion_motion
         component_center.append(rate_center)
         component_gaussian.append(gaussian)
         component_lorentz.append(
             rate_center_cm**2 * damping
             / (4.0 * PI * LIGHT_SPEED) * 1.0e8
         )
-        (
-            static_scale,
-            static_amplitude,
-            static_ion_motion_hwhm_beta,
-        ) = static_rate_profile_parameters(transition, ion.charge)
+        static_scale, static_amplitude = static_rate_profile_parameters(
+            transition
+        )
         component_integrated_strength.append(
             integrated_cross_section
             * transition.absorption_oscillator_strength
         )
         component_static_frequency_scale.append(static_scale)
         component_static_amplitude.append(static_amplitude)
-        component_static_ion_motion_hwhm_beta.append(
-            static_ion_motion_hwhm_beta
-        )
         component_static_pattern.append(
             _hydrogenic_stark_pattern_key(
                 transition, hydrogenic_linear_stark_components
@@ -7265,9 +6284,6 @@ def solve_reduced_light_metal_levels_nlte(
                 component_static_frequency_scale
             ),
             static_amplitude=np.stack(component_static_amplitude),
-            static_ion_motion_hwhm_beta=np.stack(
-                component_static_ion_motion_hwhm_beta
-            ),
             static_pattern=component_static_pattern,
         )
         component_occupation, component_inverse = line_means[:2]
@@ -7656,7 +6672,6 @@ def solve_reduced_light_metal_levels_nlte(
             tuple[int, tuple[float, ...]]
             | ChiantiTermCollisionStrength
             | ConstantEffectiveCollisionStrength
-            | TabulatedElectronExcitationRateCoefficient
             | PSM20AngularMomentumMixingCollision
             | BTMQuadrupoleAngularMomentumMixingCollision
             | None
@@ -7681,19 +6696,6 @@ def solve_reduced_light_metal_levels_nlte(
             return btm_quadrupole_l_mixing_coefficients(
                 collision_record, lower_level, upper_level, depth
             )
-        if isinstance(
-            collision_record, TabulatedElectronExcitationRateCoefficient
-        ):
-            q_up = collision_record.upward_rate_coefficient(
-                float(temperature[depth])
-            )
-            q_down = (
-                q_up
-                * lower_level.statistical_weight
-                / upper_level.statistical_weight
-                * np.exp(min(u, 700.0))
-            )
-            return q_up, q_down
         if isinstance(
             collision_record,
             (ChiantiTermCollisionStrength, ConstantEffectiveCollisionStrength),
@@ -7941,9 +6943,9 @@ def solve_reduced_light_metal_levels_nlte(
             if rate_cache is not None:
                 rate_cache["bound_collisions"] = (collision_up, collision_down)
         bound_up = (bound_weight_ratio[:, np.newaxis] * bound_a[:, np.newaxis] * effective_photon
-                    + collision_scale * electron_density[np.newaxis, :] * collision_up)
+                    + electron_density[np.newaxis, :] * collision_up)
         bound_down = (bound_a[:, np.newaxis] * effective_inverse
-                      + collision_scale * electron_density[np.newaxis, :] * collision_down)
+                      + electron_density[np.newaxis, :] * collision_down)
     bound_rows = np.stack((bound_lower, bound_upper, bound_upper, bound_lower), axis=1).ravel()
     bound_columns = np.stack((bound_lower, bound_lower, bound_upper, bound_upper), axis=1).ravel()
 
@@ -7981,30 +6983,6 @@ def solve_reduced_light_metal_levels_nlte(
                 q_up, q_down = btm_quadrupole_l_mixing_coefficients(
                     record, lower_level, upper_level, depth
                 )
-            elif isinstance(
-                record, TabulatedElectronExcitationRateCoefficient
-            ):
-                delta_ev = (
-                    (
-                        upper_level.energy_wavenumber
-                        - lower_level.energy_wavenumber
-                    )
-                    * PLANCK
-                    * LIGHT_SPEED
-                    / EV_TO_ERG
-                )
-                u = delta_ev * EV_TO_ERG / (
-                    BOLTZMANN * temperature[depth]
-                )
-                q_up = record.upward_rate_coefficient(
-                    float(temperature[depth])
-                )
-                q_down = (
-                    q_up
-                    * lower_level.statistical_weight
-                    / upper_level.statistical_weight
-                    * np.exp(min(u, 700.0))
-                )
             else:
                 delta_ev = (
                     (
@@ -8033,8 +7011,8 @@ def solve_reduced_light_metal_levels_nlte(
             add_pair(
                 lower,
                 upper,
-                collision_scale * electron_density[depth] * q_up,
-                collision_scale * electron_density[depth] * q_down,
+                electron_density[depth] * q_up,
+                electron_density[depth] * q_down,
             )
 
         for coupling_index, (
@@ -8082,11 +7060,11 @@ def solve_reduced_light_metal_levels_nlte(
                 )
             upward = (
                 radiative_up
-                + collision_scale * electron_density[depth] * q_up
+                + electron_density[depth] * q_up
             )
             downward = (
                 radiative_down
-                + collision_scale * electron_density[depth] * q_down
+                + electron_density[depth] * q_down
             )
             ratio = float(lte_to_parent_ratio[depth])
             if coupling.explicit_is_lower:
@@ -8213,25 +7191,10 @@ def solve_reduced_light_metal_levels_nlte(
                 })
             ),
             "electron_excitation": (
-                "tabulated R-matrix rate coefficients or CHIANTI effective "
-                "collision strengths where supplied, then "
+                "CHIANTI effective collision strengths where supplied, then "
                 "TMAD CBB or TLUSTY Van Regemorter allowed rates plus Allen "
                 "Omega=0.05 for forbidden M1/E2/M2 couplings"
             ),
-            "electron_excitation_collision_scale": collision_scale,
-            "tabulated_electron_excitation_transitions": sum(
-                isinstance(
-                    record, TabulatedElectronExcitationRateCoefficient
-                )
-                for record in (collision_data or {}).values()
-            ),
-            "tabulated_electron_excitation_sources": sorted({
-                record.source
-                for record in (collision_data or {}).values()
-                if isinstance(
-                    record, TabulatedElectronExcitationRateCoefficient
-                )
-            }),
             "collision_only_transitions": len(collision_only),
             "heavy_ion_angular_momentum_mixing_transitions": sum(
                 isinstance(

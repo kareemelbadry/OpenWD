@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
-from wd_spectra._cool.dense_helium_fluid_experiment import solve_neutral_py
+from wd_spectra._cool.dense_helium_fluid import solve_neutral_py
 from wd_spectra._dq.dq_rogers_young_fluid import (
     RadialGrid, solve_consistent_rogers_young, solve_rogers_young,
 )

@@ -1,6 +1,6 @@
 import numpy as np
 from wd_spectra.nonlinear import NonlinearEvaluation,solve_trust_region_newton
-from measured_proposal_guard import require_measured_proposal
+from wd_spectra._cool.measured_step_guard import require_measured_proposal
 
 
 def test_accepted_trust_limited_step_is_not_a_stationarity_certificate():

@@ -13,7 +13,7 @@ from wd_spectra import (
 )
 from wd_spectra.atmosphere import gray_hydrogen_atmosphere
 from wd_spectra.magnetic import (
-    BalmerBroadening, MagneticPhysics, PolarizedOpacity, SurfaceCells,
+    MagneticPhysics, PolarizedOpacity, SurfaceCells,
     _observer_polarization, _validate_stokes_cells, dipole_surface_cells,
     field_binned_surface_cells, synthesize_magnetic_hydrogen_spectrum,
     uniform_field_surface_cells,
@@ -42,8 +42,6 @@ def physics(field, prescription="default"):
     return MagneticPhysics(
         read_h2db_transition_database(data.h2db_balmer_subset) if field > 1 else None,
         read_h2db_energy_database(data.h2db_balmer_subset) if field > 1 else None,
-        broadening=BalmerBroadening(include_self_broadening=False),
-        balmer_profile="kurucz-griem", normalize_balmer_strength=True,
         include_rwa_photoionization=config.include_rwa_photoionization,
         include_magnetic_eos=config.include_magnetic_eos,
         include_centered_motion=config.include_centered_motion,

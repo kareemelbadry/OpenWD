@@ -13,16 +13,14 @@ than by a global Jacobian (Werner & Dreizler 1999; Werner et al. 2003; TMAP
 User's Guide).  This module supplies the temperature step of that loop.
 
 * Upper cells (emission below the stellar flux): local radiative equilibrium
-  ``int (kappa J - eta) = 0`` linearized in the cell temperature, with the
-  populations, charge and radiation re-solved together at each depth with
-  ``J = J0 + Lambda* (S - S0)`` (the per-depth linearization of TMAP with the
-  populations eliminated locally).
+  ``int (kappa J - eta) = 0`` linearized in the cell temperature through the
+  measured per-cell secant of the heating along the iterates.
 * Deeper cells: the plane-parallel Unsöld-Lucy correction in flux-mean optical
   depth (Lucy 1964), in its NLTE form with the actual emissivity:
   ``dB = [kappa_J J - int eta + kappa_J dJ] / kappa_P`` with
   ``dJ = 3 int_0^tau (H0 - H) dtau' + 2 (H0 - H(0))``.  TMAP's guide notes that
   Unsöld-Lucy is reliable in the inner atmosphere but not in the line-forming
-  outer layers, which is why those use the local lambda-operator form.
+  outer layers, which is why those use the local form.
 
 All quantities are per unit mass on the structure wavelength grid.
 """
@@ -33,67 +31,9 @@ import numpy as np
 
 from ._compat import trapezoid
 from ._mass_feautrier import mass_width
-from ._pg1159_transfer import transfer_field
 from .constants import STEFAN_BOLTZMANN
-from .opacity import optical_depth_from_mass_opacity
-from .radiative_transfer import radiation_field
 
 LOGGER = logging.getLogger(__name__)
-
-
-def formal_state(equations, atmosphere, populations):
-    """Coefficients, formal field and diagonal lambda operator at a state."""
-    model = equations.model
-    c = model.transfer_coefficients(atmosphere, equations.wave, populations)
-    _, field, _ = transfer_field(
-        atmosphere, c, n_angle=model.helium_model.population_n_angle, check_source=False
-    )
-    total = c.true_absorption + c.scattering
-    source = (c.thermal_emissivity + c.scattering * field.mean_intensity) / total
-    tau = optical_depth_from_mass_opacity(atmosphere.column_mass, total)
-    increment = np.diff(tau, axis=-1)
-    floor = 1e-14 * np.maximum(abs(tau[:, 1:]), 1e-300)
-    if np.any(increment <= floor):
-        tau = np.concatenate(
-            (tau[:, :1], tau[:, :1] + np.cumsum(np.maximum(increment, floor), axis=-1)),
-            axis=-1,
-        )
-    operator = radiation_field(
-        tau, source, n_angle=model.helium_model.population_n_angle,
-        calculate_diagonal_lambda=True,
-    ).diagonal_lambda
-    return c, field, operator
-
-
-def local_heating_derivative(equations, atmosphere, populations, operator, mean, width, step=1e-3):
-    """d(cell heating)/d ln T from the local ALO-linearized system.
-
-    Every depth is perturbed together.  At each perturbed temperature the rate
-    equations are re-solved with the radiation following the local source
-    function through the diagonal operator, J = J0 + Lambda* (S - S0), to
-    local self-consistency (populations, charge and J together, as in TMAP's
-    per-depth linearization).  The cell heating is then evaluated with that
-    same locally coupled J on the structure grid.
-    """
-    from ._pg1159_structure import rate_response_material
-
-    model = equations.model
-    wave = equations.wave
-    c0 = model.transfer_coefficients(atmosphere, wave, populations)
-    chi0 = c0.true_absorption + c0.scattering
-    source0 = (c0.thermal_emissivity + c0.scattering * mean) / chi0
-    heating = []
-    for sign in (1.0, -1.0):
-        t = atmosphere.temperature * np.exp(sign * step)
-        a, p = rate_response_material(model, atmosphere, t, atmosphere.gas_pressure, populations,
-                                      local_lambda_operator=True)
-        c = model.transfer_coefficients(a, wave, p)
-        chi = c.true_absorption + c.scattering
-        local_mean = (mean + operator * (c.thermal_emissivity / chi - source0)) / np.maximum(
-            1.0 - operator * c.scattering / chi, 1e-12)
-        heating.append(width * trapezoid(
-            (c.true_absorption * local_mean - c.thermal_emissivity)[:, :-1], wave, axis=0))
-    return (heating[0] - heating[1]) / (2.0 * step)
 
 
 def temperature_correction(
@@ -105,11 +45,10 @@ def temperature_correction(
     band_first=None,
     local_maximum_rosseland_depth=1.0,
     maximum_step=0.05,
-    derivative_step=1e-3,
-    evaluation=None,
+    evaluation,
     previous=None,
     local_deadband=0.0,
-    probe_step=None,
+    probe_step,
 ):
     """Return (d ln T per depth, diagnostics) for one hybrid correction.
 
@@ -118,23 +57,16 @@ def temperature_correction(
     a second formal solution.  ``previous`` is the ``diagnostics`` of the
     preceding correction.  With it, the upper-cell derivative is the measured
     per-cell secant of the relative heating along the actual iterates.  At
-    tau 1e-5..1e-3 the ALO-local derivative overestimates the collective
+    tau 1e-5..1e-3 an ALO-local derivative overestimates the collective
     response by 10-40x (PG 1424 scan), so its steps are far too short, and in
     the first band cells it can even have the wrong sign.  The secant is used
-    with either sign.  The ALO derivative
-    is used only when no usable secant exists, unless ``probe_step`` is given:
-    such cells then move by ``probe_step`` in ln T in the direction that
-    reduces their imbalance, which seeds the secant without the two extra
-    full-depth rate solves.  Cells with |relative heating| < ``local_deadband``
-    are left unchanged.
+    with either sign.  Cells without a usable secant move by ``probe_step`` in
+    ln T in the direction that reduces their imbalance, which seeds the secant.
+    Cells with |relative heating| < ``local_deadband`` are left unchanged.
     """
     wave = equations.wave
     target = equations.target  # sigma Teff^4
-    if evaluation is not None and "_radiation_field" in evaluation:
-        c, field = evaluation["_transfer_coefficients"], evaluation["_radiation_field"]
-        operator = None
-    else:
-        c, field, operator = formal_state(equations, atmosphere, populations)
+    c, field = evaluation["_transfer_coefficients"], evaluation["_radiation_field"]
     kappa, eta, sigma = c.true_absorption, c.thermal_emissivity, c.scattering
     chi = kappa + sigma
     mean = field.mean_intensity
@@ -177,22 +109,14 @@ def temperature_correction(
     # more net cooling (negative slope), but at tau ~ 1e-5 the collective
     # response of the first band cells can be positive (a thermally unstable
     # branch); their root is then on the hot side, and forcing the local sign
-    # only cools them indefinitely.  Only the ALO / probe seed assumes the
-    # local sign.
+    # only cools them indefinitely.  Only the probe seed assumes the local
+    # sign.
     usable = np.isfinite(slope) & (slope != 0.0) & (source != "alo")
-    if probe_step is not None and not np.all(usable[cells]):
+    if not np.all(usable[cells]):
         # d ln T = -relative / slope  ==  -sign(relative) * probe_step
         probe_slope = -abs(relative) / probe_step
         slope = np.where(usable, slope, probe_slope)
         source = np.where(usable, source, "probe")
-    elif not np.all(usable[cells]):
-        if operator is None:
-            _, _, operator = formal_state(equations, atmosphere, populations)
-        alo = local_heating_derivative(
-            equations, atmosphere, populations, operator, mean, width, derivative_step
-        ) / np.maximum(abs(emission), 1e-30 * target)
-        slope = np.where(usable, slope, alo)
-        source = np.where(usable, source, "alo")
     local_step = np.zeros(nd)
     with np.errstate(divide="ignore", invalid="ignore"):
         local_step[cells] = -relative[cells] / slope[cells]
@@ -317,9 +241,7 @@ def refine_upper_atmosphere(
         population_nlte_fraction=1.0,
         metal_population_damping=1.0,
         helium_population_damping=1.0,
-        metal_population_acceleration_depth=0,
         use_pg1159_response_jacobian=True,
-        use_population_ali=False,
         metal_population_relative_tolerance=material_tolerance,
     )
     equations = PG1159Equations(
@@ -327,7 +249,6 @@ def refine_upper_atmosphere(
         certification_stage=False, material_tolerance_ceiling=material_tolerance,
         resolved_material_closure=True,
     )
-    equations.population_ali = False
     equations.anchor = populations
     nd = atmosphere.n_depth
     x = equations.initial_state()   # ln T, then ln P with radiative acceleration

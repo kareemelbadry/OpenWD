@@ -8,7 +8,6 @@ from wd_spectra.dense_helium_continuum import (
     bounded_helium_minus_correction,
 )
 from wd_spectra.models.common import ModelData
-from wd_spectra.models.stellar import DZConfig
 
 
 @pytest.fixture(scope="module")
@@ -62,10 +61,3 @@ def test_edges_are_held_not_extrapolated(table):
     with pytest.raises(ValueError):
         bounded_helium_minus_correction(table, np.array([5000.0]), np.array([5000.0]),
                                         np.array([5.0 / HELIUM_MASS]))
-
-
-def test_config_default_and_validation():
-    assert DZConfig().dense_helium_free_free == "rogers-young"
-    from wd_spectra.models.stellar import compute_dz
-    with pytest.raises(ValueError, match="dense_helium_free_free"):
-        compute_dz(DZConfig(dense_helium_free_free="bogus"), relax_atmosphere=False)

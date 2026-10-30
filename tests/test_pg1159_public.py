@@ -48,10 +48,7 @@ def test_public_result_has_flux_metadata_and_saves(
     @dataclass(frozen=True)
     class Material:
         helium_model:object=Helium()
-        population_transfer:str='mass'
-        use_population_ali:bool=True
         coupled_population_acceleration_depth:int=0
-        metal_population_acceleration_depth:int=4
         metal_population_damping:float=.25
         helium_population_damping:float=.4
         metal_population_relative_tolerance:float=1e-4
@@ -168,7 +165,6 @@ def test_cold_continuation_introduces_full_force_only_with_full_nlte(monkeypatch
         population_nlte_fraction:float=1.
         metal_population_damping:float=.25
         helium_population_damping:float=.4
-        metal_population_acceleration_depth:int=4
         coupled_population_acceleration_depth:int=80
         metal_population_relative_tolerance:float=1e-4
         metal_population_iterations:int=120

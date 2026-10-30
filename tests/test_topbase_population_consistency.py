@@ -18,7 +18,6 @@ from wd_spectra.d6 import (
     topbase_dissolved_level_pseudocontinuum_mass_absorption_coefficient,
     topbase_lte_level_population,
     topbase_population_provenance,
-    resonance_average_topbase_photoionization,
     merge_topbase_photoionization_databases,
 )
 from wd_spectra.metals import (
@@ -247,8 +246,7 @@ def test_policy_and_provenance_survive_photoionization_transformations():
     ion = atomic.ions[("Mg", 0)]
     sections = (_section(ion, ground), _section(ion, AtomicLevel(999, 3. * EV_TO_WAVENUMBER, 9., "effective aggregate")))
     database = TOPbasePhotoionizationDatabase(sections, "test", unmapped_population_policy="strict")
-    averaged = resonance_average_topbase_photoionization(database, .01)
-    merged = merge_topbase_photoionization_databases(averaged)
+    merged = merge_topbase_photoionization_databases(database)
     assert merged.unmapped_population_policy == "strict"
     provenance = topbase_population_provenance(merged, atomic)
     assert provenance["section_count"] == 2
@@ -346,8 +344,6 @@ def test_bundled_rap_feii_excitation_is_already_above_lowest_j():
     np.testing.assert_allclose(section.cross_section(photon), expected,
                                rtol=3e-13, atol=0.)
     assert expected > 2e-18
-    averaged = resonance_average_topbase_photoionization(loaded, .01)
-    assert all(s.absolute_photon_grid for s in averaged.sections)
 
 
 def test_absolute_table_interpolates_zero_pairs_without_inventing_coverage():

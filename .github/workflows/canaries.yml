@@ -95,13 +95,12 @@ jobs:
         id: molecular-data
         with:
           path: .cache/molecular-opacity
-          key: molecular-4f0eb9cd69a1c383-276f5a36d094e7e1
+          key: molecular-4f0eb9cd69a1c383
       - name: Fetch the declared tables (no alternate input)
         if: startsWith(matrix.case, 'molecular-dab-') && steps.molecular-data.outputs.cache-hit != 'true'
         run: |
           mkdir -p "$OPENWD_RESEARCH_DATA"
           curl --fail --location --retry 2 https://hitran.org/data/CIA/main/H2-He_2011.cia --output "$OPENWD_RESEARCH_DATA/H2-He_2011.cia"
-          curl --fail --location --retry 2 https://exomol.com/db/H2/1H2/RACPPK/1H2__RACPPK.states.bz2 --output "$OPENWD_RESEARCH_DATA/1H2__RACPPK.states.bz2"
       - name: Validate exact checksums, including cache hits
         if: startsWith(matrix.case, 'molecular-dab-')
         run: python research/cool_models/check_data.py

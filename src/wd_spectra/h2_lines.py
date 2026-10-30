@@ -62,7 +62,6 @@ _SECOND_RADIATION_CONSTANT = 1.4387769  # hc/k in cm K
 _INTEGRATED_CROSS_SECTION = 0.026540081  # pi e^2 / (m_e c), cm^2 s^-1
 _EINSTEIN_A_FACTOR = 0.6670251  # 8 pi^2 e^2 / (m_e c), cm^2 s^-1 (A = this x (1/lambda)^2 x g_l f / g_u)
 _ATOMIC_MASS_UNIT = 1.66053907e-24
-_ELECTRON_MASS = 9.1093837e-28
 _H2_MASS = 2.01588 * _ATOMIC_MASS_UNIT
 
 

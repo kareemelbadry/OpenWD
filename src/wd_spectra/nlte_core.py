@@ -9,12 +9,9 @@ hydrogen atom now and He/metal model atoms later.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
-
-from .atmosphere import Atmosphere
 
 
 FloatArray = NDArray[np.float64]
@@ -50,34 +47,6 @@ class NLTETransferCoefficients:
         """Return true absorption plus scattering."""
 
         return self.true_absorption + self.scattering
-
-
-class NLTEAtmosphereModel(Protocol):
-    """Boundary between the generic atmosphere loop and model atoms."""
-
-    name: str
-
-    def rebuild_atmosphere(
-        self,
-        template: Atmosphere,
-        temperature: FloatArray,
-        previous_state: Any | None,
-    ) -> Atmosphere:
-        """Update the EOS/charge state on the fixed column-mass grid."""
-
-    def solve_populations(
-        self, atmosphere: Atmosphere, previous_state: Any | None
-    ) -> Any:
-        """Solve statistical equilibrium on the current structure."""
-
-    def transfer_coefficients(
-        self,
-        atmosphere: Atmosphere,
-        wavelength_angstrom: FloatArray,
-        state: Any,
-    ) -> NLTETransferCoefficients:
-        """Assemble the model atom's opacity and emissivity."""
-
 
 
 class OpacitySpan:

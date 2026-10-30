@@ -14,10 +14,7 @@ from wd_spectra._hydrogenic_stark import (
     formula4_extreme_shift,
     hydrogenic_stark_pattern,
 )
-from wd_spectra._pg1159_builder import (
-    PG1159_HYDROGENIC_STARK_COMPONENTS,
-    PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES,
-)
+from wd_spectra._pg1159_builder import PG1159_HYDROGENIC_STARK_COMPONENTS
 
 
 def test_lyman_alpha_pattern():
@@ -77,7 +74,7 @@ def _profile_inputs():
     field[0] = 0.0
     return (
         wave, planck, center, strength, np.full(shape, 0.05), np.full(shape, 0.02),
-        np.zeros(center.size), field, np.full(shape, 2e-13), np.zeros(shape),
+        np.zeros(center.size), field, np.full(shape, 2e-13),
         np.ones(shape), np.ones(shape), np.full(shape, 0.5), np.full(shape, 0.1),
     )
 
@@ -110,6 +107,5 @@ def test_tabulated_stark_widths_apply_only_to_their_multiplet():
     assert fwhm("C", 3, 1557.3, 1e17, 1e5) is None           # C IV 5d-17f
 
 
-def test_pg1159_defaults_use_components_without_series_scales():
+def test_pg1159_defaults_use_components():
     assert PG1159_HYDROGENIC_STARK_COMPONENTS is True
-    assert dict(PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES) == {}

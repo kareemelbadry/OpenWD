@@ -102,7 +102,7 @@ def main():
     implementation = {p: digest(ROOT/p) for p in (
         "tools/build_dq_dense_continuum.py", "src/wd_spectra/dense_helium_continuum.py",
         "src/wd_spectra/_dq/dq_rogers_young_fluid.py", "src/wd_spectra/_dq/dq_dense_continuum_inputs.py",
-        "src/wd_spectra/_cool/dense_helium_fluid_experiment.py")}
+        "src/wd_spectra/_cool/dense_helium_fluid.py")}
     metadata = dict(
         schema="dense-He-ff-v1", sources=dict(SOURCES, closure="https://doi.org/10.1103/PhysRevA.30.999"),
         parameters_fitted=False, qualified=False,

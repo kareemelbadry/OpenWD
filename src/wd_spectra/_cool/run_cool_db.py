@@ -20,7 +20,7 @@ def commands(temperature, output, interaction_table, *, logg=8., dense_heminus_f
                else ["--surface-rosseland-depth", repr(float(surface_rosseland_depth))])
     heminus = ([] if dense_heminus_ff is None
                else ["--dense-heminus-ff", str(Path(dense_heminus_ff).resolve())])
-    common = [sys.executable, "-m", "wd_spectra._cool.extended_thermal_wavelength_experiment",
+    common = [sys.executable, "-m", "wd_spectra._cool.dense_db_driver",
         "--logg", str(logg),
         "--thermal-maximum-wavelength", "1e8", "--structure-angles", "8",
         "--direct-spectrum", "--mass-conservative-transfer", "--smooth-heminus-join",

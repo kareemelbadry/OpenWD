@@ -6,7 +6,6 @@ import pytest
 from wd_spectra import gray_hydrogen_atmosphere
 from wd_spectra.opacity import (
     LYMAN_LINES,
-    allard_unified_lyman_alpha_mass_absorption_coefficient,
     lyman_mass_absorption_coefficient,
     _allard_profile_temperature_by_depth,
     _allard_table_coverage_switch,
@@ -232,21 +231,6 @@ def test_allard_default_temperature_selection_uses_one_nearest_profile(tmp_path)
     np.testing.assert_array_equal(selected, 9_000.0)
 
 
-def test_allard_profile_converts_to_positive_atmosphere_mass_opacity(tmp_path):
-    path = tmp_path / "alpha_10000.dat"
-    _write_synthetic_allard_table(path, 1.0)
-    profile = read_allard_neutral_lyman_alpha_profile(path, 10_000.0)
-    table = AllardNeutralLymanAlphaTable((profile,))
-    atmosphere = gray_hydrogen_atmosphere(10_000.0, 8.0, n_depth=12)
-    wavelength = np.array([1150.0, 1210.0, 1275.0, 1350.0])
-    opacity = allard_unified_lyman_alpha_mass_absorption_coefficient(
-        atmosphere, wavelength, table
-    )
-    assert opacity.shape == (wavelength.size, atmosphere.n_depth)
-    np.testing.assert_array_equal(opacity[0], 0.0)
-    assert np.all(opacity[1:] > 0.0)
-
-
 def test_allard_lyman_alpha_red_tail_matches_synspec_power_law(tmp_path):
     path = tmp_path / "alpha.dat"
     _write_synthetic_allard_table(path, 1.0)
@@ -308,9 +292,14 @@ def test_allard_combination_is_half_stark_plus_unified_profile(tmp_path):
     stark = lyman_mass_absorption_coefficient(
         atmosphere, wavelength, lines=alpha_line
     )
-    allard_only = allard_unified_lyman_alpha_mass_absorption_coefficient(
-        atmosphere, wavelength, line_table
+    allard_only = lyman_mass_absorption_coefficient(
+        atmosphere,
+        wavelength,
+        unified_allard_table=allard,
+        allard_stark_weight=0.0,
+        lines=alpha_line,
     )
+    assert np.any(allard_only > 0.0)
     combined = lyman_mass_absorption_coefficient(
         atmosphere,
         wavelength,

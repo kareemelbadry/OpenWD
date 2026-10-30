@@ -1214,57 +1214,6 @@ def ideal_hydrogen_lte(temperature: ArrayLike, gas_pressure: ArrayLike) -> Hydro
     )
 
 
-def ideal_hydrogen_thermodynamics(
-    temperature: ArrayLike, gas_pressure: ArrayLike
-) -> HydrogenThermodynamics:
-    r"""Return :math:`c_P`, :math:`Q`, and :math:`\nabla_\mathrm{ad}`.
-
-    The derivatives are analytic for the same ground-state Saha mixture used
-    by :func:`ideal_hydrogen_lte`.  Ionization energy is included in the
-    enthalpy, which produces the low adiabatic gradient in the hydrogen
-    partial-ionization zone that drives DA-atmosphere convection.
-    """
-
-    temperature, gas_pressure = np.broadcast_arrays(
-        np.asarray(temperature, dtype=np.float64),
-        np.asarray(gas_pressure, dtype=np.float64),
-    )
-    state = ideal_hydrogen_lte(temperature, gas_pressure)
-    ionization = state.ionization_fraction
-    logarithmic_saha_pressure_derivative = (
-        2.5 + HYDROGEN_IONIZATION_ENERGY / (BOLTZMANN * temperature)
-    )
-    ionization_log_temperature_derivative = (
-        0.5
-        * ionization
-        * (1.0 - ionization**2)
-        * logarithmic_saha_pressure_derivative
-    )
-    density_temperature_derivative = (
-        1.0
-        + ionization_log_temperature_derivative / (1.0 + ionization)
-    )
-    specific_heat = (
-        2.5 * BOLTZMANN * (1.0 + ionization)
-        + (2.5 * BOLTZMANN * temperature + HYDROGEN_IONIZATION_ENERGY)
-        * ionization_log_temperature_derivative
-        / temperature
-    ) / HYDROGEN_MASS
-    adiabatic_gradient = (
-        (1.0 + ionization)
-        * BOLTZMANN
-        * density_temperature_derivative
-        / (HYDROGEN_MASS * specific_heat)
-    )
-    return HydrogenThermodynamics(
-        specific_heat_constant_pressure=np.asarray(specific_heat),
-        density_temperature_derivative=np.asarray(
-            density_temperature_derivative
-        ),
-        adiabatic_temperature_gradient=np.asarray(adiabatic_gradient),
-    )
-
-
 # NIST ASD term energies for the lower states of the optical He I spectrum.
 # The triplet-P energy is statistical-weight averaged over J=0,1,2.  The
 # first entry is the 1s^2 ground state.  Statistical weights are for complete
@@ -1279,13 +1228,8 @@ HELIUM_I_LOW_TERM_STATISTICAL_WEIGHT = np.asarray(
 HELIUM_I_LOW_TERM_ENERGY = (
     PLANCK * LIGHT_SPEED * HELIUM_I_LOW_TERM_WAVENUMBER
 )
-HELIUM_I_LOW_TERM_LABELS = (
-    "1s2_1S",
-    "1s2s_3S",
-    "1s2s_1S",
-    "1s2p_3P",
-    "1s2p_1P",
-)
+
+
 def helium_occupation_probability(
     neutral_he_density: ArrayLike,
     electron_density: ArrayLike,

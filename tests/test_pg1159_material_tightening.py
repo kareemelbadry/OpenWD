@@ -222,7 +222,6 @@ def test_public_continuation_passes_closure_only_to_full_nlte_stages(monkeypatch
         population_nlte_fraction: float = 1.
         metal_population_damping: float = .25
         helium_population_damping: float = .4
-        metal_population_acceleration_depth: int = 4
         coupled_population_acceleration_depth: int = 80
         metal_population_relative_tolerance: float = 1e-2
         metal_population_iterations: int = 120

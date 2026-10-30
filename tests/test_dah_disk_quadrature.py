@@ -121,14 +121,6 @@ def test_domain_notes_flag_documented_high_field_approximations():
     assert _domain_notes(low, dah_surface_cells(low), False) == []
 
 
-def test_new_option_preserves_positional_config_arguments():
-    from dataclasses import fields
-
-    assert fields(DAHConfig)[10].name == "atmosphere_structure"
-    # Later opt-in fields may be appended; the original position stays fixed.
-    assert fields(DAHConfig)[20].name == "disk_component_drift_angstrom"
-
-
 def test_zero_field_drift_quadrature_is_finite():
     config = DAHConfig(magnetic_field_megagauss=0.0, field_geometry="dipole",
                        disk_component_drift_angstrom=16.0)

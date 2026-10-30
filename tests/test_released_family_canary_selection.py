@@ -11,17 +11,15 @@ def test_dz_cold_canary_uses_current_physics_without_a_stored_atmosphere(monkeyp
         pass
 
     def inspect_request(config, output, *, require_convergence):
-        defaults = DZConfig()
+        assert config == DZConfig(
+            effective_temperature=10800.0, logg=8.0, abundances=config.abundances,
+            log_hydrogen_abundance=-4.05, quality="production",
+        )
         assert config.effective_temperature == 10800.0
         assert config.logg == 8.0
         assert config.abundances["Ca"] == -8.06
         assert config.log_hydrogen_abundance == -4.05
         assert config.quality == "production"
-        for key in ("dense_helium_eos", "dense_helium_free_free",
-                    "helium_minus_free_free", "mg_i_b_he_unified_profile",
-                    "mg_ii_he_unified_profile", "ca_ii_he_unified_profile",
-                    "na_i_he_unified_profile"):
-            assert getattr(config, key) == getattr(defaults, key)
         assert require_convergence is True
         assert output == tmp_path / "dz-pg1225"
         raise Dispatched

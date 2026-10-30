@@ -19,9 +19,8 @@ from scipy.optimize import lsq_linear
 import wd_spectra.adaptive_structure as adaptive
 from . import base as dq
 from wd_spectra.constants import STEFAN_BOLTZMANN
-from wd_spectra.nonlinear import NonlinearEvaluation,NonlinearProposal,RecoverableEvaluationError
-from wd_spectra._ml2_auxiliary import (ml2_auxiliary_from_gradient,
-    ml2_auxiliary_compatibility,ml2_scaled_coefficients)
+from wd_spectra.nonlinear import NonlinearProposal,RecoverableEvaluationError
+from wd_spectra._ml2_auxiliary import ml2_auxiliary_from_gradient,ml2_scaled_coefficients
 from .measured_proposal_guard import require_measured_proposal
 from .dq_refractive_material import RefractiveDQMaterial
 from .dq_refractive_material_coordinates import RefractiveMaterialCoefficients, interface_index
@@ -58,58 +57,6 @@ class CoupledMaterialSystem:
         if not np.array_equal(ev.payload['atmosphere'].gas_pressure,self.pressure):
             raise RuntimeError('Pressure grid changed inside the coupled DQ phase')
         return ev
-
-    def state_from_temperature(self, x, physical):
-        """Recompute exact auxiliary ML2 coordinates at the supplied T."""
-        p = physical.payload
-        values = tuple(p['convection_transport'][key][1:] for key in
-            ('adiabatic_gradient', 'ml2_radiative_loss', 'ml2_flux_coefficient'))
-        velocity = ml2_auxiliary_from_gradient(p['temperature_gradient'][1:],
-                                             *values, self.target)
-        return np.r_[x, velocity/self.velocity_scale]
-
-    def evaluate(self,state,need):
-        n=self.n;x=state[:n];y=state[n:]*self.velocity_scale
-        physical=self.physical(x,need);p=physical.payload
-        if not (p.get('energy_balance_is_physical_flux') and p.get('local_energy_equations_enforced')):
-            raise ValueError('Coupled DQ requires physical local-energy equations')
-        values=tuple(p['convection_transport'][k][1:] for k in
-            ('adiabatic_gradient','ml2_radiative_loss','ml2_flux_coefficient'))
-        responses=None
-        if need:
-            actual,tangent=self.material(x,True)
-            for value,expected in zip(actual,values):
-                np.testing.assert_allclose(value[1:],expected,rtol=2e-13,atol=0)
-            responses=tuple(v[1:] for v in tangent)
-        compatibility,ct,cy=ml2_auxiliary_compatibility(p['temperature_gradient'][1:],
-            y,values,responses,self.gradient_operator[1:],self.target)
-        with np.errstate(over='ignore',invalid='ignore'):
-            auxiliary=np.r_[0.,np.maximum(y,0.)**3]*self.target
-            scale=p['thermal_cell_emission']+auxiliary[:-1]+auxiliary[1:]
-            defect=p['radiative_cell_energy_defect']+np.diff(auxiliary)
-            energy=(p['radiative_flux_interface']+auxiliary)/self.target-1.
-            energy=energy.copy();energy[:-1]-=defect/scale
-        residual=np.r_[energy,compatibility/self.compatibility_scale]
-        if np.any(~np.isfinite(residual)) or np.any(scale<=0):
-            raise RecoverableEvaluationError('Nonfinite coupled DQ trial')
-        jacobian=None
-        if need:
-            fcj=np.zeros((n,n-1))
-            fcj[1:]=np.diag(3*np.maximum(y,0.)**2*self.velocity_scale*self.target)
-            et=p['radiative_flux_log_temperature_jacobian']/self.target
-            et=et.copy()
-            et[:-1]-=p['radiative_cell_energy_log_temperature_jacobian']/scale[:,None]
-            et[:-1]+=(defect/scale**2)[:,None]*p['thermal_cell_emission_log_temperature_jacobian']
-            ey=fcj/self.target
-            ey=ey.copy();ey[:-1]-=np.diff(fcj,axis=0)/scale[:,None]
-            ey[:-1]+=(defect/scale**2)[:,None]*(fcj[:-1]+fcj[1:])
-            jacobian=np.block([[et,ey],[ct/self.compatibility_scale[:,None],
-                np.diag(cy*self.velocity_scale/self.compatibility_scale)]])
-        # Physical payload/fluxes remain untouched, even at incompatible trials.
-        payload={**p,'dq_augmented_auxiliary_flux':auxiliary,
-            'dq_augmented_scaled_compatibility':compatibility/self.compatibility_scale,
-            'dq_augmented_flux_compatibility':float(np.max(abs(auxiliary-p['convective_flux_interface']))/self.target)}
-        return NonlinearEvaluation(residual,jacobian,payload)
 
 
 def coupled_direction(jacobian,residual,n,radius):
