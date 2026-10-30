@@ -3,7 +3,7 @@ import numpy as np
 from wd_spectra import adaptive_structure as adaptive
 from wd_spectra.nonlinear import NonlinearEvaluation
 from wd_spectra.constants import STEFAN_BOLTZMANN
-from exact_dense_tangent_experiment import replace_material_tangent
+from wd_spectra._cool.exact_dense_tangent import replace_material_tangent
 
 
 def test_material_replacement_updates_flux_energy_and_scale_without_state_change():

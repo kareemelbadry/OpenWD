@@ -21,6 +21,7 @@ from wd_spectra.models import (
     load_atmosphere_checkpoint,
     AtmosphereConvergenceWarning,
 )
+from wd_spectra.models.common import config_from_stored
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 # Current approved spectra; earlier approvals are in git history.
@@ -50,9 +51,10 @@ def test_checked_scattering_preserves_broad_spectral_controls(case):
             # These controls were approved for the DB-production-v4 optical-depth
             # synthesis; DBConfig now defaults to the column-mass preset.
             saved_config.setdefault("transfer_discretization", "optical-depth")
-        config = {"DA": DAConfig, "DB": DBConfig, "DAB": DABConfig, "DZ": DZConfig}[
-            kind
-        ](**saved_config)
+        config = config_from_stored(
+            {"DA": DAConfig, "DB": DBConfig, "DAB": DABConfig, "DZ": DZConfig}[kind],
+            saved_config,
+        )
         wave = saved["wavelength"]
     with np.load(APPROVED / (case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])

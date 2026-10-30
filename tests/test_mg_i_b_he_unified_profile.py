@@ -10,7 +10,6 @@ from wd_spectra.metals import (
     read_stout_atomic_database,
 )
 from wd_spectra.models.common import ModelData
-from wd_spectra.models.stellar import DZConfig
 
 DATA = ModelData.default()
 X = np.arange(-3000.0, 3000.0, 0.5)
@@ -42,7 +41,3 @@ def test_attaches_only_the_triplet():
     centers = sorted(round(t.wavelength_vacuum_angstrom, 1) for t in tagged)
     assert centers == [5168.8, 5174.1, 5185.0]
     assert sorted(t.helium_unified_profile.component for t in tagged) == [0, 1, 2]
-
-
-def test_default_on():
-    assert DZConfig().mg_i_b_he_unified_profile is True

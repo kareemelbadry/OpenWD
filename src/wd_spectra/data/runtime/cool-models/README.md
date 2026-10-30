@@ -38,7 +38,7 @@ package installation (single process; each finished isotherm is kept in
 `<table>.parts/` and reused if the build is restarted):
 
 ```sh
-python research/cool_models/dense_helium_molecular_experiment.py \
+python -m wd_spectra._cool.dense_helium_eos \
   --build-table --interaction-table results/new-molecular-hnc.npz
 # He2+ photodissociation T dependence below 4200 K (cool-models/he2-photodissociation-cool.npz):
 python tools/build_he2_photodissociation.py src/wd_spectra/data/runtime/cool-models/he2-photodissociation-cool.npz

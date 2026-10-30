@@ -10,7 +10,7 @@ import numpy as np
 from scipy.optimize import brentq
 from wd_spectra.constants import STEFAN_BOLTZMANN
 from wd_spectra.convection import _ml2_contrast_and_root
-from .convective_consistency_experiment import MaterialCoefficients
+from .convective_materials import MaterialCoefficients
 
 
 def discrete_seed(seed,runner,options):

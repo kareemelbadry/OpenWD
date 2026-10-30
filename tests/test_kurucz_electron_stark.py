@@ -93,8 +93,7 @@ class _Stop(Exception):
     pass
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_dz_config_option_controls_attachment(monkeypatch, enabled):
+def test_dz_attaches_kurucz_electron_stark(monkeypatch):
     calls = []
 
     def fake_attach(database):
@@ -106,10 +105,9 @@ def test_dz_config_option_controls_attachment(monkeypatch, enabled):
 
     monkeypatch.setattr(stellar, "atomic_database_with_kurucz_electron_stark", fake_attach)
     monkeypatch.setattr(stellar, "read_verner_photoionization_database", stop)
-    assert DZConfig().kurucz_electron_stark is True
     with pytest.raises(_Stop):
-        stellar.compute_dz(DZConfig(kurucz_electron_stark=enabled))
-    assert len(calls) == (1 if enabled else 0)
+        stellar.compute_dz(DZConfig())
+    assert len(calls) == 1
 
 
 def test_forbidden_lines_sharing_levels_are_not_broadened():
@@ -128,8 +126,7 @@ def test_forbidden_lines_sharing_levels_are_not_broadened():
     assert types["M2"] is None
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_daz_config_option_controls_attachment(monkeypatch, enabled):
+def test_daz_attaches_kurucz_electron_stark(monkeypatch):
     import wd_spectra.models.daz as daz
     from wd_spectra.models import DAZConfig
 
@@ -144,7 +141,6 @@ def test_daz_config_option_controls_attachment(monkeypatch, enabled):
 
     monkeypatch.setattr(daz, "atomic_database_with_kurucz_electron_stark", fake_attach)
     monkeypatch.setattr(daz, "read_verner_photoionization_database", stop)
-    assert DAZConfig().kurucz_electron_stark is True
     with pytest.raises(_Stop):
-        daz.compute_daz(DAZConfig(kurucz_electron_stark=enabled))
-    assert len(calls) == (1 if enabled else 0)
+        daz.compute_daz(DAZConfig())
+    assert len(calls) == 1

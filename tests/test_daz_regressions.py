@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from wd_spectra import DAZConfig, compute_daz
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
+from wd_spectra.models.common import config_from_stored
 
 pytestmark = pytest.mark.spectral
 CONTROLS = Path(__file__).parent / "data/daz_regressions"
@@ -17,7 +18,7 @@ APPROVED = Path(__file__).parent / "data/approved_regressions/current"
 def test_daz_paper_spectrum(case, monkeypatch):
     path = CONTROLS / (case + ".npz")
     with np.load(path) as saved:
-        config = DAZConfig(**json.loads(str(saved["config_json"])))
+        config = config_from_stored(DAZConfig, json.loads(str(saved["config_json"])))
         wave = saved["wavelength"]
     with np.load(APPROVED / ("daz-" + case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])

@@ -6,11 +6,6 @@ This directory retains component tests and compatibility command entry points.
 qualified recipes below are experimental physical models with numerical
 validation at discrete points; see [tested temperatures](../../docs/tested-temperature-ranges.md).
 
-The low-level drivers also retain explicitly selected comparison/proposal
-experiments needed by the investigation. **Their availability is not evidence
-that they improve convergence.** Do not enable additional flags and inherit
-the qualifications of the recipes below.
-
 ## Setup
 
 Run from the repository root:
@@ -31,14 +26,13 @@ There is no automatic checkpoint lookup or failed-model substitution.
 ### Additional molecular-DAB data
 
 The usual atomic data, He-REOS.3 and H2-H2 CIA are already bundled. Molecular
-DAB additionally requires these exact, unmodified external tables:
+DAB additionally requires this exact, unmodified external table:
 
 | File | Source | SHA-256 |
 | --- | --- | --- |
 | `H2-He_2011.cia` (~140 MiB) | [HITRAN CIA download page](https://hitran.org/cia/), select this filename | `4f0eb9cd69a1c383f53a1431495bae0c01a30a41cc1b8433c2d726763ff45431` |
-| `1H2__RACPPK.states.bz2` | [ExoMol RACPPK states](https://exomol.com/db/H2/1H2/RACPPK/1H2__RACPPK.states.bz2) | `276f5a36d094e7e1417c44f11c1d173417e92629c5f747b6a862bcce5c374a81` |
 
-Set `OPENWD_RESEARCH_DATA` to the directory containing those two files,
+Set `OPENWD_RESEARCH_DATA` to the directory containing that file,
 or supply `research_data=...` to `run_model`. The default lookup is the
 selected `ModelData.cache / "molecular-opacity"` directory. No data
 are searched for in an adjacent checkout. Verify before running:
@@ -47,13 +41,8 @@ are searched for in an adjacent checkout. Verify before running:
 python -m wd_spectra._cool.check_data
 ```
 
-The external tables are not redistributed here. Follow HITRAN's citation
-policy and cite the Abel et al. H2-He calculation. RACPPK is the Roueff et al.
-(2019, A&A 630 A58) ground-electronic-state H2 calculation; ExoMol distributes
-it under [CC BY-SA 4.0](https://exomol.com/data/licence/). Its 302 bound levels
-are used for both equilibrium and energy, not a fitted atmosphere correction.
-An optional independent partition-table test uses `1H2__RACPPK.pf` from the
-[same dataset](https://exomol.com/data/molecules/H2/1H2/RACPPK/).
+The external table is not redistributed here. Follow HITRAN's citation
+policy and cite the Abel et al. H2-He calculation.
 
 ## Dense pure-He DB: fresh 5000 or 8000 K
 
@@ -93,8 +82,7 @@ measured correction, all-depth flux, local energy, scattering and bottom-boundar
 checks. An independent 16-angle / refined-wavelength audit also passed.
 The earlier 166-layer continuation is historical evidence, not the public
 reproduction recipe. The fresh calculation screens its lower boundary.
-The old `--refine-atmosphere` / `--extend-atmosphere` experiments remain
-diagnostics only. Molecular 7250 and 5000 K remain unqualified.
+Molecular 7250 and 5000 K remain unqualified.
 
 ## Tests and historical workspace
 

@@ -46,7 +46,7 @@ def test_direct_research_synthesis_refuses_unlabeled_production_state():
 
 
 def test_mass_synthesis_matches_structure_and_rejects_wrong_transfer(monkeypatch):
-    from mass_conservative_feautrier import mass_field
+    from wd_spectra._mass_feautrier import mass_field
     m=np.geomspace(1e-8,100.,25);t=5000*(1+m)**.1;wave=np.geomspace(1000,1e6,100)
     atmosphere=Atmosphere(m,t,{'experimental_dense_helium':'test','experimental_mass_conservative_transfer':True})
     absorption=np.broadcast_to(np.exp(np.sin(np.arange(25))),(100,25));scattering=absorption*.2

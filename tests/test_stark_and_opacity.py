@@ -62,7 +62,6 @@ from wd_spectra.convection import (
 )
 from wd_spectra.atmosphere import Atmosphere, _metal_line_opacity_sampling_grid
 from wd_spectra.eos import (
-    hummer_mihalas_hydrogen_lte,
     hummer_mihalas_hydrogen_helium_thermodynamics,
     hummer_mihalas_hydrogen_thermodynamics,
     ideal_hydrogen_lte,
@@ -1298,7 +1297,6 @@ def test_adaptive_newton_converges_cool_convective_flux_control():
         include_brackett_lines=False,
         mixing_length_alpha=0.7,
         n_angle=2,
-        structure_solver="adaptive-newton",
     )
 
     # This coarse flux-control test is not a local-energy/grid certificate.
@@ -1358,7 +1356,6 @@ def test_adaptive_newton_converges_warm_radiative_flux_control_with_ml2():
         include_brackett_lines=False,
         mixing_length_alpha=0.7,
         n_angle=2,
-        structure_solver="adaptive-newton",
     )
 
     assert atmosphere.metadata["radiative_equilibrium_solver_converged"]
@@ -1386,7 +1383,6 @@ def test_adaptive_hydrogen_supplied_temperature_remains_a_warm_start():
         n_angle=1,
         initial_temperature=seed.temperature,
         initial_column_mass=seed.column_mass,
-        structure_solver="adaptive-newton",
     )
 
     assert atmosphere.metadata["initial_temperature_was_supplied"]
@@ -1475,39 +1471,6 @@ def test_hydrogen_relaxation_uses_coupled_total_flux_ml2_solver(
     assert calls > 0
     assert atmosphere.metadata["structure_solver"] == "adaptive-trust-region-newton"
     assert np.isfinite(atmosphere.metadata["maximum_total_flux_residual"])
-
-
-def test_hydrogen_relaxation_preserves_custom_eos_state_and_label():
-    def custom_eos(temperature, pressure):
-        state = hummer_mihalas_hydrogen_lte(
-            temperature,
-            pressure,
-            correlated_microfields=True,
-        )
-        return replace(state, chemical_model="test-custom-hydrogen-eos")
-
-    atmosphere = radiative_equilibrium_hydrogen_atmosphere(
-        12_000.0,
-        8.0,
-        n_depth=8,
-        max_iterations=1,
-        n_continuum_wavelength=80,
-        include_balmer_lines=False,
-        include_lyman_lines=False,
-        include_paschen_lines=False,
-        include_brackett_lines=False,
-        mixing_length_alpha=None,
-        n_angle=1,
-        hydrogen_eos_function=custom_eos,
-    )
-
-    assert atmosphere.hydrogen_lte_state is not None
-    assert (
-        atmosphere.hydrogen_lte_state.chemical_model
-        == "test-custom-hydrogen-eos"
-    )
-    assert atmosphere.metadata["eos"] == "test-custom-hydrogen-eos"
-    assert atmosphere.metadata["radiative_equilibrium_custom_hydrogen_eos"]
 
 
 def test_radiative_equilibrium_samples_hydrogen_line_cores():

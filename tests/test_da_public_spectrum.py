@@ -18,6 +18,7 @@ from wd_spectra import DAConfig, compute_da
 from wd_spectra._compat import trapezoid
 from wd_spectra.constants import STEFAN_BOLTZMANN
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
+from wd_spectra.models.common import config_from_stored
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 DEFAULT_CONTROLS = Path(__file__).parent / "data/da_cubic_regressions"
@@ -68,7 +69,7 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     monkeypatch.setattr(stellar, "radiative_equilibrium_hydrogen_atmosphere", forbidden)
     path = DEFAULT_CONTROLS / (case + ".npz")
     with np.load(path) as saved:
-        cfg = DAConfig(**json.loads(str(saved["config_json"])))
+        cfg = config_from_stored(DAConfig, json.loads(str(saved["config_json"])))
         wave = saved["wavelength"]
     with np.load(APPROVED / ("public-" + case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])

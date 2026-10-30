@@ -16,7 +16,7 @@ from wd_spectra.constants import STEFAN_BOLTZMANN
 def validate_discretization(coarse,fine):
     """A depth certificate must not mix simultaneous transfer/grid changes."""
     a,b=coarse['atmosphere'],fine['atmosphere']
-    from heminus_join_experiment import METADATA_KEY,HARD_JOIN
+    from wd_spectra._cool.heminus_join import METADATA_KEY,HARD_JOIN
     if a.get(METADATA_KEY,HARD_JOIN)!=b.get(METADATA_KEY,HARD_JOIN):
         raise ValueError('depth certification requires the same He-minus opacity join')
     if bool(a.get('experimental_mass_conservative_transfer',False))!=bool(b.get('experimental_mass_conservative_transfer',False)):

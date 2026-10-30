@@ -237,10 +237,8 @@ def test_unclosed_eliminated_material_is_a_recoverable_trial(monkeypatch, defect
         metal_population_iterations: int = 1
         metal_population_minimum_iterations: int = 1
         metal_population_damping: float = 1.
-        metal_population_acceleration_depth: int = 0
         coupled_population_acceleration_depth: int = 0
         helium_population_damping: float = 1.
-        use_population_ali: bool = False
         def rebuild_atmosphere(self, a, t, p):
             return replace(a, temperature=t)
         def solve_populations(self, a, p, **kwargs):
@@ -276,10 +274,8 @@ def test_provisional_continuation_does_not_use_final_material_tolerance(monkeypa
         metal_population_iterations: int = 1
         metal_population_minimum_iterations: int = 1
         metal_population_damping: float = 1.0
-        metal_population_acceleration_depth: int = 0
         coupled_population_acceleration_depth: int = 0
         helium_population_damping: float = 1.0
-        use_population_ali: bool = False
 
         def rebuild_atmosphere(self, atmosphere, temperature, population):
             return replace(atmosphere, temperature=temperature)
@@ -324,10 +320,8 @@ def test_full_nlte_relaxation_uses_declared_material_tolerance_and_plain_near_ro
         metal_population_iterations: int = 1
         metal_population_minimum_iterations: int = 1
         metal_population_damping: float = 1.0
-        metal_population_acceleration_depth: int = 0
         coupled_population_acceleration_depth: int = 10
         helium_population_damping: float = 1.0
-        use_population_ali: bool = False
 
         def rebuild_atmosphere(self, atmosphere, temperature, population):
             return replace(atmosphere, temperature=temperature)
@@ -423,10 +417,8 @@ def test_material_closure_accepts_an_already_closed_first_map(monkeypatch):
         metal_population_iterations: int=5
         metal_population_minimum_iterations: int=3
         metal_population_damping: float=1.
-        metal_population_acceleration_depth: int=0
         coupled_population_acceleration_depth: int=0
         helium_population_damping: float=1.
-        use_population_ali: bool=False
         def rebuild_atmosphere(self,a,t,p):
             return replace(a,temperature=t)
         def solve_populations(self,a,p,**kwargs):

@@ -6276,13 +6276,12 @@ def _quasistatic_line_profile(
     gaussian_sigma: float,
     lorentz_hwhm: float,
     frequency_scale: float,
-    mixing: float,
     support_half_width: float | None = None,
 ) -> FloatArray:
-    """Impact profile blended with its quasi-static Holtsmark envelope.
+    """Impact profile enveloped by its quasi-static Holtsmark profile.
 
-    Returns ``(1 - mixing) V + mixing max(V, H)`` (unnormalized) on
-    ``wavelength``.  Points within 25 impact widths of the centre are
+    Returns ``max(V, H)`` (unnormalized) on ``wavelength``.  Points within
+    25 impact widths of the centre are
     evaluated exactly; the smooth outer profile is evaluated on log-spaced
     offset nodes and interpolated, which keeps wide quasi-static windows on
     dense opacity grids affordable.
@@ -6292,7 +6291,7 @@ def _quasistatic_line_profile(
         impact = _voigt_profile_per_angstrom(
             points, center, gaussian_sigma, lorentz_hwhm
         )
-        if frequency_scale <= 0.0 or mixing <= 0.0:
+        if frequency_scale <= 0.0:
             return impact
         points_cm = points * 1.0e-8
         beta = np.abs(LIGHT_SPEED / points_cm - LIGHT_SPEED / (center * 1.0e-8)) / frequency_scale
@@ -6300,7 +6299,7 @@ def _quasistatic_line_profile(
             _tabulated_holtsmark_distribution(beta) / (2.0 * frequency_scale)
             * LIGHT_SPEED / points_cm**2 * 1.0e-8
         )
-        return (1.0 - mixing) * impact + mixing * np.maximum(impact, static)
+        return np.maximum(impact, static)
 
     offset = wavelength - center
     core = 25.0 * max(gaussian_sigma, lorentz_hwhm, 1.0e-4)
@@ -6330,7 +6329,6 @@ def _quasistatic_line_profile_area(
     gaussian_sigma: float,
     lorentz_hwhm: float,
     frequency_scale: float,
-    mixing: float,
     half_window: float,
 ) -> float:
     """Area of :func:`_quasistatic_line_profile` over its full support.
@@ -6351,7 +6349,7 @@ def _quasistatic_line_profile_area(
     grid = center + offsets
     return float(trapezoid(
         _quasistatic_line_profile(
-            grid, center, gaussian_sigma, lorentz_hwhm, frequency_scale, mixing
+            grid, center, gaussian_sigma, lorentz_hwhm, frequency_scale
         ),
         grid,
     ))
@@ -8870,7 +8868,6 @@ def metal_line_mass_absorption_coefficient(
     include_oxygen_i_quasistatic_microfields: bool = False,
     oxygen_i_quasistatic_minimum_effective_n: float = 6.5,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "two-level",
     mg_ii_kurucz_series_widths: bool = False,
     include_rydberg_dissolution: bool = False,
     rydberg_dissolution_cutoff_probability: float | None = None,
@@ -8931,10 +8928,12 @@ def metal_line_mass_absorption_coefficient(
     complete ion stages.  It is mutually exclusive with the element filter;
     this supports physically distinct neutral/ionized profile families
     without selecting individual observed lines.
-    ``include_linear_stark_quasistatic`` adds the ionic quasi-static
-    (Holtsmark) linear-Stark envelope to every genuine Rydberg line (see
-    :func:`linear_stark_rydberg_level`), weighted depth by depth by
-    :func:`linear_stark_mixing_fraction`; the oscillator strength is conserved.
+    ``include_linear_stark_quasistatic`` gives every genuine Rydberg line
+    (see :func:`linear_stark_rydberg_level`) whose
+    :func:`linear_stark_mixing_fraction` exceeds 1e-3 at some depth the
+    impact profile convolved with the ionic quasi-static Stark pattern of its
+    ``n``-manifold (:func:`manifold_quasistatic_line_profile`); the
+    oscillator strength is conserved.
     ``mg_ii_kurucz_series_widths`` gives every Mg II 2p6-core multiplet its
     Kurucz electron width (D6); otherwise only 4f-8g (4852 A) uses Kurucz.
     ``rydberg_dissolution_elements`` limits ``include_rydberg_dissolution`` to
@@ -8952,8 +8951,6 @@ def metal_line_mass_absorption_coefficient(
     is below the catalogue floor or the opacity screen.
     """
 
-    if linear_stark_profile not in ("two-level", "manifold"):
-        raise ValueError("linear_stark_profile must be 'two-level' or 'manifold'")
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
     if uv_resonance_support_angstrom is not None and any(
         not np.isfinite(value) or value < 0.0
@@ -9785,10 +9782,7 @@ def metal_line_mass_absorption_coefficient(
                 30.0 * frequency_scale * center_cm**2 / LIGHT_SPEED * 1.0e8
             )
             upper_manifold = lower_manifold = None
-            if (
-                quasistatic_series_rate is None
-                and linear_stark_profile == "manifold"
-            ):
+            if quasistatic_series_rate is None:
                 upper_manifold = rydberg_stark_manifold(
                     atomic_database, ion, upper_level
                 )
@@ -9835,10 +9829,6 @@ def metal_line_mass_absorption_coefficient(
                 local_scale = float(frequency_scale[depth])
                 sigma = float(gaussian_sigma[depth])
                 hwhm = float(lorentz_hwhm[depth])
-                mixing = (
-                    1.0 if stark_mixing is None or quasistatic_series_rate is not None
-                    else float(stark_mixing[depth])
-                )
                 half_window = max(
                     METAL_LINE_MINIMUM_HALF_WINDOW_ANGSTROM,
                     10.0 * sigma,
@@ -9869,13 +9859,13 @@ def metal_line_mass_absorption_coefficient(
                     area = 1.0
                 else:
                     combined_profile = _quasistatic_line_profile(
-                        selected_wavelength, center, sigma, hwhm, local_scale, mixing,
+                        selected_wavelength, center, sigma, hwhm, local_scale,
                         half_window,
                     )
                     # The normalization is a property of the line, not of the
                     # requested wavelengths: integrate over its full support.
                     area = _quasistatic_line_profile_area(
-                        center, sigma, hwhm, local_scale, mixing, half_window
+                        center, sigma, hwhm, local_scale, half_window
                     )
                 if not np.isfinite(area) or area <= 0.0:
                     continue

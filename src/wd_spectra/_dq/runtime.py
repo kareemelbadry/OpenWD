@@ -25,9 +25,9 @@ from .data import data_root, validate_data
 from .c2_ca import load_ca_table
 from .swan_strength_cache import CachedSwan
 from .continuum_batches import CONTINUUM_BATCH_SIZE
-from .dq_current_energy_experiment import current_energy_phase_rows
-from .dq_thermal_corner_experiment import corner_aware_thermal_proposals
-from .dq_uv_sampling_experiment import refined_material
+from .dq_current_energy import current_energy_phase_rows
+from .dq_thermal_corner import corner_aware_thermal_proposals
+from .dq_structure_sampling import refined_material
 from .inexact_thermal import error_controlled_thermal_steps
 from .planck_remainder import nonlinear_planck_trials
 from .provenance import digest, source_hashes

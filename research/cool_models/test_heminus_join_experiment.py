@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 from wd_spectra import helium
-from heminus_join_experiment import (coefficient_with_smooth_join,heminus_join_scope,
-    active_policy,HARD_JOIN,SMOOTH_JOIN,validate_continuation_policy)
+from wd_spectra._cool.heminus_join import (coefficient_with_smooth_join,heminus_join_scope,
+    active_policy,HARD_JOIN,SMOOTH_JOIN)
 
 
 def test_join_preserves_explicit_sources_and_unchanged_domains():
@@ -45,10 +45,3 @@ def test_scope_is_explicit_and_restored_after_exception():
             assert helium.helium_minus_free_free_coefficient(.5063,5000)==original(.5063,5000,prescription='john1968')
             raise RuntimeError('probe')
     assert active_policy()==HARD_JOIN and helium.helium_minus_free_free_coefficient is original
-
-
-def test_resume_cannot_silently_change_back_to_the_old_opacity():
-    assert validate_continuation_policy(HARD_JOIN,SMOOTH_JOIN)
-    assert not validate_continuation_policy(SMOOTH_JOIN,SMOOTH_JOIN)
-    with pytest.raises(ValueError,match='no silent opacity reversion'):
-        validate_continuation_policy(SMOOTH_JOIN,HARD_JOIN)

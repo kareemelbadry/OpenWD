@@ -4,6 +4,6 @@ import runpy
 import sys
 
 if __name__ == "__main__":
-    runpy.run_module("wd_spectra._cool.pseudo_time_dense_experiment", run_name="__main__")
+    runpy.run_module("wd_spectra._cool.pseudo_time", run_name="__main__")
 else:
-    sys.modules[__name__] = importlib.import_module("wd_spectra._cool.pseudo_time_dense_experiment")
+    sys.modules[__name__] = importlib.import_module("wd_spectra._cool.pseudo_time")

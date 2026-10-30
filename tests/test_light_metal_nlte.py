@@ -47,7 +47,6 @@ from wd_spectra.metals import (
 from wd_spectra.light_metal_nlte import (
     _accumulate_metal_line_profiles_python,
     _holtsmark_microfield_distribution,
-    _ion_dynamic_holtsmark_distribution,
     hot_metal_line_nlte_coefficients,
     _impact_profile_damping_rate,
     _mapped_fine_structure_components,
@@ -456,21 +455,6 @@ def test_formula4_uses_half_the_microfield_magnitude_distribution_per_side():
     )
 
 
-def test_ion_motion_fills_holtsmark_center_and_preserves_profile_area():
-    beta = np.linspace(0.0, 80.0, 160_001)
-    static = _ion_dynamic_holtsmark_distribution(beta, 0.0)
-    moving = _ion_dynamic_holtsmark_distribution(beta, 0.15)
-
-    assert static[0] == 0.0
-    assert moving[0] > 0.02
-    assert 2.0 * trapezoid(moving, beta) == pytest.approx(1.0, rel=5.0e-3)
-    # Over the beta<=30 support used by formula 4 the dynamic correction is
-    # still core dominated; the static wing remains the leading term.
-    assert moving[np.searchsorted(beta, 10.0)] < 1.25 * static[
-        np.searchsorted(beta, 10.0)
-    ]
-
-
 def test_c_iv_resonance_uses_published_electron_impact_widths():
     assert _tabulated_electron_stark_fwhm_angstrom(
         "C", 3, 1548.20, 1.0e17, 100_000.0
@@ -500,7 +484,6 @@ def test_extended_impact_support_does_not_extrapolate_static_holtsmark_wing():
         np.asarray((3.0,)),
         np.asarray(((field_scale,),)),
         np.asarray(((1.0e-18,),)),
-        np.zeros((1, 1)),
         np.asarray(((1.0e10,),)),
         np.asarray(((1.0,),)),
         np.asarray(((0.0,),)),
@@ -567,7 +550,7 @@ def test_compiled_metal_line_profile_accumulation_matches_python():
     _accumulate_metal_line_profiles_python(
         wavelength, planck, center, strength, gaussian, lorentz,
         minimum_half_window,
-        static_scale, static_amplitude, np.zeros_like(static_scale),
+        static_scale, static_amplitude,
         population, lower_departure,
         upper_departure, exponential, python_absorption, python_emissivity,
         True,
@@ -680,7 +663,7 @@ def test_formula4_static_wings_enter_metal_line_rate_mean():
     assert static_lambda[0, 0] > impact_lambda[0, 0] + 0.015
 
 
-def test_formula4_ion_dynamic_scale_contracts_only_selected_series():
+def test_formula4_quasi_static_wing_raises_only_the_line_wing():
     atmosphere = gray_helium_atmosphere(100_000.0, 7.0, n_depth=3)
     ions = {}
     for charge in range(4):
@@ -739,31 +722,20 @@ def test_formula4_ion_dynamic_scale_contracts_only_selected_series():
         departures,
         minimum_oscillator_strength=1.0e-6,
     )
-    narrowed, _ = hot_metal_line_nlte_coefficients(
+    impact, _ = hot_metal_line_nlte_coefficients(
         atmosphere,
         wavelength,
         database,
         lte_state,
         departures,
         minimum_oscillator_strength=1.0e-6,
-        static_linear_stark_frequency_scales={("C", 3, 4, 9): 0.25},
-    )
-    unmatched, _ = hot_metal_line_nlte_coefficients(
-        atmosphere,
-        wavelength,
-        database,
-        lte_state,
-        departures,
-        minimum_oscillator_strength=1.0e-6,
-        static_linear_stark_frequency_scales={("C", 3, 4, 10): 0.25},
+        include_static_linear_stark=False,
     )
     center = np.argmin(np.abs(wavelength - 1135.0))
     wing = np.argmin(np.abs(wavelength - 1138.0))
-    np.testing.assert_allclose(narrowed[center], static[center])
-    # The middle layer is static-wing dominated; the deepest layer is already
-    # impact dominated and should therefore remain unchanged by this option.
-    assert narrowed[wing, 1] < 0.2 * static[wing, 1]
-    np.testing.assert_allclose(unmatched, static)
+    np.testing.assert_allclose(impact[center], static[center])
+    # The middle layer is static-wing dominated.
+    assert impact[wing, 1] < 0.2 * static[wing, 1]
 
 
 @pytest.mark.parametrize("n_depth", [1, 4, 8, 40, 41])
@@ -948,21 +920,6 @@ def test_diagnostic_li_like_doublets_use_tabulated_stark_widths():
         * 1.0e8
     )
     np.testing.assert_allclose(fwhm, 0.463)
-
-    half_damping = _impact_profile_damping_rate(
-        line,
-        upper_radiative_rate=9.0e8,
-        generic_stark_rate_per_electron=2.0e-8,
-        electron_density=1.0e17,
-        temperature=100_000.0,
-        element="C",
-        charge=3,
-        tabulated_electron_stark_width_scale=0.5,
-    )
-    np.testing.assert_allclose(
-        half_damping - line.profile_parameters[1],
-        0.5 * (damping - line.profile_parameters[1]),
-    )
 
 
 def test_term_transition_maps_to_actual_fine_structure_components():
@@ -2154,7 +2111,7 @@ def test_compiled_holtsmark_interpolation_preserves_central_and_wing_profiles(qu
     absorption=np.zeros_like(planck);emission=np.zeros_like(planck)
     expected_a=np.zeros_like(planck);expected_e=np.zeros_like(planck)
     args=(wave,planck,center,np.array([0.]),one*.1,one*.01,np.array([30.]),scale,one)
-    _accumulate_metal_line_profiles_python(*args,zero,one,one,one,one*.2,expected_a,expected_e,True)
+    _accumulate_metal_line_profiles_python(*args,one,one,one,one*.2,expected_a,expected_e,True)
     _rt.accumulate_metal_line_profiles(*args,one,one,one,one*.2,
         _HOLTSMARK_COMPILED_ARGUMENT,_HOLTSMARK_COMPILED_WEIGHT*quadrature_scale,absorption,emission,True)
     actual_beta=np.abs(2.99792458e10/(wave*1e-8)-2.99792458e10/(center[0]*1e-8))/scale[0,0]

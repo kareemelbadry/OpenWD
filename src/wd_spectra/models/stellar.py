@@ -84,12 +84,7 @@ class DAConfig:
     # (h2_lines; Xu et al. 2013 detect them below ~14,000 K).  When enabled,
     # molecules are kept in the EOS at any temperature.  Final spectrum only.
     h2_lyman_werner_lines: bool = False
-    h3plus_partition_model: Literal[
-        "neale-tennyson-1995", "none"
-    ] = "neale-tennyson-1995"
     mixing_length_alpha: float | None = 0.7
-    # Retired: True raises; kept so stored configurations still load.
-    use_cool_mean_3d_temperature_differential: bool = False
     # Line-profile mode.  The Tremblay et al. (2013) <3D>-1D temperature
     # difference (log g=8 CO5BOLD sequence, 5997-12999 K) is added to the
     # converged 1D structure with hydrostatic re-integration on the Rosseland
@@ -101,10 +96,6 @@ class DAConfig:
     mean_3d_line_profiles: bool = False
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
-    atmosphere_solver: Literal["adaptive-newton"] = (
-        "adaptive-newton"
-    )
-    multigrid_initialization: bool = False
     # Flux-conservation numerics (see DZ): photosphere-concentrated structure
     # depths and a depth-refined final formal solution.  0 and 1 restore the
     # historical uniform depths and bare-grid formal solution.  None selects
@@ -136,8 +127,6 @@ class DBConfig:
     logg: float = 8.0
     quality: Quality = "standard"
     mixing_length_alpha: float = 1.25
-    atmosphere_solver: Literal["adaptive-newton"] = "adaptive-newton"
-    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
     # Flux-conservation numerics (see DZ): photosphere-concentrated structure
     # depths and a depth-refined final formal solution.  0 and 1 restore the
     # historical uniform depths and bare-grid formal solution.
@@ -169,7 +158,6 @@ class DABConfig:
     log_hydrogen_to_helium: float = -2.0
     quality: Quality = "standard"
     mixing_length_alpha: float = 1.25
-    atmosphere_solver: Literal["adaptive-newton"] = "adaptive-newton"
     lyman_profile_source: Literal["allard", "stark"] = "allard"
     # None: Allard profiles at every Teff; below the 9000-K table the local
     # temperature is clamped to it, as already happens in the cool upper
@@ -178,7 +166,6 @@ class DABConfig:
     allard_minimum_effective_temperature: float | None = None
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
-    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
     include_molecules: bool = False
     h2_he_cia_path: str | None = None
     # Flux-conservation numerics (see DZ): photosphere-concentrated structure
@@ -192,9 +179,7 @@ class DABConfig:
     abundances: Mapping[str, float] | None = None
     maximum_metal_charge: int | Mapping[str, int] = 4
     metal_classical_electron_stark: bool = False
-    structure_opacity_sampling_resolution: float = 1000.0
     formal_maximum_metal_lines: int | None = None
-    formal_minimum_metal_oscillator_strength: float = 1.0e-4
     # Opt-in E1 lines for ions whose Stout files hold only forbidden lines:
     # "rauch-zn-cu" (Rauch et al. Zn IV-V, Cu IV-VI) and "kurucz-fe-ni"
     # (Kurucz measured-level Fe IV, VII and Ni IV-VI).  The default keeps
@@ -227,7 +212,13 @@ class DZConfig:
 
     The defaults reproduce the published GD 40 composition used by the
     multi-object SPY validation suite.  Abundances are log10 number ratios to
-    helium.
+    helium.  The dense-fluid physics validated on cool DZ/DZA spectra is
+    always on: the REOS3 helium EOS, the Rogers-Young dense He- free-free
+    correction, John's He- free-free with a partial-wave shape below his
+    0.5063-micron edge, unified Mg I b, Mg II h&k, Ca II H&K, Na I D and
+    Si II 1260 + He profiles, Kurucz electron-impact Stark widths for Stout
+    lines without a measured one, level-resolved photoionization of the
+    bundled model atoms and occupation-probability metal partition functions.
     """
 
     effective_temperature: float = 15_300.0
@@ -237,21 +228,14 @@ class DZConfig:
     )
     log_hydrogen_abundance: float | None = -6.16
     quality: Quality = "standard"
-    neutral_broadening: Literal["unsold", "montreal", "none"] = "unsold"
     mixing_length_alpha: float | None = 1.25
-    atmosphere_solver: Literal["adaptive-newton"] = "adaptive-newton"
     maximum_metal_charge: int = 3
     # Flux conservation: the structure absorbs the synthesis line list
     # (opacity-sampled), its 40 depths are concentrated across the
     # photosphere, and the formal solution subdivides each depth interval.
-    # ``structure_opacity_sampling_resolution=None`` restores the historical
-    # line-centered 1000-line structure (with its own f >= 0.01 cut).
     structure_maximum_metal_lines: int | None = None
-    structure_minimum_metal_oscillator_strength: float | None = None
-    structure_opacity_sampling_resolution: float | None = 1000.0
     photospheric_depth_concentration: float = 1.0
     formal_maximum_metal_lines: int | None = None
-    formal_minimum_metal_oscillator_strength: float = 1.0e-4
     synthesis_transfer_depth_refinement: int = 4
     lyman_profile_source: Literal["allard", "stark"] = "stark"
     allard_minimum_effective_temperature: float = 9_000.0
@@ -260,69 +244,20 @@ class DZConfig:
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = (
         "chianti-reduced"
     )
-    unified_metal_helium_profiles: Literal[
-        "production", "legacy", "off"
-    ] = "production"
-    # The dense-fluid defaults below (REOS3, Rogers-Young He- ff, partial-wave
-    # He- ff, computed unified He tables) are the configuration validated on ten
-    # cool DZ/DZA spectra (4000-8700 K); the alternatives reproduce older releases.
-    dense_helium_eos: Literal["reos3", "ideal"] = "reos3"
-    # Dense-fluid He-minus free-free correction (Iglesias, Rogers & Saumon
-    # 2002 Born ratio with a Rogers-Young neutral-He S(k); no 1/|eps|^2).
-    # In cool DZ photospheres (rho ~ 0.1-0.6 g/cm^3) it removes 20-70% of the
-    # dominant continuum opacity.  "off" keeps the ideal John (1994) value.
-    dense_helium_free_free: Literal["off", "rogers-young"] = "rogers-young"
-    # He- free-free below John's (1994) 0.5063-micron edge: "automatic" keeps
-    # the Carbon et al. (1969) fit to John (1968), which jumps by 16-24% at
-    # the edge for 3000-5000 K; "partial-wave" uses John's edge value times
-    # a first-principles e-He partial-wave wavelength shape (continuous).
-    helium_minus_free_free: Literal["automatic", "partial-wave"] = "partial-wave"
     # "nist-asd" replaces exactly matched Stout transitions (UV included)
     # with evaluated NIST values; the default keeps the paper-figure data.
     strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
-    # Opacity-Project photoionization from every tabulated level of the
-    # bundled TLUSTY/SIROCCO model atoms, in place of Verner ground-state fits
-    # for those ions.  Excited-level continua (Mg I 3P, Si I 1D, ...) carry
-    # much of the near-UV bound-free opacity of cool DZ atmospheres.
-    level_resolved_photoionization: bool = True
-    # Hummer--Mihalas occupation-probability metal partition functions
-    # (Q-MHD charged microfields plus neutral-He excluded volume), with the
-    # same level survival applied to the line opacity.
-    occupation_probability_metal_partitions: bool = True
-    # Kurucz electron-impact Stark constants (log Gamma_e/n_e at 10^4 K) for
-    # Stout E1 lines that have no tabulated Stark width, matched to Kurucz
-    # lines once at build time (bundled table, 900-11000 A).  Measured widths
-    # always take precedence; oscillator strengths and neutral broadening are
-    # unchanged.  False restores the previous default, in which such lines
-    # have no electron broadening.
-    kurucz_electron_stark: bool = True
-    # Unified (non-impact) Si+--He profile for Si II 1260/1264/1265 from
-    # model-potential binary-collision calculations, replacing their
-    # Lorentzian neutral-He broadening.  No stellar fitting.  False restores
-    # the previous Unsold neutral-He Lorentzian for these lines.
-    si_ii_he_unified_profile: bool = True
-    # Unified Mg I b (5169/5174/5185 A) + He profiles computed from the
-    # Allard et al. (2016) potentials (3000-12000 K, n_He 1e19-1e23; the blue
-    # satellites pile up and move blueward with density).  False keeps the
-    # Unsold Lorentzian; the satellite-dominated blue wing of cool DZs is then absent.
-    mg_i_b_he_unified_profile: bool = True
-    # Unified Mg II h&k and Ca II H&K + He profiles computed with the OpenWD
-    # unified-profile engine from ab initio ion-He potentials (Mg+-He: Allard
-    # et al. 2016 GG; Ca+-He: Alekseev, with R-dependent dipoles), 3000-12000 K
-    # and n_He 1e19-1e23 cm^-3.  Their far wings dominate the 3000-4500 A
-    # metal opacity of cool, dense DZ photospheres, where the impact
-    # Lorentzian is 3-20x too weak.
-    mg_ii_he_unified_profile: bool = True
-    ca_ii_he_unified_profile: bool = True
-    # Unified Na I D + He profiles computed from the Dell'Angelo et al. (2012)
-    # potentials (Allard et al. 2023 figures), same grid and dense-fluid
-    # treatment as the Mg II/Ca II tables.  False keeps the impact Lorentzian.
-    na_i_he_unified_profile: bool = True
-    # Legacy import switch for bare/custom atoms. Independently corroborated
-    # Si II additions are already in the default reader; this switch neither
-    # removes them nor appends the former unfiltered supplement to that atom.
-    si_ii_kurucz_transitions: bool = True
 
+
+# Trihydrogen-cation partition function of the DA and DAZ molecular EOS.
+_H3PLUS_PARTITION_MODEL = "neale-tennyson-1995"
+# Metal lines of the polluted presets: the f-value floor of the structure and
+# synthesis line lists and the opacity-sampling resolution of the structure.
+_METAL_MINIMUM_OSCILLATOR_STRENGTH = 1.0e-4
+_STRUCTURE_OPACITY_SAMPLING_RESOLUTION = 1000.0
+# DZ He- free-free below John's (1994) 0.5063-micron edge: his edge value
+# times a first-principles e-He partial-wave wavelength shape (continuous).
+_HELIUM_MINUS_PRESCRIPTION = "partial-wave"
 
 # mean_3d_line_profiles: the Tremblay et al. (2013) differential exists only
 # at log g=8 (SPY validation spans log g=7.60-8.74) and for 5997-12999 K.  Its
@@ -531,11 +466,6 @@ def compute_da(
         or config.lower_boundary_extensions < 0
     ):
         raise ValueError("lower_boundary_extensions must be a nonnegative integer")
-    if config.use_cool_mean_3d_temperature_differential:
-        raise ValueError(
-            "use_cool_mean_3d_temperature_differential is retired; use "
-            "mean_3d_line_profiles=True"
-        )
     self_broadening_prescription = _da_self_broadening_prescription(
         config.effective_temperature, config.balmer_self_broadening_prescription
     )
@@ -543,11 +473,6 @@ def compute_da(
     if molecules:
         data.require(data.h2_h2_cia)
         cia = read_borysow_h2_h2_cia_table(data.h2_h2_cia)
-    h3plus_partition_model = (
-        None
-        if config.h3plus_partition_model == "none"
-        else config.h3plus_partition_model
-    )
     if not relax_atmosphere and initial_atmosphere is None:
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
@@ -560,7 +485,7 @@ def compute_da(
             correlated_microfields=True,
             include_molecules=molecules,
             include_negative_hydrogen=molecules,
-            trihydrogen_ion_partition_model=h3plus_partition_model,
+            trihydrogen_ion_partition_model=_H3PLUS_PARTITION_MODEL,
             h2_h2_cia_table=cia,
             unified_allard_table=allard,
             mixing_length_alpha=config.mixing_length_alpha,
@@ -570,7 +495,6 @@ def compute_da(
             balmer_self_broadening_truncation_closure=(
                 config.balmer_self_broadening_truncation_closure
             ),
-            structure_solver=config.atmosphere_solver,
             convective_seed=config.convective_seed,
         )
         full_depth = (
@@ -584,66 +508,11 @@ def compute_da(
         refine_radiative_grid = (
             config.quality in ("standard", "production")
             and config.mixing_length_alpha is None
-            and config.atmosphere_solver == "adaptive-newton"
         )
         if refine_radiative_grid and atmosphere is not None:
             # Retain a previously refined warm start. Compressing its steep
             # ionization transition back onto 100 layers can recreate failure.
             full_depth = max(full_depth, atmosphere.n_depth)
-        if (
-            initial_atmosphere is None
-            and config.multigrid_initialization
-            and config.atmosphere_solver == "adaptive-newton"
-            and full_depth > 12
-            and config.quality != "quick"
-        ):
-            coarse_depths = tuple(depth for depth in (12,) if depth < full_depth)
-            for coarse_depth in coarse_depths:
-                def coarse_callback(
-                    iteration,
-                    current_atmosphere,
-                    status,
-                    *,
-                    _depth=coarse_depth,
-                ):
-                    if iteration_callback is None:
-                        return
-                    record = dict(status)
-                    record["coarse_grid"] = True
-                    record["multigrid_depth"] = _depth
-                    iteration_callback(iteration, current_atmosphere, record)
-
-                atmosphere = radiative_equilibrium_hydrogen_atmosphere(
-                    config.effective_temperature,
-                    config.logg,
-                    n_depth=coarse_depth,
-                    n_continuum_wavelength=min(
-                        120 if coarse_depth == 12 else 300,
-                        resolution.n_continuum,
-                    ),
-                    max_iterations=min(
-                        60 if coarse_depth == 12 else 120,
-                        resolution.maximum_iterations,
-                    ),
-                    n_angle=min(
-                        resolution.n_angle,
-                        2 if coarse_depth == 12 else 3,
-                    ),
-                    initial_temperature=(
-                        None if atmosphere is None else atmosphere.temperature
-                    ),
-                    initial_column_mass=(
-                        None if atmosphere is None else atmosphere.column_mass
-                    ),
-                    iteration_callback=coarse_callback,
-                    **relaxation_kwargs,
-                )
-            atmosphere_initialization = (
-                "automatic same-physics "
-                + "/".join(str(depth) for depth in coarse_depths)
-                + "-depth multigrid seed"
-            )
-
         iteration_offset = 0
         depth_refinements = 0
 
@@ -878,7 +747,7 @@ def compute_da(
             ),
             "molecular_equilibrium": molecules,
             "negative_hydrogen_in_charge_equilibrium": molecules,
-            "h3plus_partition_model": h3plus_partition_model,
+            "h3plus_partition_model": _H3PLUS_PARTITION_MODEL,
             "h3plus_spectral_opacity": "not included",
             "convection": (
                 "ML2/alpha=" + f"{config.mixing_length_alpha:g}"
@@ -888,7 +757,7 @@ def compute_da(
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
-            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_solver": "adaptive-newton",
             "atmosphere_initialization": atmosphere_initialization,
             "atmosphere_convergence_status": convergence_status,
             "model_request_fingerprint": request_fingerprint,
@@ -1082,11 +951,9 @@ def compute_db(
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
-            structure_solver=config.atmosphere_solver,
             n_angle=min(resolution.n_angle, 3),
             correlated_microfields=True,
             mixing_length_alpha=config.mixing_length_alpha,
-            neutral_line_broadening=config.neutral_broadening,
             depth_concentration=config.photospheric_depth_concentration,
             initial_temperature=(
                 None if initial_atmosphere is None else initial_atmosphere.temperature
@@ -1173,7 +1040,6 @@ def compute_db(
         wave,
         stark_table=he_i,
         helium_ii_stark_table=he_ii,
-        neutral_broadening=config.neutral_broadening,
         n_angle=resolution.n_angle,
         transfer_depth_refinement=config.synthesis_transfer_depth_refinement,
         **(dict(transfer_discretization="column-mass") if column_mass else {}),
@@ -1190,13 +1056,13 @@ def compute_db(
             "helium_minus_rosseland_share": helium_minus_share,
             "helium_i_profiles": "Beauchamp25-LD semi-analytical",
             "helium_ii_profiles": "Schoning/SYNSPEC table",
-            "neutral_broadening": config.neutral_broadening,
+            "neutral_broadening": "unsold",
             "convection": (
                 f"ML2/alpha={config.mixing_length_alpha:g}"
                 if config.mixing_length_alpha is not None
                 else "suppressed; radiative equilibrium"
             ),
-            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_solver": "adaptive-newton",
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
@@ -1239,10 +1105,6 @@ def _dab_trace_metals(config: DABConfig, data: ModelData) -> dict | None:
         raise ValueError("DAB abundances must contain finite log10 N(Z)/N(H) values")
     if set(config.abundances) & {"H", "He"}:
         raise ValueError("DAB abundances specify metals; set H/He with log_hydrogen_to_helium")
-    if not np.isfinite(config.structure_opacity_sampling_resolution) or (
-        config.structure_opacity_sampling_resolution <= 0.0
-    ):
-        raise ValueError("structure_opacity_sampling_resolution must be finite and positive")
     if not isinstance(config.metal_classical_electron_stark, bool):
         raise ValueError("metal_classical_electron_stark must be boolean")
     elements = tuple(config.abundances)
@@ -1368,13 +1230,9 @@ def compute_dab(
         metal_classical_electron_stark=config.metal_classical_electron_stark,
         include_dense_helium_metal_ionization=False,
         # The structure absorbs the synthesis line list, opacity-sampled.
-        minimum_metal_oscillator_strength=(
-            config.formal_minimum_metal_oscillator_strength
-        ),
+        minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
         maximum_metal_lines=metals["formal_lines"],
-        metal_line_opacity_sampling_resolution=(
-            config.structure_opacity_sampling_resolution
-        ),
+        metal_line_opacity_sampling_resolution=_STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
     )
     metal_synthesis = {} if metals is None else dict(
         metal_database=metals["database"],
@@ -1382,9 +1240,7 @@ def compute_dab(
         metal_photoionization_database=metals["photoionization"],
         metal_classical_electron_stark=config.metal_classical_electron_stark,
         include_dense_helium_metal_ionization=False,
-        minimum_metal_oscillator_strength=(
-            config.formal_minimum_metal_oscillator_strength
-        ),
+        minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
         maximum_metal_lines=metals["formal_lines"],
     )
     if config.lyman_profile_source == "allard":
@@ -1417,12 +1273,10 @@ def compute_dab(
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
-            structure_solver=config.atmosphere_solver,
             n_angle=min(resolution.n_angle, 3),
             unified_allard_table=allard,
             allard_stark_weight=1.0,
             mixing_length_alpha=config.mixing_length_alpha,
-            neutral_line_broadening=config.neutral_broadening,
             depth_concentration=config.photospheric_depth_concentration,
             hydrogen_self_broadening_prescription=(
                 self_broadening_prescription
@@ -1472,7 +1326,6 @@ def compute_dab(
         helium_ii_stark_table=he_ii,
         unified_allard_table=allard,
         allard_stark_weight=1.0,
-        neutral_broadening=config.neutral_broadening,
         hydrogen_self_broadening_prescription=(
             self_broadening_prescription
         ),
@@ -1527,8 +1380,8 @@ def compute_dab(
                 if config.mixing_length_alpha is not None
                 else "suppressed; radiative equilibrium"
             ),
-            "neutral_broadening": config.neutral_broadening,
-            "atmosphere_solver": config.atmosphere_solver,
+            "neutral_broadening": "unsold",
+            "atmosphere_solver": "adaptive-newton",
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
             ),
@@ -1549,9 +1402,9 @@ def compute_dab(
                 "ions_without_photoionization": metals["ions_without_photoionization"],
                 "metal_electron_feedback": "shared H/He/metal charge closure at fixed H and He nuclei",
                 "metal_opacity_in_structure": True,
-                "structure_opacity_sampling_resolution": config.structure_opacity_sampling_resolution,
+                "structure_opacity_sampling_resolution": _STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
                 "formal_maximum_metal_lines": metals["formal_lines"],
-                "minimum_metal_oscillator_strength": config.formal_minimum_metal_oscillator_strength,
+                "minimum_metal_oscillator_strength": _METAL_MINIMUM_OSCILLATOR_STRENGTH,
                 "metal_line_supplements": list(config.metal_line_supplements),
                 "metal_line_broadening": (
                     "thermal, radiative, Unsold neutral H/He"
@@ -1695,24 +1548,14 @@ def compute_dz(
         data.stout,
         data.verner_photoionization,
     )
-    if config.dense_helium_eos not in ("reos3", "ideal"):
-        raise ValueError("dense_helium_eos must be 'reos3' or 'ideal'")
-    helium_reos3 = None
-    if config.dense_helium_eos == "reos3":
-        data.require(data.helium_reos3)
-        helium_reos3 = read_helium_reos3_table(data.helium_reos3)
-    if config.helium_minus_free_free not in ("automatic", "partial-wave"):
-        raise ValueError("helium_minus_free_free must be 'automatic' or 'partial-wave'")
-    if config.dense_helium_free_free not in ("off", "rogers-young"):
-        raise ValueError("dense_helium_free_free must be 'off' or 'rogers-young'")
-    helium_minus_table = None
-    if config.dense_helium_free_free == "rogers-young":
-        from ..dense_helium_continuum import DenseHeliumCorrectionTable
+    data.require(data.helium_reos3)
+    helium_reos3 = read_helium_reos3_table(data.helium_reos3)
+    from ..dense_helium_continuum import DenseHeliumCorrectionTable
 
-        data.require(data.helium_minus_dense_free_free)
-        helium_minus_table = DenseHeliumCorrectionTable(
-            data.helium_minus_dense_free_free
-        )
+    data.require(data.helium_minus_dense_free_free)
+    helium_minus_table = DenseHeliumCorrectionTable(
+        data.helium_minus_dense_free_free
+    )
     if config.maximum_metal_charge < 1:
         raise ValueError("maximum_metal_charge must be positive")
     elements = tuple(config.abundances)
@@ -1734,8 +1577,7 @@ def compute_dz(
         elements=elements,
         maximum_charge=config.maximum_metal_charge,
     )
-    if config.si_ii_kurucz_transitions:
-        atomic = augment_silicon_ii_kurucz_transitions(atomic)
+    atomic = augment_silicon_ii_kurucz_transitions(atomic)
     if config.strong_line_atomic_data not in ("stout", "nist-asd"):
         raise ValueError(
             "strong_line_atomic_data must be 'stout' or 'nist-asd'"
@@ -1756,11 +1598,9 @@ def compute_dz(
             atomic = read_nist_asd_strong_atomic_database(
                 nist_paths, atomic, minimum_oscillator_strength=1.0e-4
             )
-    if config.kurucz_electron_stark:
-        atomic = atomic_database_with_kurucz_electron_stark(atomic)
-    if config.si_ii_he_unified_profile:
-        atomic = atomic_database_with_si_ii_he_unified_profile(atomic)
-    if config.mg_i_b_he_unified_profile and "Mg" in elements:
+    atomic = atomic_database_with_kurucz_electron_stark(atomic)
+    atomic = atomic_database_with_si_ii_he_unified_profile(atomic)
+    if "Mg" in elements:
         from ..metals import atomic_database_with_mg_i_b_he_unified_profile
 
         data.require(data.mg_i_b_he_unified_profiles)
@@ -1790,57 +1630,31 @@ def compute_dz(
                if supplement else "")
         ),
     )
-    topbase_photoionization = (
-        _polluted_helium_level_resolved_photoionization(
-            data, atomic, elements, config.maximum_metal_charge
-        )
-        if config.level_resolved_photoionization
-        else None
+    topbase_photoionization = _polluted_helium_level_resolved_photoionization(
+        data, atomic, elements, config.maximum_metal_charge
     )
-    if config.unified_metal_helium_profiles not in (
-        "production", "legacy", "off"
-    ):
-        raise ValueError(
-            "unified_metal_helium_profiles must be 'production', 'legacy', or 'off'"
-        )
-    if config.unified_metal_helium_profiles != "off" and "Mg" in elements:
-        data.require(
-            data.mg_he_red_wing,
-            *(
-                (data.mg_i_he_density_profiles,)
-                if config.unified_metal_helium_profiles == "production"
-                else ()
-            ),
-        )
+    from ..metals import UnifiedIonicHeProfileGrid
+
+    if "Mg" in elements:
+        data.require(data.mg_he_red_wing, data.mg_i_he_density_profiles)
         mg_he = read_mg_he_red_wing_table(
-            data.mg_he_red_wing,
-            (
-                data.mg_i_he_density_profiles
-                if config.unified_metal_helium_profiles == "production"
-                else None
-            ),
+            data.mg_he_red_wing, data.mg_i_he_density_profiles
         )
     else:
         mg_he = None
     ca_ii_he = None
     mg_ii_he = None
-    if config.ca_ii_he_unified_profile and "Ca" in elements:
-        from ..metals import UnifiedIonicHeProfileGrid
-
+    if "Ca" in elements:
         data.require(data.ca_ii_he_unified_profiles)
         ca_ii_he = UnifiedIonicHeProfileGrid(data.ca_ii_he_unified_profiles)
-    if config.mg_ii_he_unified_profile and "Mg" in elements:
-        from ..metals import UnifiedIonicHeProfileGrid
-
+    if "Mg" in elements:
         data.require(data.mg_ii_he_unified_profiles)
         mg_ii_he = UnifiedIonicHeProfileGrid(data.mg_ii_he_unified_profiles)
     na_i_he = None
-    if config.na_i_he_unified_profile and "Na" in elements:
-        from ..metals import UnifiedIonicHeProfileGrid
-
+    if "Na" in elements:
         data.require(data.na_i_he_unified_profiles)
         na_i_he = UnifiedIonicHeProfileGrid(data.na_i_he_unified_profiles)
-    if config.unified_metal_helium_profiles == "production" and "Ca" in elements:
+    if "Ca" in elements:
         data.require(
             data.ca_i_he_density_profiles,
             data.ca_i_he_temperature_profiles,
@@ -1865,24 +1679,12 @@ def compute_dz(
     )
     if formal_lines < 1:
         raise ValueError("metal line limits must be positive")
-    if config.structure_opacity_sampling_resolution is not None:
-        # The emergent spectrum is flux conserving only if the structure
-        # absorbs the same lines the synthesis does.  Opacity sampling makes
-        # the structural cost nearly independent of the line count.
-        if config.structure_maximum_metal_lines is None:
-            structure_lines = formal_lines
-            structure_line_policy = "opacity sampling: synthesis line list"
-        structure_minimum_oscillator_strength = (
-            config.formal_minimum_metal_oscillator_strength
-            if config.structure_minimum_metal_oscillator_strength is None
-            else config.structure_minimum_metal_oscillator_strength
-        )
-    else:
-        structure_minimum_oscillator_strength = (
-            0.01
-            if config.structure_minimum_metal_oscillator_strength is None
-            else config.structure_minimum_metal_oscillator_strength
-        )
+    # The emergent spectrum is flux conserving only if the structure
+    # absorbs the same lines the synthesis does.  Opacity sampling makes
+    # the structural cost nearly independent of the line count.
+    if config.structure_maximum_metal_lines is None:
+        structure_lines = formal_lines
+        structure_line_policy = "opacity sampling: synthesis line list"
     if config.lyman_profile_source == "allard":
         allard = (
             _allard_lyman_profiles_for_effective_temperature(
@@ -1915,11 +1717,9 @@ def compute_dz(
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
-            structure_solver=config.atmosphere_solver,
             n_angle=min(resolution.n_angle, 3),
             correlated_microfields=True,
             mixing_length_alpha=config.mixing_length_alpha,
-            neutral_line_broadening=config.neutral_broadening,
             metal_database=atomic,
             metal_abundances=config.abundances,
             log_hydrogen_abundance=config.log_hydrogen_abundance,
@@ -1932,19 +1732,13 @@ def compute_dz(
             ca_i_he_profile_table=ca_i_he,
             helium_reos3_table=helium_reos3,
             helium_minus_correction_table=helium_minus_table,
-            helium_minus_prescription=config.helium_minus_free_free,
-            minimum_metal_oscillator_strength=(
-                structure_minimum_oscillator_strength
-            ),
+            helium_minus_prescription=_HELIUM_MINUS_PRESCRIPTION,
+            minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
             maximum_metal_lines=structure_lines,
-            metal_line_opacity_sampling_resolution=(
-                config.structure_opacity_sampling_resolution
-            ),
+            metal_line_opacity_sampling_resolution=_STRUCTURE_OPACITY_SAMPLING_RESOLUTION,
             depth_concentration=config.photospheric_depth_concentration,
             include_dense_helium_metal_ionization=True,
-            metal_occupation_probability_partitions=(
-                config.occupation_probability_metal_partitions
-            ),
+            metal_occupation_probability_partitions=True,
             hydrogen_self_broadening_prescription=(
                 self_broadening_prescription
             ),
@@ -1992,7 +1786,6 @@ def compute_dz(
         wave,
         stark_table=he_i,
         helium_ii_stark_table=he_ii,
-        neutral_broadening=config.neutral_broadening,
         metal_database=atomic,
         metal_abundances=config.abundances,
         log_hydrogen_abundance=config.log_hydrogen_abundance,
@@ -2004,12 +1797,8 @@ def compute_dz(
         ca_ii_he_profile_table=ca_ii_he,
         ca_i_he_profile_table=ca_i_he,
         include_dense_helium_metal_ionization=True,
-        metal_occupation_probability_partitions=(
-            config.occupation_probability_metal_partitions
-        ),
-        minimum_metal_oscillator_strength=(
-            config.formal_minimum_metal_oscillator_strength
-        ),
+        metal_occupation_probability_partitions=True,
+        minimum_metal_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
         maximum_metal_lines=formal_lines,
         hydrogen_self_broadening_prescription=(
             self_broadening_prescription
@@ -2029,7 +1818,7 @@ def compute_dz(
         transfer_discretization=synthesis_transfer,
         transfer_depth_refinement=config.synthesis_transfer_depth_refinement,
         helium_minus_correction_table=helium_minus_table,
-        helium_minus_prescription=config.helium_minus_free_free,
+        helium_minus_prescription=_HELIUM_MINUS_PRESCRIPTION,
     )
     return ModelResult(
         "DZ",
@@ -2045,9 +1834,9 @@ def compute_dz(
             ),
             "atomic_lines": getattr(atomic, "source", "Stout"),
             "strong_line_atomic_data": config.strong_line_atomic_data,
-            "kurucz_electron_stark": config.kurucz_electron_stark,
-            "si_ii_he_unified_profile": config.si_ii_he_unified_profile,
-            "mg_i_b_he_unified_profile": config.mg_i_b_he_unified_profile,
+            "kurucz_electron_stark": True,
+            "si_ii_he_unified_profile": True,
+            "mg_i_b_he_unified_profile": True,
             "mg_ii_he_unified_profile": (
                 mg_ii_he.source if mg_ii_he is not None else False
             ),
@@ -2057,7 +1846,7 @@ def compute_dz(
             "na_i_he_unified_profile": (
                 na_i_he.source if na_i_he is not None else False
             ),
-            "si_ii_kurucz_transitions": config.si_ii_kurucz_transitions,
+            "si_ii_kurucz_transitions": True,
             "maximum_metal_charge": config.maximum_metal_charge,
             "photoionization": (
                 "level-resolved TOPbase for the bundled model-atom ions; "
@@ -2078,10 +1867,10 @@ def compute_dz(
             "structure_maximum_metal_lines": structure_lines,
             "structure_metal_line_budget_policy": structure_line_policy,
             "structure_minimum_metal_oscillator_strength": (
-                structure_minimum_oscillator_strength
+                _METAL_MINIMUM_OSCILLATOR_STRENGTH
             ),
             "structure_opacity_sampling_resolution": (
-                config.structure_opacity_sampling_resolution
+                _STRUCTURE_OPACITY_SAMPLING_RESOLUTION
             ),
             "photospheric_depth_concentration": (
                 config.photospheric_depth_concentration
@@ -2095,29 +1884,20 @@ def compute_dz(
                 "Hummer-Mihalas occupation probabilities: Q-MHD charged "
                 "microfields and neutral-He excluded volume, iterated with "
                 "charge neutrality; same survival in the line opacity"
-                if config.occupation_probability_metal_partitions
-                else "fixed spectroscopic cutoff 0.1 eV below each limit"
             ),
             "synthesis_flux_fraction": _synthesis_flux_fraction(
                 spectrum, config.effective_temperature
             ),
-            "helium_minus_free_free": config.helium_minus_free_free,
-            "dense_helium_free_free": (
-                {"mode": config.dense_helium_free_free,
-                 "table_sha256": helium_minus_table.sha256}
-                if helium_minus_table is not None
-                else "off"
-            ),
-            "bulk_helium_eos": (
-                helium_reos3.source
-                if helium_reos3 is not None
-                else "ideal chemical-picture pressure closure"
-            ),
+            "helium_minus_free_free": _HELIUM_MINUS_PRESCRIPTION,
+            "dense_helium_free_free": {
+                "mode": "rogers-young", "table_sha256": helium_minus_table.sha256,
+            },
+            "bulk_helium_eos": helium_reos3.source,
             "microfields": "Q-MHD for He and trace H",
-            "neutral_broadening": config.neutral_broadening,
+            "neutral_broadening": "unsold",
             "unified_metal_helium_profiles": (
                 {
-                    "mode": config.unified_metal_helium_profiles,
+                    "mode": "production",
                     "Mg I 2852": mg_he.source if mg_he is not None else "disabled",
                     "Ca I 4227": ca_i_he.source if ca_i_he is not None else "disabled",
                     "interpolation": (
@@ -2153,7 +1933,7 @@ def compute_dz(
                 if config.mixing_length_alpha is not None
                 else "suppressed; radiative equilibrium"
             ),
-            "atmosphere_solver": config.atmosphere_solver,
+            "atmosphere_solver": "adaptive-newton",
             "allard_ca_ii_control": False,
             "ca_ii_resonance_source": (
                 "complete-redistribution H/K source functions from CHIANTI "

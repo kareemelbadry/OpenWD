@@ -143,7 +143,7 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
         seed = radiative_equilibrium_helium_atmosphere(
             config.effective_temperature,config.logg,n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,max_iterations=60,
-            n_angle=resolution.n_angle,structure_solver='adaptive-newton',
+            n_angle=resolution.n_angle,
             mixing_length_alpha=None,stark_table=model.helium_i_stark_table,
             log_hydrogen_abundance=model.log_hydrogen_to_helium,
             helium_ii_stark_table=model.helium_ii_stark_table,include_helium_ii_lines=True,

@@ -32,13 +32,14 @@ def digest(path):
 def frozen_source(directory, config):
     """Read a checksum-verified seed capsule, preserving its archived provenance."""
     import numpy as np
+    from d6_regression_support import current_config
 
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     seed_path = directory.with_name(directory.name + "-seed.npz")
     reference_path = directory / "j1637.npz"
     if (manifest["schema"] != 1
-            or manifest["config"] != json.loads(json.dumps(config))
+            or current_config(manifest["config"]) != json.loads(json.dumps(config))
             or manifest["source_request"]["config"] != manifest["config"]
             or digest(seed_path) != manifest["seed_sha256"]
             or digest(reference_path) != manifest["output_sha256"]):
@@ -114,7 +115,7 @@ def main():
                                          ModelData, model_request_fingerprint)
     from wd_spectra.models.d6 import default_d6_wavelength_grid
     from d6_regression_support import (ARRAYS, METRICS, STEPS, atomic_input_scope,
-        fixed_spectrum, trajectory)
+        current_config, fixed_spectrum, trajectory)
 
     config = D6Config()
     archived_reference = None
@@ -146,7 +147,7 @@ def main():
         source_sha256 = digest(args.source)
 
     fingerprint = model_request_fingerprint("D6", config, ModelData.default())
-    assert source_request["config"] == json.loads(json.dumps(asdict(config)))
+    assert current_config(source_request["config"]) == json.loads(json.dumps(asdict(config)))
 
     # A smooth 1.5% perturbation in the line-forming layers exercises real
     # thermal corrections instead of an already-converged zero-step resume.

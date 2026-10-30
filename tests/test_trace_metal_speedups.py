@@ -80,7 +80,7 @@ def test_line_opacity_block_deposit_is_pointwise_accurate():
             options = dict(block_absorption=blocks[0], block_emissivity=blocks[1],
                            block_tolerance=tolerance)
         L._accumulate_metal_line_profiles(
-            wave, planck, centers, strength, sigma, gamma, np.zeros(n_line), zero, zero, zero,
+            wave, planck, centers, strength, sigma, gamma, np.zeros(n_line), zero, zero,
             population, lower, upper, exponential, absorption, emissivity, True,
             depth_major=True, planck_depth_major=planck_depth_major, **options)
         if tolerance:

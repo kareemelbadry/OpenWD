@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-from dense_helium_fluid_experiment import (
+from wd_spectra._cool.dense_helium_fluid import (
     RadialGrid, neutral_pair_ev, ion_pair_ev, electron_insertion_ev, bound_neighbour_count,
-    solve_neutral_py, solve_trace_py, solve_hnc, KB_EV,
+    solve_neutral_py, solve_hnc, KB_EV,
 )
 
 
@@ -24,22 +24,11 @@ def test_published_pair_minima_and_separate_channels():
     assert pair[1] > 0
 
 
-def test_zero_density_fluid_is_boltzmann_and_trace_is_virial():
+def test_zero_density_fluid_is_boltzmann():
     grid = RadialGrid()
     state = solve_neutral_py(grid, 5000., 0.)
     np.testing.assert_array_equal(state.structure, 1.)
     np.testing.assert_allclose(state.g, np.exp(-neutral_pair_ev(grid.r)/(5000*KB_EV)), atol=1e-15)
-    for curve in ion_pair_ev(grid.r):
-        c = solve_trace_py(grid, 5000., state, curve)
-        np.testing.assert_allclose(c, np.expm1(-curve/(5000*KB_EV)), atol=1e-13)
-
-
-def test_identical_trace_particle_recovers_neutral_correlations():
-    grid = RadialGrid()
-    state = solve_neutral_py(grid, 6000., .02)
-    c = solve_trace_py(grid, 6000., state, neutral_pair_ev(grid.r))
-    np.testing.assert_allclose(c, state.direct, rtol=2e-8, atol=2e-9)
-    assert state.residual < 2e-8
 
 
 def test_electron_fit_is_zero_at_zero_density_and_has_lenz_limit():

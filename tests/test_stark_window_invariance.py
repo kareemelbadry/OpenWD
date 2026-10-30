@@ -34,9 +34,8 @@ def _mg_ii_key(database, upper_label):
     raise LookupError(upper_label)
 
 
-@pytest.mark.parametrize("profile", ["manifold", "two-level"])
 @pytest.mark.parametrize("upper", ["2p6.7g.(2G<9/2>)", "2p6.10g.(2G<9/2>)"])
-def test_stark_opacity_is_independent_of_the_requested_window(plasma, profile, upper):
+def test_stark_opacity_is_independent_of_the_requested_window(plasma, upper):
     database, atmosphere, state = plasma
     key = _mg_ii_key(database, upper)
     broad = np.arange(3600.0, 6000.0, 0.05)
@@ -51,7 +50,7 @@ def test_stark_opacity_is_independent_of_the_requested_window(plasma, profile, u
             atmosphere, wavelength, database, state,
             minimum_oscillator_strength=1.0e-8, maximum_lines=None,
             include_classical_electron_stark=True,
-            include_linear_stark_quasistatic=True, linear_stark_profile=profile,
+            include_linear_stark_quasistatic=True,
             transition_keys=(key,),
         )
 

@@ -88,7 +88,7 @@ class ConsistentDQMaterial(dq.DQMaterial):
         pass
 
     def helium_line_opacity(self,a,wavelength,background):
-        return dq.helium_i_line_mass_absorption_coefficient(a,wavelength,self.he_i,neutral_broadening='unsold')
+        return dq.helium_i_line_mass_absorption_coefficient(a,wavelength,self.he_i)
 
     def swan_column(self,a,j,wavelength):
         shift=dq.swan_density_shift_wavenumber(a.mass_density[j])

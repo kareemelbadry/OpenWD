@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from wd_spectra.dense_eos import HeliumREOS3Table
 from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
-from smooth_reos3_experiment import SmoothREOS3
+from wd_spectra._cool.smooth_reos3 import SmoothREOS3
 
 
 def test_dilute_analytic_eos_and_thermal_derivatives():

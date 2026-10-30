@@ -93,12 +93,8 @@ class CoupledHeliumNLTEModel:
     population_relative_tolerance: float = 5.0e-3
     population_relative_floor: float = 1.0e-12
     population_damping: float = 0.4
-    neutral_collision_strength_scale: float = 1.0
     helium_i_collision_data: TlustyHeliumCollisionData | None = None
     hydrogenic_collision_model: HydrogenicHeliumCollisionModel = "ccc-scaled"
-    hydrogenic_collision_rate_multiplier: float = 1.0
-    hydrogenic_excitation_collision_rate_multiplier: float | None = None
-    hydrogenic_ionization_collision_rate_multiplier: float | None = None
 
     @property
     def name(self) -> str:
@@ -164,18 +160,8 @@ class CoupledHeliumNLTEModel:
             relative_tolerance=self.population_relative_tolerance,
             relative_population_floor=self.population_relative_floor,
             population_damping=self.population_damping,
-            neutral_collision_strength_scale=(self.neutral_collision_strength_scale),
             helium_i_collision_data=self.helium_i_collision_data,
             hydrogenic_collision_model=self.hydrogenic_collision_model,
-            hydrogenic_collision_rate_multiplier=(
-                self.hydrogenic_collision_rate_multiplier
-            ),
-            hydrogenic_excitation_collision_rate_multiplier=(
-                self.hydrogenic_excitation_collision_rate_multiplier
-            ),
-            hydrogenic_ionization_collision_rate_multiplier=(
-                self.hydrogenic_ionization_collision_rate_multiplier
-            ),
             initial_state=previous,
         )
 

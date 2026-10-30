@@ -272,7 +272,7 @@ class DQMaterial:
             helium_minus_correction=dense,
         )
         opacity += helium_i_line_mass_absorption_coefficient(
-            a, wavelength, self.he_i, neutral_broadening="unsold"
+            a, wavelength, self.he_i
         )
         opacity += helium_i_resonance_line_mass_absorption_coefficient(a, wavelength)
         opacity += helium_ii_line_mass_absorption_coefficient(

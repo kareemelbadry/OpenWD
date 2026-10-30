@@ -296,9 +296,7 @@ def rate_response_material(model, template, temperature, pressure, state):
         metal_population_minimum_iterations=1,
         metal_population_damping=1.0,
         helium_population_damping=1.0,
-        metal_population_acceleration_depth=0,
         coupled_population_acceleration_depth=0,
-        use_population_ali=False,
     )
     template = replace(template, gas_pressure=pressure)
     p = state
@@ -356,8 +354,6 @@ class PG1159Equations:
         # Cells [first, last) whose full-NLTE rows are local heating instead
         # of interface flux (None: flux profile only).
         self.hybrid_band = None
-        # Resolved-closure numerics: population ALI in the material closure.
-        self.population_ali = False
         self.nd = seed.n_depth
         self.radiative_acceleration = radiative_acceleration
         self.radiative_acceleration_scale = radiative_acceleration_scale
@@ -436,7 +432,6 @@ class PG1159Equations:
         # every returned material state.
         closure_model = replace(
             self.model,
-            use_population_ali=bool(self.model.use_population_ali or self.population_ali),
             metal_population_relative_tolerance=rate_tolerance,
             metal_population_minimum_iterations=1,
             metal_population_iterations=(
@@ -563,16 +558,14 @@ class PG1159Equations:
                 ),
             )
             # An undamped plain-Lambda update measures the actual SE defect;
-            # damped/ALI iteration sizes alone cannot certify convergence.
+            # damped/accelerated iteration sizes alone cannot certify convergence.
             check_model = replace(
                 self.model,
                 metal_population_iterations=1,
                 metal_population_minimum_iterations=1,
                 metal_population_damping=1.0,
-                metal_population_acceleration_depth=0,
                 coupled_population_acceleration_depth=0,
                 helium_population_damping=1.0,
-                use_population_ali=False,
             )
             check = check_model.solve_populations(a, candidate)
             defect = population_defect(candidate, check, self.model)
@@ -1392,10 +1385,6 @@ def _solve_stage(
     ):
         hybrid_band = "auto"
     eq.hybrid_band = hybrid_band
-    population_ali = bool(
-        closure_state.get("population_ali", False) if closure_state is not None else False
-    )
-    eq.population_ali = population_ali
     secant_repairs = 0
     secant_corrections = list(
         closure_state.get("secant_corrections", ()) if closure_state is not None else ()
@@ -1481,7 +1470,6 @@ def _solve_stage(
         eq.anchor = anchor
         eq.evaluations = evaluations
         eq.hybrid_band = hybrid_band
-        eq.population_ali = population_ali
         if resolved:
             eq.secant_corrections = list(secant_corrections)
     # Only a successful full-physics stage can be certified. Initializers
@@ -1580,7 +1568,6 @@ def _solve_stage(
             "resolved": eq.resolved_material_closure,
             "secant_corrections": tuple(secant_corrections),
             "hybrid_band": hybrid_band,
-            "population_ali": population_ali,
         }
     )
     return PG1159AtmosphereResult(
@@ -1678,7 +1665,6 @@ def solve_pg1159_atmosphere(
                 stage_model,
                 metal_population_damping=1.0,
                 helium_population_damping=1.0,
-                metal_population_acceleration_depth=0,
                 coupled_population_acceleration_depth=(
                     model.coupled_population_acceleration_depth
                 ),
@@ -1826,7 +1812,6 @@ def _refine_and_certify(
         population_nlte_fraction=1.0,
         metal_population_damping=1.0,
         helium_population_damping=1.0,
-        metal_population_acceleration_depth=0,
         coupled_population_acceleration_depth=(
             refinement_model.coupled_population_acceleration_depth
         ),

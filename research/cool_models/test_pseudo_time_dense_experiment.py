@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from pseudo_time_dense_experiment import pseudo_direction,physical_rows
+from wd_spectra._cool.pseudo_time import pseudo_direction,physical_rows
 
 
 def test_stable_heating_and_algebraic_boundary_sign():
@@ -26,19 +26,6 @@ def test_can_cross_static_merit_barrier_without_changing_root():
     np.testing.assert_allclose(x,-.5,atol=1e-8)
 
 
-def test_boundary_reservoir_has_correct_thermal_sign_and_vanishing_small_step():
-    residual=np.array([2.,-3.,.1]);jacobian=np.diag([-4.,-5.,2.])
-    result=pseudo_direction(residual,jacobian,.5,relax_boundary=True)
-    np.testing.assert_allclose(result,[2./6.,-3./7.,-.025])
-    # Unlike an algebraic Newton boundary, every increment vanishes with dt,
-    # including when the static boundary tangent is identically zero.
-    jacobian[-1,-1]=0.
-    for dt in (1e-4,1e-8):
-        result=pseudo_direction(residual,jacobian,dt,relax_boundary=True)
-        np.testing.assert_allclose(result[-1],-.1*dt)
-        assert result[0]>0 and result[1]<0
-
-
 def test_rows_use_actual_flux_and_frozen_transport_scale():
     p=dict(radiative_cell_energy_defect=np.array([2.,3.]),
         convective_flux_interface=np.array([0.,5.,7.]),total_flux_interface=np.array([8.,9.,11.]),
@@ -54,7 +41,7 @@ def test_rows_use_actual_flux_and_frozen_transport_scale():
 def test_local_handoff_still_requires_the_static_solver(tmp_path,monkeypatch,domain_limited):
     from wd_spectra import adaptive_structure as adaptive
     from wd_spectra.nonlinear import NonlinearEvaluation
-    from pseudo_time_dense_experiment import pseudo_time_initializer
+    from wd_spectra._cool.pseudo_time import pseudo_time_initializer
     calls=[];sentinel=object()
     def static(initial,evaluate,**options):
         calls.append((initial.copy(),options.copy()))

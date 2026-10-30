@@ -241,9 +241,7 @@ def refine_upper_atmosphere(
         population_nlte_fraction=1.0,
         metal_population_damping=1.0,
         helium_population_damping=1.0,
-        metal_population_acceleration_depth=0,
         use_pg1159_response_jacobian=True,
-        use_population_ali=False,
         metal_population_relative_tolerance=material_tolerance,
     )
     equations = PG1159Equations(
@@ -251,7 +249,6 @@ def refine_upper_atmosphere(
         certification_stage=False, material_tolerance_ceiling=material_tolerance,
         resolved_material_closure=True,
     )
-    equations.population_ali = False
     equations.anchor = populations
     nd = atmosphere.n_depth
     x = equations.initial_state()   # ln T, then ln P with radiative acceleration

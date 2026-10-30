@@ -1099,7 +1099,6 @@ def synthesize_helium_spectrum(
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
-    neutral_broadening: Literal["none", "unsold", "montreal"] = "unsold",
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     log_hydrogen_abundance: float | None = None,
@@ -1243,7 +1242,6 @@ def synthesize_helium_spectrum(
         absorption += helium_i_line_mass_absorption_coefficient(
             atmosphere, wavelength, stark_table,
             include_occupation_probability=include_occupation_probability,
-            neutral_broadening=neutral_broadening,
         )
         if include_uv_resonance_lines:
             absorption += helium_i_resonance_line_mass_absorption_coefficient(
@@ -1682,15 +1680,8 @@ def synthesize_helium_spectrum(
                 and unified_allard_table is not None
             ),
             "hydrogen_allard_stark_weight": float(allard_stark_weight),
-            "neutral_helium_line_broadening": neutral_broadening,
-            "neutral_helium_line_broadening_provenance": (
-                "max(Unsold, Deridder-van-Rensbergen-1976); "
-                "singlets max with Ali-Griem resonance; 4121/4713 Unsold-only"
-                if neutral_broadening == "montreal"
-                else "Unsold-1955"
-                if neutral_broadening == "unsold"
-                else "disabled"
-            ),
+            "neutral_helium_line_broadening": "unsold",
+            "neutral_helium_line_broadening_provenance": "Unsold-1955",
             "n_angle": int(n_angle),
         },
     )

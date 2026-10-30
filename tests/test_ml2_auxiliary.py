@@ -1,11 +1,8 @@
 import numpy as np
-import pytest
 
 from wd_spectra._ml2_auxiliary import (
     ml2_scaled_coefficients, ml2_auxiliary_from_gradient, ml2_auxiliary_compatibility,
-    solve_auxiliary_ml2_experiment,
 )
-from wd_spectra.nonlinear import NonlinearEvaluation, solve_trust_region_newton
 
 
 def test_signed_ml2_coordinate_preserves_flux_and_stable_branch():
@@ -54,51 +51,3 @@ def test_zero_loss_zero_excess_is_finite():
     np.testing.assert_array_equal(
         ml2_auxiliary_from_gradient(np.array([.4]), np.array([.4]),
                                     np.array([0.]), np.array([1e20]), 1e10), [0.])
-
-
-@pytest.mark.parametrize("physical_offset", [0., .1])
-@pytest.mark.parametrize("local_scaling", [False, True])
-def test_enlarged_system_tangent_and_independent_physical_gate(physical_offset, local_scaling):
-    target = np.array([.2, .400001, .400003])
-    adiabatic = np.full(3, .4)
-    loss = np.full(3, 1e-3)
-    coefficient = np.full(3, 1e8)
-    def convection(state):
-        y = ml2_auxiliary_from_gradient(state, adiabatic, loss, coefficient, 1.)
-        return np.maximum(y, 0)**3
-    target_convection = convection(target)
-    def evaluate(state, need_jacobian):
-        radiation = 1 - target_convection + .2*(state-target)
-        actual_flux = radiation + convection(state) + physical_offset
-        payload = {
-            "energy_balance_is_physical_flux": True,
-            "convection_transport": {"adiabatic_gradient": adiabatic,
-                                     "ml2_radiative_loss": loss,
-                                     "ml2_flux_coefficient": coefficient},
-            "temperature_gradient": state,
-            "radiative_flux_interface": radiation,
-            "total_flux_interface": actual_flux,
-            "radiative_cell_energy_defect": np.diff(radiation),
-            "cell_energy_scale": np.array([1e-4, 10.]),
-            "log_temperature_from_state": np.eye(3),
-            "interface_gradient_operator": np.eye(3),
-            "radiative_flux_log_temperature_jacobian": .2*np.eye(3),
-            "ml2_coefficient_log_temperature_responses": (np.zeros((3, 3)),)*3,
-        }
-        return NonlinearEvaluation(actual_flux-1, None, payload)
-    def audited_solver(initial, augmented, **options):
-        base = augmented(initial, True)
-        for j in range(len(initial)):
-            delta = np.eye(len(initial))[j] * 1e-7
-            numerical = (augmented(initial+delta, False).residual -
-                         augmented(initial-delta, False).residual) / 2e-7
-            np.testing.assert_allclose(numerical, base.jacobian[:, j], rtol=2e-8, atol=1e-5)
-        return solve_trust_region_newton(initial, augmented, **options)
-    result, metadata = solve_auxiliary_ml2_experiment(
-        target, evaluate, audited_solver, 1., maximum_iterations=2,
-        residual_tolerance=1e-6, finite_difference_fallback_step=None,
-        local_energy_scaling=local_scaling)
-    assert result.converged == (physical_offset == 0.)
-    assert result.state.shape == (3,)
-    assert metadata["energy_residual_maximum"] < 1e-8
-    assert result.diagnostics.final_residual_maximum == pytest.approx(physical_offset, abs=1e-8)

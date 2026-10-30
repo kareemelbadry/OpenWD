@@ -50,7 +50,6 @@ from .helium_molecular import (
     helium_dimer_ion_continuum_coefficient,
     helium_three_body_cia_linear_absorption_coefficient,
 )
-from .helium_neutral import deridder_van_rensbergen_helium_hwhm_angstrom
 from .opacity import electron_scattering_mass_coefficient
 
 
@@ -201,7 +200,6 @@ _HE_I_P_TO_S_LINE_KEYS = frozenset(
         3936, 4024, 4169, 4438, 5048, 7281,
     }
 )
-_HE_I_UNSOLD_ONLY_LINE_KEYS = frozenset({4121, 4713})
 
 
 # TLUSTY's public 14-level He I model atom, based on NIST energies and
@@ -406,22 +404,6 @@ def helium_i_resonance_hwhm_angstrom(
         * oscillator_strength
         * ground_density
     )
-
-
-def _singlet_resonance_transition(line: HeliumLine) -> HeliumResonanceLine | None:
-    """Return the ground-state transition coupled to a singlet line level."""
-
-    if line.lower_term_index == 4:
-        # The optical line starts from 1s2p 1P, connected to the ground state
-        # by the 584-A resonance line.
-        return HELIUM_I_RESONANCE_LINES[0]
-    if line.lower_term_index == 2:
-        # The optical line ends in 1s np 1P.  Its matching ground-state
-        # transition is the corresponding member of the resonance series.
-        index = line.upper_principal_quantum_number - 2
-        if 0 <= index < len(HELIUM_I_RESONANCE_LINES):
-            return HELIUM_I_RESONANCE_LINES[index]
-    return None
 
 
 def _require_helium_state(atmosphere: Atmosphere) -> HeliumLTEState:
@@ -1534,16 +1516,12 @@ def helium_i_line_mass_absorption_coefficient(
     *,
     lines: tuple[HeliumLine, ...] = HELIUM_I_LINES,
     include_occupation_probability: bool = True,
-    neutral_broadening: Literal["none", "unsold", "montreal"] = "unsold",
 ) -> FloatArray:
     """Return the 36 tabulated He I line opacities in cm^2 g^-1.
 
-    The released profiles contain Stark and thermal Doppler broadening.
-    ``neutral_broadening='unsold'`` adds just the classical van der Waals
-    width.  ``'montreal'`` uses the modified Montreal prescription: the
-    larger of the Unsold and Deridder--van Rensbergen widths (except 4121 and
-    4713, which remain Unsold-only), followed by the larger of that result
-    and the Ali--Griem resonance HWHM for singlets.
+    The released profiles contain Stark and thermal Doppler broadening; the
+    classical Unsold van der Waals width of neutral-He collisions and the
+    radiative width are added as a Lorentzian.
     """
 
     state = _require_helium_state(atmosphere)
@@ -1552,10 +1530,6 @@ def helium_i_line_mass_absorption_coefficient(
     wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
     if wavelength.ndim != 1 or np.any(~np.isfinite(wavelength)) or np.any(wavelength <= 0.0):
         raise ValueError("wavelength_angstrom must be a finite positive 1D array")
-    if neutral_broadening not in ("none", "unsold", "montreal"):
-        raise ValueError(
-            "neutral_broadening must be 'none', 'unsold', or 'montreal'"
-        )
     result = np.zeros((wavelength.size, atmosphere.n_depth), dtype=np.float64)
     integrated_frequency_cross_section = (
         PI * ELEMENTARY_CHARGE_ESU**2 / (ELECTRON_MASS * LIGHT_SPEED)
@@ -1588,93 +1562,41 @@ def helium_i_line_mass_absorption_coefficient(
             -PLANCK * LIGHT_SPEED
             / (center_cm * BOLTZMANN * atmosphere.temperature)
         )
+        upper_energy = (
+            HELIUM_I_LOW_TERM_ENERGY[line.lower_term_index]
+            + PLANCK * LIGHT_SPEED / center_cm
+        )
+        upper_binding = max(
+            HELIUM_FIRST_IONIZATION_ENERGY - upper_energy,
+            np.finfo(np.float64).tiny,
+        )
+        upper_effective_level = np.sqrt(
+            HYDROGEN_IONIZATION_ENERGY / upper_binding
+        )
+        mean_square_radius = 2.5 * upper_effective_level**4
+        line_frequency = LIGHT_SPEED / center_cm
+        radiative_damping_rate = 2.47342e-22 * line_frequency**2
+        radiative_hwhm = (
+            center_cm**2
+            * radiative_damping_rate
+            / (4.0 * PI * LIGHT_SPEED)
+            * 1.0e8
+        )
         for depth in range(atmosphere.n_depth):
-            lorentz_hwhm = 0.0
-            if neutral_broadening != "none":
-                upper_energy = (
-                    HELIUM_I_LOW_TERM_ENERGY[line.lower_term_index]
-                    + PLANCK * LIGHT_SPEED / center_cm
-                )
-                upper_binding = max(
-                    HELIUM_FIRST_IONIZATION_ENERGY - upper_energy,
-                    np.finfo(np.float64).tiny,
-                )
-                upper_effective_level = np.sqrt(
-                    HYDROGEN_IONIZATION_ENERGY / upper_binding
-                )
-                mean_square_radius = 2.5 * upper_effective_level**4
-                neutral_damping_rate = (
-                    4.5e-9
-                    * 0.42
-                    * state.neutral_level_population_density[depth, 0]
-                    * (atmosphere.temperature[depth] / 10_000.0) ** 0.3
-                    * mean_square_radius**0.4
-                )
-                neutral_hwhm = (
-                    center_cm**2
-                    * neutral_damping_rate
-                    / (4.0 * PI * LIGHT_SPEED)
-                    * 1.0e8
-                )
-                if (
-                    neutral_broadening == "montreal"
-                    and line.table_key_angstrom
-                    not in _HE_I_UNSOLD_ONLY_LINE_KEYS
-                ):
-                    lower_binding = max(
-                        HELIUM_FIRST_IONIZATION_ENERGY
-                        - HELIUM_I_LOW_TERM_ENERGY[line.lower_term_index],
-                        np.finfo(np.float64).tiny,
-                    )
-                    lower_effective_level = np.sqrt(
-                        HYDROGEN_IONIZATION_ENERGY / lower_binding
-                    )
-                    if line.lower_term_index in (1, 2):
-                        lower_orbital = "s"
-                        upper_orbital = "p"
-                    elif line.table_key_angstrom in _HE_I_P_TO_S_LINE_KEYS:
-                        lower_orbital = "p"
-                        upper_orbital = "s"
-                    else:
-                        lower_orbital = "p"
-                        upper_orbital = "d"
-                    deridder_hwhm = (
-                        deridder_van_rensbergen_helium_hwhm_angstrom(
-                            atmosphere.temperature[depth],
-                            state.neutral_level_population_density[depth, 0],
-                            line.wavelength_vacuum_angstrom,
-                            float(lower_effective_level),
-                            float(upper_effective_level),
-                            lower_orbital,
-                            upper_orbital,
-                        )
-                    )
-                    neutral_hwhm = max(
-                        float(neutral_hwhm), float(deridder_hwhm)
-                    )
-                resonance_transition = _singlet_resonance_transition(line)
-                if (
-                    neutral_broadening == "montreal"
-                    and resonance_transition is not None
-                ):
-                    resonance_hwhm = helium_i_resonance_hwhm_angstrom(
-                        line.wavelength_vacuum_angstrom,
-                        resonance_transition.wavelength_vacuum_angstrom,
-                        resonance_transition.absorption_oscillator_strength,
-                        state.neutral_level_population_density[depth, 0],
-                    )
-                    neutral_hwhm = max(
-                        float(neutral_hwhm), float(resonance_hwhm)
-                    )
-                line_frequency = LIGHT_SPEED / center_cm
-                radiative_damping_rate = 2.47342e-22 * line_frequency**2
-                radiative_hwhm = (
-                    center_cm**2
-                    * radiative_damping_rate
-                    / (4.0 * PI * LIGHT_SPEED)
-                    * 1.0e8
-                )
-                lorentz_hwhm = neutral_hwhm + radiative_hwhm
+            neutral_damping_rate = (
+                4.5e-9
+                * 0.42
+                * state.neutral_level_population_density[depth, 0]
+                * (atmosphere.temperature[depth] / 10_000.0) ** 0.3
+                * mean_square_radius**0.4
+            )
+            neutral_hwhm = (
+                center_cm**2
+                * neutral_damping_rate
+                / (4.0 * PI * LIGHT_SPEED)
+                * 1.0e8
+            )
+            lorentz_hwhm = neutral_hwhm + radiative_hwhm
             blue_extent = abs(profile_table.wavelength_offset_angstrom[0])
             red_extent = profile_table.wavelength_offset_angstrom[-1]
             extra_extent = 25.0 * lorentz_hwhm

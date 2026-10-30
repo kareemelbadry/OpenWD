@@ -2,8 +2,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 import numpy as np
 import pytest
-from dense_helium_molecular_experiment import MolecularDenseEOS,TABLE_VERSION,molecular_absorption
-from dense_helium_atomic_experiment import atomic_dense_experiment
+from wd_spectra._cool.dense_helium_eos import MolecularDenseEOS,TABLE_VERSION,molecular_absorption
+from wd_spectra._cool.dense_helium_scope import atomic_dense_experiment
 from test_dense_helium_atomic_experiment import AnalyticBulk
 from wd_spectra.constants import HELIUM_MASS,BOLTZMANN,PLANCK,LIGHT_SPEED
 from wd_spectra import helium_molecular as m

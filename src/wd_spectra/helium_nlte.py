@@ -484,7 +484,6 @@ def _neutral_helium_excitation_rate_coefficient(
     upper_index: int,
     oscillator_strength: float,
     *,
-    collision_strength_scale: float,
     helium_i_atom: HeliumIAtom | None = None,
 ) -> FloatArray:
     """Van-Regemorter-style closure for missing He I collision data.
@@ -515,8 +514,7 @@ def _neutral_helium_excitation_rate_coefficient(
         # effective strength is a conventional provisional closure.
         effective_collision_strength = np.full_like(temperature, 0.1)
     return (
-        collision_strength_scale
-        * 8.629e-6
+        8.629e-6
         * effective_collision_strength
         / (lower_weight * np.sqrt(temperature))
         * np.exp(-np.minimum(reduced, 745.0))
@@ -553,12 +551,8 @@ def solve_coupled_helium_statistical_equilibrium(
     neutral_continuum_mean_intensity_lambda: ArrayLike | None = None,
     helium_ii_continuum_wavelength_angstrom: ArrayLike | None = None,
     helium_ii_continuum_mean_intensity_lambda: ArrayLike | None = None,
-    neutral_collision_strength_scale: float = 1.0,
     helium_i_collision_data: TlustyHeliumCollisionData | None = None,
     hydrogenic_collision_model: HydrogenicHeliumCollisionModel = "ccc-scaled",
-    hydrogenic_collision_rate_multiplier: float = 1.0,
-    hydrogenic_excitation_collision_rate_multiplier: float | None = None,
-    hydrogenic_ionization_collision_rate_multiplier: float | None = None,
     _rate_matrix=None,
     _return_rate_matrix=False,
     helium_i_atom: HeliumIAtom | None = None,
@@ -581,23 +575,6 @@ def solve_coupled_helium_statistical_equilibrium(
     # layers (He III/He ~ 1e-18) the "last" system is singular to roundoff.
     if conservation_row not in ("last", "dominant"):
         raise ValueError("conservation_row must be 'last' or 'dominant'")
-    excitation_collision_multiplier = (
-        hydrogenic_collision_rate_multiplier
-        if hydrogenic_excitation_collision_rate_multiplier is None
-        else hydrogenic_excitation_collision_rate_multiplier
-    )
-    ionization_collision_multiplier = (
-        hydrogenic_collision_rate_multiplier
-        if hydrogenic_ionization_collision_rate_multiplier is None
-        else hydrogenic_ionization_collision_rate_multiplier
-    )
-    if (
-        not np.isfinite(excitation_collision_multiplier)
-        or excitation_collision_multiplier <= 0.0
-        or not np.isfinite(ionization_collision_multiplier)
-        or ionization_collision_multiplier <= 0.0
-    ):
-        raise ValueError("hydrogenic collision multipliers must be finite and positive")
     atom = _helium_i_atom(helium_i_atom)
     neutral_lte, helium_ii_total_lte, neutral_occupation = (
         _neutral_helium_reference_populations(atmosphere, atom)
@@ -670,7 +647,6 @@ def solve_coupled_helium_statistical_equilibrium(
                     radiative_down = np.zeros(n_depth)
                 rate_coefficient = (
                     fitted_neutral_collision_rate[:, lower, upper]
-                    * neutral_collision_strength_scale
                     if fitted_neutral_collision_rate is not None
                     and upper < atom.n_fitted_collision_terms
                     else _neutral_helium_excitation_rate_coefficient(
@@ -678,7 +654,6 @@ def solve_coupled_helium_statistical_equilibrium(
                         lower,
                         upper,
                         oscillator_strength,
-                        collision_strength_scale=neutral_collision_strength_scale,
                         helium_i_atom=atom,
                     )
                 )
@@ -714,8 +689,7 @@ def solve_coupled_helium_statistical_equilibrium(
                     mean_intensity,
                 )
                 collisional_up = (
-                    excitation_collision_multiplier
-                    * atmosphere.electron_density
+                    atmosphere.electron_density
                     * helium_ii_excitation_collision_rate_coefficient(
                         collision_data,
                         atmosphere.temperature,
@@ -789,7 +763,6 @@ def solve_coupled_helium_statistical_equilibrium(
                 )
             collisional_ionization = (
                 atmosphere.electron_density
-                * neutral_collision_strength_scale
                 * ionization_rate
             )
             # Convert the old rate per total He II ion to a rate per explicit
@@ -828,8 +801,7 @@ def solve_coupled_helium_statistical_equilibrium(
         )
         for level in range(1, n_ion + 1):
             collisional_ionization = (
-                ionization_collision_multiplier
-                * atmosphere.electron_density
+                atmosphere.electron_density
                 * helium_ii_ionization_collision_rate_coefficient(
                     collision_data,
                     atmosphere.temperature,
@@ -959,12 +931,6 @@ def solve_coupled_helium_statistical_equilibrium(
                 "constant effective collision strength outside 1000--50000 K; kinetic factors at actual temperature"
             ),
             "hydrogenic_collision_model": hydrogenic_collision_model,
-            "hydrogenic_excitation_collision_rate_multiplier": float(
-                excitation_collision_multiplier
-            ),
-            "hydrogenic_ionization_collision_rate_multiplier": float(
-                ionization_collision_multiplier
-            ),
             "atmosphere_structure_sha256": atmosphere_structure_fingerprint(
                 atmosphere
             ),
@@ -1685,12 +1651,8 @@ def solve_coupled_helium_nlte(
     anderson_depth: int = 4,
     anderson_mixing: float = 0.65,
     anderson_maximum_log_step: float = 0.75,
-    neutral_collision_strength_scale: float = 1.0,
     helium_i_collision_data: TlustyHeliumCollisionData | None = None,
     hydrogenic_collision_model: HydrogenicHeliumCollisionModel = "ccc-scaled",
-    hydrogenic_collision_rate_multiplier: float = 1.0,
-    hydrogenic_excitation_collision_rate_multiplier: float | None = None,
-    hydrogenic_ionization_collision_rate_multiplier: float | None = None,
     initial_state: CoupledHeliumNLTEState | None = None,
 ) -> CoupledHeliumNLTEState:
     """Iterate the shared 14 + n + 1 helium atom with radiative transfer."""
@@ -1743,18 +1705,8 @@ def solve_coupled_helium_nlte(
             atmosphere,
             collision_data,
             maximum_helium_ii_level=maximum_helium_ii_level,
-            neutral_collision_strength_scale=neutral_collision_strength_scale,
             helium_i_collision_data=helium_i_collision_data,
             hydrogenic_collision_model=hydrogenic_collision_model,
-            hydrogenic_collision_rate_multiplier=(
-                hydrogenic_collision_rate_multiplier
-            ),
-            hydrogenic_excitation_collision_rate_multiplier=(
-                hydrogenic_excitation_collision_rate_multiplier
-            ),
-            hydrogenic_ionization_collision_rate_multiplier=(
-                hydrogenic_ionization_collision_rate_multiplier
-            ),
         )
         warm_started = False
     else:
@@ -1836,18 +1788,8 @@ def solve_coupled_helium_nlte(
             neutral_continuum_mean_intensity_lambda=neutral_continuum_mean,
             helium_ii_continuum_wavelength_angstrom=ion_wavelength,
             helium_ii_continuum_mean_intensity_lambda=ion_continuum_mean,
-            neutral_collision_strength_scale=neutral_collision_strength_scale,
             helium_i_collision_data=helium_i_collision_data,
             hydrogenic_collision_model=hydrogenic_collision_model,
-            hydrogenic_collision_rate_multiplier=(
-                hydrogenic_collision_rate_multiplier
-            ),
-            hydrogenic_excitation_collision_rate_multiplier=(
-                hydrogenic_excitation_collision_rate_multiplier
-            ),
-            hydrogenic_ionization_collision_rate_multiplier=(
-                hydrogenic_ionization_collision_rate_multiplier
-            ),
         )
         maximum_change, formal_maximum_change = _coupled_population_change(
             current,

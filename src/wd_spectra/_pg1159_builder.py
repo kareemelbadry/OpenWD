@@ -45,7 +45,6 @@ SUPPORTED_NLTE_TRACE_ELEMENTS = (
 # pattern alone narrows the C IV 4-9 far wings to ~0.27 and the O VI 7-8
 # (5290 A) wing to ~0.013 of the formula-4 value.
 PG1159_HYDROGENIC_STARK_COMPONENTS = True
-PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES = MappingProxyType({})
 
 
 def _build_model_inputs(data):
@@ -121,8 +120,6 @@ def _model(
     solve_oxygen: bool,
     iterations: int,
     damping: float,
-    acceleration_depth: int,
-    acceleration_damping: float,
     ion_relative_floor: float,
     level_relative_floor: float,
 ) -> PG1159NLTEModel:
@@ -171,13 +168,10 @@ def _model(
             oxygen_atom.effective_dielectronic_couplings if solve_oxygen else None
         ),
         oxygen_collision_data=(oxygen_atom.collision_data if solve_oxygen else None),
-        ionization_scattering_iterations=3,
         metal_population_iterations=iterations,
         metal_population_minimum_iterations=min(3, iterations),
         metal_population_relative_tolerance=3.0e-3,
         metal_population_damping=damping,
-        metal_population_acceleration_depth=acceleration_depth,
-        metal_population_acceleration_damping=acceleration_damping,
         metal_population_relative_floor=level_relative_floor,
         metal_ion_population_relative_floor=ion_relative_floor,
         metal_level_population_relative_floor=level_relative_floor,
@@ -250,8 +244,6 @@ def build_model(
         solve_oxygen=True,
         iterations=population_iterations,
         damping=0.25,
-        acceleration_depth=4,
-        acceleration_damping=0.20,
         ion_relative_floor=1.0e-6,
         level_relative_floor=1.0e-5,
     )
@@ -266,9 +258,6 @@ def build_model(
         trace_opacity_in_population_radiation=False,
         trace_photoionization_threshold_data=MappingProxyType({}),
         ion_stage_range_overrides=MappingProxyType({}),
-        static_linear_stark_frequency_scales=(
-            PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES
-        ),
         hydrogenic_linear_stark_components=PG1159_HYDROGENIC_STARK_COMPONENTS,
         metal_rate_line_velocity_samples_kms=(
             PG1424_STRUCTURE_LINE_VELOCITY_SAMPLES_KMS if structure_only else None

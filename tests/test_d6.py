@@ -119,7 +119,6 @@ def test_helium_formal_spectrum_accepts_level_resolved_topbase_opacity():
         n_depth=8,
         n_continuum_wavelength=80,
         max_iterations=1,
-        structure_solver="adaptive-newton",
         include_lines=False,
         include_metal_lines=False,
         mixing_length_alpha=None,

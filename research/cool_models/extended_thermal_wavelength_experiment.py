@@ -4,6 +4,6 @@ import runpy
 import sys
 
 if __name__ == "__main__":
-    runpy.run_module("wd_spectra._cool.extended_thermal_wavelength_experiment", run_name="__main__")
+    runpy.run_module("wd_spectra._cool.dense_db_driver", run_name="__main__")
 else:
-    sys.modules[__name__] = importlib.import_module("wd_spectra._cool.extended_thermal_wavelength_experiment")
+    sys.modules[__name__] = importlib.import_module("wd_spectra._cool.dense_db_driver")

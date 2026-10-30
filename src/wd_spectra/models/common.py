@@ -306,6 +306,13 @@ class ModelResult:
     population_state: object | None = None
 
 
+def config_from_stored(config_type: type, stored: Mapping[str, Any]) -> Any:
+    """Rebuild a saved preset configuration, ignoring fields it no longer has."""
+
+    names = {item.name for item in fields(config_type)}
+    return config_type(**{key: value for key, value in stored.items() if key in names})
+
+
 def model_request_fingerprint(
     spectral_type: str,
     config: object,

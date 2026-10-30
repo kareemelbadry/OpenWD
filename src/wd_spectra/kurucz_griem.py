@@ -114,8 +114,7 @@ def _distinct_frequency_nodes(wavelength):
     return wavelength[keep]
 
 
-def kurucz_griem_templates(atmosphere, *, broadening=None, maximum_upper_level=12,
-                     include_dispersion=False):
+def kurucz_griem_templates(atmosphere, *, maximum_upper_level=12, include_dispersion=False):
     """Frequency-area-normalized kernels with the same LTE line populations."""
     from .magnetic import BalmerLineTemplate, frequency_hilbert_dispersion
 

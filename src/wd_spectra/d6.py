@@ -2265,7 +2265,6 @@ def _metal_opacity(
     oxygen_i_series_stark_minimum_effective_n: float | None = None,
     include_oxygen_i_quasistatic_microfields: bool = False,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_rydberg_dissolution: bool = False,
     rydberg_dissolution_cutoff_probability: float | None = None,
     include_metal_series_pseudocontinuum: bool = False,
@@ -2359,7 +2358,6 @@ def _metal_opacity(
                 include_oxygen_i_quasistatic_microfields
             ),
             include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-            linear_stark_profile=linear_stark_profile,
             mg_ii_kurucz_series_widths=True,
             include_rydberg_dissolution=include_rydberg_dissolution,
             rydberg_dissolution_cutoff_probability=(
@@ -2649,7 +2647,6 @@ def d6_structure_opacity_function(
     metal_series_pseudocontinuum_elements: Iterable[str] = ("O", "Mg"),
     rydberg_correlated_microfields: bool = True,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_oxygen_i_series_stark: bool = False,
     profile_edge_optical_depth: float | None = None,
 ) -> Callable[[Atmosphere, MetalLTEState], tuple[FloatArray, FloatArray]]:
@@ -2677,7 +2674,6 @@ def d6_structure_opacity_function(
             rydberg_correlated_microfields=rydberg_correlated_microfields,
             topbase_photoionization_database=topbase_photoionization_database,
             include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-            linear_stark_profile=linear_stark_profile,
             include_oxygen_i_series_stark=include_oxygen_i_series_stark,
             profile_edge_optical_depth=profile_edge_optical_depth,
         )
@@ -2711,7 +2707,6 @@ def radiative_equilibrium_d6_atmosphere(
     rydberg_correlated_microfields: bool = True,
     topbase_photoionization_database: TOPbasePhotoionizationDatabase | None = None,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_oxygen_i_series_stark: bool = False,
     profile_edge_optical_depth: float | None = None,
     n_angle: int = 3,
@@ -2852,7 +2847,6 @@ def radiative_equilibrium_d6_atmosphere(
         metal_series_pseudocontinuum_elements=metal_series_pseudocontinuum_elements,
         rydberg_correlated_microfields=rydberg_correlated_microfields,
         include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-        linear_stark_profile=linear_stark_profile,
         include_oxygen_i_series_stark=include_oxygen_i_series_stark,
         profile_edge_optical_depth=profile_edge_optical_depth,
     )

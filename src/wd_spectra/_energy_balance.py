@@ -1,34 +1,10 @@
-"""Equivalent, fixed-grid representations of conservative energy balance."""
+"""Discrete radiative cell energy balance and its state response."""
 
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
 
 from ._compat import trapezoid
-
-FloatArray = NDArray[np.float64]
-
-
-def cell_conservation_rows(values: FloatArray) -> FloatArray:
-    """Map interface flux defects (or their Jacobian) to cell balance rows.
-
-    Rows 0..N-2 are F[i+1]-F[i]; the final row retains the lower-boundary
-    flux defect. This fixed, invertible linear transformation has precisely
-    the same zero as constant flux at all interfaces. Convection must be
-    included in ``values`` before taking differences. It is not a radiative
-    equilibrium mask or a replacement for the physical flux convergence gate.
-
-    The nonlinear solver's existing row equilibration then acts on local
-    responses, rather than many almost-identical surface-flux derivatives.
-    This helper deliberately adds no optical-depth or temperature threshold.
-    """
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim not in (1, 2) or array.shape[0] < 2:
-        raise ValueError("energy-balance rows must be a vector or matrix with at least two rows")
-    result = array.copy()
-    result[:-1] = np.diff(array, axis=0)
-    return result
 
 
 def discrete_radiative_cell_energy_balance(
@@ -139,46 +115,3 @@ def integrated_radiative_cell_energy_state_response(
         mass, dext, n_angle=n_angle, wavelength_chunk_size=wavelength_chunk_size,
         return_auxiliary_response=False, mean_response_consumer=accumulate)
     return flux_jacobian, energy_jacobian, emission_jacobian
-
-
-def locally_scaled_energy_rows(values, cell_scale):
-    """Invertible flux-minus-local-divergence rows with fixed positive scales.
-
-    Thin radiative cells are measured against their thermal emission, rather
-    than F_star. In thick cells the emission scale is large and ordinary flux
-    constancy dominates. The scale is fixed for a nonlinear segment.
-    """
-    array = np.asarray(values, dtype=float)
-    scale = np.asarray(cell_scale, dtype=float)
-    if array.ndim not in (1, 2) or array.shape[0] < 2:
-        raise ValueError("energy-balance rows must be a vector or matrix with at least two rows")
-    if scale.shape != (array.shape[0]-1,) or np.any(scale <= 0) or np.any(~np.isfinite(scale)):
-        raise ValueError("local cell scales must be positive finite and cell-sized")
-    if array.ndim == 2:
-        scale = scale[:, None]
-    result = array.copy()
-    result[:-1] -= np.diff(array, axis=0) / scale
-    return result
-
-
-def transport_conditioned_rows(values: FloatArray, cell_optical_width: FloatArray) -> FloatArray:
-    """Fixed invertible combination of cell balance and flux constancy.
-
-    R[i] = r[i] - r[i+1]/(1+delta_tau[i]); R[-1] = r[-1].
-    Thin cells approach local conservation, opaque cells retain flux rows.
-    The unit upper-triangular map cannot change the physical root. Widths must
-    be fixed for a nonlinear segment, so its Jacobian uses the identical map.
-    The transition comes from cell optical thickness, not a fitted Teff split.
-    """
-    array = np.asarray(values, dtype=np.float64)
-    width = np.asarray(cell_optical_width, dtype=np.float64)
-    if array.ndim not in (1, 2) or array.shape[0] < 2:
-        raise ValueError("energy-balance rows must be a vector or matrix with at least two rows")
-    if width.shape != (array.shape[0] - 1,) or np.any(~np.isfinite(width)) or np.any(width < 0):
-        raise ValueError("cell optical widths must be finite nonnegative and cell-sized")
-    weight = 1.0 / (1.0 + width)
-    if array.ndim == 2:
-        weight = weight[:, None]
-    result = array.copy()
-    result[:-1] -= weight * array[1:]
-    return result
