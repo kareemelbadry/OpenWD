@@ -97,7 +97,8 @@ Without it, the script uses `paper_dah_config` (see
   energies and centred-motion transverse masses. H I bound–free opacity for
   n = 1–8 uses rigid-wavefunction (RWA) photoionization cross sections
   ([Rohrmann 2026](https://doi.org/10.1051/0004-6361/202658917)). At or below
-  1 MG the zero-field EOS and continuum apply. Cyclotron absorption is off.
+  1 MG the zero-field EOS and continuum apply. Cyclotron absorption is not
+  included.
 - **Transfer.** Scalar Stokes I by default, with the angle-weighted π and σ±
   opacities. Full IQUV transfer is optional.
 
@@ -148,10 +149,6 @@ the equilibrium checks and absolute-flux agreement.
 | `include_rwa_photoionization` | `True` | RWA bound–free opacity above 1 MG. |
 | `include_magnetic_eos` | `True` | Magnetic Saha/HM equilibrium above 1 MG. |
 | `include_centered_motion` | `True` | Transverse-mass weighting in the EOS and RWA populations. |
-| `include_cyclotron_absorption` | `False` | Magneto-ionic free–free and Thomson opacity with a cyclotron resonance. |
-| `balmer_profile` | `"kurucz-griem"` | `"unified"` uses the zero-field DA Stark and neutral-broadening profiles. |
-| `normalize_balmer_strength` | `True` | `False` keeps the field-dependent H2db total line strength. |
-| `atmosphere_structure` | `"nonmagnetic"` | `"mean-field"` solves one structure at the mean visible field with magnetic opacities above 1 MG. |
 
 `paper_dah_config(**parameters)` returns a `DAHConfig` with the zero-field
 EOS and H I bound–free opacity at all fields (`include_rwa_photoionization`,

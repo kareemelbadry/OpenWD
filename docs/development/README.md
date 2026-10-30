@@ -115,10 +115,9 @@ The `SPECTRA`, `COLD` and `REGRESSIONS` lists in `tools/validate.py` give the
 case names. `regression --case d6-j1637` selects the current J1637 reference.
 Earlier reference versions and their replay scopes are retained in git history.
 
-The `molecular-dab-*` cold cases need two external tables: HITRAN
-`H2-He_2011.cia` and ExoMol `1H2__RACPPK.states.bz2`. Put them in the
-directory given by `OPENWD_RESEARCH_DATA` (default `.cache/molecular-opacity`).
-Check them with `python research/cool_models/check_data.py`. Missing data
+The `molecular-dab-*` cold cases need the HITRAN `H2-He_2011.cia` table.
+Put it in the directory given by `OPENWD_RESEARCH_DATA` (default `.cache/molecular-opacity`).
+Check it with `python research/cool_models/check_data.py`. Missing data
 cause a failure. The [cool-model guide](../../research/cool_models/README.md)
 gives the details.
 

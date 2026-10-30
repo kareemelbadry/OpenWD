@@ -126,5 +126,4 @@ stout = read_stout_atomic_database(
 ```
 
 The explicit augmentation functions do not change an atom that already has
-the qualified lines. The configuration field `si_ii_kurucz_transitions` does
-not remove qualified Si II lines from the default reader.
+the qualified lines.

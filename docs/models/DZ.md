@@ -72,20 +72,11 @@ same from the command line (`--help` lists the flags).
 | `quality` | both | `"standard"` | `"quick"` (20 depths, interface test only), `"standard"` (40), `"production"` (80). |
 | `maximum_metal_charge` | both | 3 | Highest ion charge of each metal. |
 | `formal_maximum_metal_lines` | both | `None` (20,000; 1000 for `quick`) | Line budget of the spectrum. The structure uses the same list. |
-| `formal_minimum_metal_oscillator_strength` | both | 1e-4 | Smallest f-value in the line list. |
 | `strong_line_atomic_data` | both | `"stout"` | `"nist-asd"` replaces matched transitions with NIST ASD values. |
 | `ca_ii_resonance_source` | both | `"chianti-reduced"` | Ca II H and K source function. `"lte"` uses LTE. |
-| `kurucz_electron_stark` | both | `True` | Kurucz electron-impact widths for lines without a tabulated width. |
 | `lyman_profile_source` | both | DZ `"stark"`, DAZ `"allard"` | Lyman-line profiles. |
 | `metal_neutral_h_broadening` | DAZ | `"barklem"` | Neutral-H widths of metal lines. `"unsold"` uses Unsöld widths only. |
 | `h2_lyman_werner_lines` | DAZ | `False` | Adds H₂ Lyman and Werner lines to the final spectrum. |
-| `dense_helium_eos` | DZ | `"reos3"` | He-REOS.3 helium fluid. `"ideal"` uses the dilute DB EOS. |
-| `dense_helium_free_free` | DZ | `"rogers-young"` | Dense-fluid He⁻ free–free reduction. `"off"` removes it. |
-| `helium_minus_free_free` | DZ | `"partial-wave"` | He⁻ free–free shape below 0.5063 µm. `"automatic"` uses the Carbon et al. (1969) fit. |
-| `ca_ii_he_unified_profile`, `mg_ii_he_unified_profile`, `mg_i_b_he_unified_profile`, `na_i_he_unified_profile`, `si_ii_he_unified_profile` | DZ | `True` | Unified He profiles of Ca II H&K, Mg II h&k, Mg I b, Na I D and Si II 1260–1265 Å. `False` uses impact widths. |
-| `unified_metal_helium_profiles` | DZ | `"production"` | Mg I 2852 Å and Ca I 4227 Å unified He profiles. `"off"` removes them. |
-| `level_resolved_photoionization` | DZ | `True` | Level-resolved metal photoionization. `False` uses Verner ground-state fits only. |
-| `occupation_probability_metal_partitions` | DZ | `True` | Occupation-probability metal partition functions. `False` uses a fixed 0.1 eV cutoff. |
 
 The remaining fields are numerical controls. Keep their defaults.
 
@@ -115,10 +106,11 @@ The remaining fields are numerical controls. Keep their defaults.
     Mg II and Ca II lines; Kurucz Stark constants; otherwise the SYNSPEC
     n_eff⁵ scaling);
   - neutral perturbers (Unsöld 1955; Barklem et al. 2000 for H where tabulated).
-- **Ca II H and K.** The final spectrum uses a non-LTE source function with
-  coherent scattering. Collisional destruction uses CHIANTI rates
-  (Del Zanna et al. 2021). Radiative destruction goes through the infrared
-  triplet. The populations stay LTE.
+- **Ca II H and K.** The final spectrum uses a non-LTE line source function
+  in complete redistribution. A photon can be re-emitted in the same line,
+  move collisionally to the other 4p level, or be destroyed by electron
+  collisions (CHIANTI rates; Del Zanna et al. 2021) or by branching into the
+  infrared triplet. The populations stay LTE.
 
 ### Helium hosts (DZ, DBZ)
 
