@@ -133,19 +133,16 @@ def test_worker_arguments_have_no_saved_state_or_structure_grid(monkeypatch, tmp
     assert 'research' not in captured['options']['env']['PYTHONPATH']
 
 
-def test_package_policy_restores_shared_hooks_on_failure(tmp_path):
-    from wd_spectra import adaptive_structure as shared
-    from wd_spectra._dq import runtime, automatic_conditioning as controller
-    from wd_spectra._dq import dq_explicit_gradient as gradient
-    from wd_spectra._dq import nonlinear_material_model as nm
-    original = (shared.solve_trust_region_newton, controller.thermal_condition,
-                gradient.ExplicitGradientSystem, nm.local_model)
-    with pytest.raises(RuntimeError, match='deliberate'):
-        with runtime.numerical_policy(tmp_path):
-            assert controller.THERMAL_RELATIVE_NORM_LIMIT.get() == .8
-            raise RuntimeError('deliberate interruption')
-    assert original == (shared.solve_trust_region_newton, controller.thermal_condition,
-                        gradient.ExplicitGradientSystem, nm.local_model)
+def test_runtime_uses_the_unpatched_shared_solver():
+    """The DQ protocol supplies callbacks only; it never replaces solver code."""
+    import inspect
+    from wd_spectra import adaptive_structure as shared, nonlinear
+    from wd_spectra._dq import runtime
+    assert shared.solve_trust_region_newton is nonlinear.solve_trust_region_newton
+    source = inspect.getsource(runtime)
+    assert 'unittest.mock' not in source and 'patch(' not in source
+    assert runtime.ProductionDQMaterial.solve_adaptive_structure.__qualname__.startswith(
+        'RefractiveDQMaterial')
 
 
 def test_constitutive_data_are_packaged_and_checksum_pinned():

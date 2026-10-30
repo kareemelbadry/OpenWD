@@ -6516,6 +6516,8 @@ def _accumulate_lte_metal_line_profiles(
     minimum_half_window: FloatArray,
     population_scale: FloatArray,
     absorption: FloatArray,
+    maximum_half_window: FloatArray | None = None,
+    red_wing_temperature: FloatArray | None = None,
 ) -> None:
     """Accumulate an ordinary LTE line batch, using C when available.
 
@@ -6542,8 +6544,19 @@ def _accumulate_lte_metal_line_profiles(
             population_scale,
         )
     )
+    limit = (
+        None if maximum_half_window is None
+        else np.ascontiguousarray(maximum_half_window, dtype=np.float64)
+    )
+    red = (
+        None if red_wing_temperature is None
+        else np.ascontiguousarray(red_wing_temperature, dtype=np.float64)
+    )
     if compiled is not None:
-        compiled(*values, absorption)
+        if limit is None and red is None:
+            compiled(*values, absorption)
+        else:
+            compiled(*values, absorption, limit, red)
         return
 
     (
@@ -6564,6 +6577,11 @@ def _accumulate_lte_metal_line_profiles(
                 10.0 * gaussian_sigma[line_index, depth],
                 100.0 * lorentz_hwhm[line_index, depth],
             )
+            if limit is not None:
+                half_window = min(
+                    half_window,
+                    max(limit[line_index, depth], 10.0 * gaussian_sigma[line_index, depth]),
+                )
             start = int(np.searchsorted(wavelength, line_center - half_window))
             stop = int(np.searchsorted(
                 wavelength, line_center + half_window, side="right"
@@ -6576,6 +6594,13 @@ def _accumulate_lte_metal_line_profiles(
                 float(gaussian_sigma[line_index, depth]),
                 float(lorentz_hwhm[line_index, depth]),
             )
+            if red is not None:
+                detuning = LIGHT_SPEED / (wavelength[start:stop] * 1.0e-8) - LIGHT_SPEED / center_cm
+                profile_lambda = profile_lambda * np.where(
+                    detuning < 0.0,
+                    np.exp(PLANCK * np.minimum(detuning, 0.0) / (BOLTZMANN * red[depth])),
+                    1.0,
+                )
             absorption[start:stop, depth] += (
                 integrated_strength[line_index]
                 * profile_lambda
@@ -8885,6 +8910,8 @@ def metal_line_mass_absorption_coefficient(
     profile_support_maximum_rosseland_optical_depth: float = 2.0,
     profile_support_maximum_half_window_angstrom: float = 100.0,
     uv_resonance_support_angstrom: Mapping[tuple[str, int, int, int], float] | None = None,
+    impact_validity_support: bool = False,
+    red_wing_boltzmann: bool = False,
 ) -> FloatArray:
     """Return LTE metal bound-bound opacity in cm^2 g^-1.
 
@@ -8943,6 +8970,22 @@ def metal_line_mass_absorption_coefficient(
     derive this mapping from the complete atmosphere, not the subset. Every
     eligible selected resonance requires an entry. Other callers retain the
     original optical-depth gate when this argument is None.
+    ``impact_validity_support`` limits the profile support of ordinary lines
+    to the validity domain of the neutral-He impact (Lorentz) theory,
+    ``|Delta omega| <= v/rho_W``. The Weisskopf radius follows from the line's
+    own He impact width, ``gamma = 2 pi rho_W^2 v n_He``, with the mean
+    relative speed ``v``; no new constant is introduced. Beyond it the
+    profile is quasi-static and set by the real C*-He potentials, whose
+    difference curves give blue, not extended red, wings (Allard &
+    Spiegelman 2024, doi:10.1093/mnras/stae477). The truncated Lorentz area is omitted
+    rather than redistributed. The Doppler core (10 sigma) is always kept.
+    ``red_wing_boltzmann`` multiplies the red side of ordinary profiles by
+    ``exp(-h|Delta nu|/kT)``. In the quasi-static picture a red detuning
+    ``h|Delta nu|`` needs a pair separation where the ground-state energy
+    exceeds that of the upper state by ``h|Delta nu|``; for repulsive
+    upper-state interactions (C*-He; Allard & Spiegelman 2024) the
+    ground-state Boltzmann factor then bounds the wing by this factor
+    (neglecting meV upper-state wells). Blue wings are unchanged.
     ``supplement_background_absorption`` enables a conservative all-depth
     thermal-Doppler peak/background screen for independently corroborated
     additions only. Original Stout lines, explicit ``transition_keys`` and
@@ -9223,6 +9266,7 @@ def metal_line_mass_absorption_coefficient(
             "lorentz_hwhm": [],
             "minimum_half_window": [],
             "population_scale": [],
+            "maximum_half_window": [],
         }
 
     ordinary_profile_batches = {
@@ -9251,6 +9295,8 @@ def metal_line_mass_absorption_coefficient(
             np.asarray(batch["minimum_half_window"], dtype=np.float64),
             np.stack(batch["population_scale"]),
             target,
+            np.stack(batch["maximum_half_window"]) if impact_validity_support else None,
+            np.asarray(atmosphere.temperature, dtype=np.float64) if red_wing_boltzmann else None,
         )
         for values in batch.values():
             values.clear()
@@ -9941,6 +9987,27 @@ def metal_line_mass_absorption_coefficient(
             batch["lorentz_hwhm"].append(lorentz_hwhm)
             batch["minimum_half_window"].append(resonance_half_window)
             batch["population_scale"].append(population_factor)
+            if impact_validity_support:
+                # Weisskopf detuning of the He impact theory, from this
+                # line's own per-perturber width (see docstring).
+                per_perturber = np.divide(
+                    helium_collision_rate, helium_density,
+                    out=np.zeros(atmosphere.n_depth), where=helium_density > 0.0,
+                )
+                reduced_mass = (
+                    ion.atomic_mass_u * _HELIUM_ATOMIC_MASS_U
+                    / (ion.atomic_mass_u + _HELIUM_ATOMIC_MASS_U) * atomic_mass_unit
+                )
+                speed = np.sqrt(
+                    8.0 * BOLTZMANN * atmosphere.temperature / (PI * reduced_mass)
+                )
+                with np.errstate(divide="ignore"):
+                    weisskopf = np.sqrt(2.0 * PI) * speed**1.5 / np.sqrt(per_perturber)
+                batch["maximum_half_window"].append(
+                    center_cm**2 * weisskopf / (2.0 * PI * LIGHT_SPEED) * 1.0e8
+                )
+            else:
+                batch["maximum_half_window"].append(np.full(atmosphere.n_depth, np.inf))
             if len(batch["center"]) >= 2_048:
                 flush_profile_batch(batch_key)
             if replacement_key == "HeUnified":
@@ -9979,6 +10046,9 @@ def metal_line_mass_absorption_coefficient(
                     * np.maximum(ca_i_reference_density - helium_density, 0.0)
                 )
                 reference_batch["minimum_half_window"].append(resonance_half_window)
+                reference_batch["maximum_half_window"].append(
+                    np.full(atmosphere.n_depth, np.inf)
+                )
                 reference_batch["population_scale"].append(
                     np.where(reference_scale < 1.0, population_factor * reference_scale, 0.0)
                 )

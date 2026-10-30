@@ -8,8 +8,10 @@ modified. Use one atmosphere per process, never concurrent threads.
 Radiation uses frequency-dependent published refractivity. The published
 Rayleigh cross section is already a physical transport cross section:
 convert it to the reduced-transfer input sigma0=n*sigma_Ray (Iglesias et al.
-2002, Eq. 4.6). Free-free screening does NOT include its separate 1/n
-propagation factor. Rosseland transport uses (kappa0+sigma0)/n^3.
+2002, Eq. 4.6). The dense He- free-free table is the bare correlation
+ratio (no 1/|epsilon|^2); its only dielectric dressing is the 1/n propagation
+factor applied here, as in Iglesias Eq. 4.6. Rosseland transport uses
+(kappa0+sigma0)/n^3.
 ML2 remains a grey closure: its element optical depth
 uses a static-index approximation, while preserving the frequency-integrated
 diffusion limit and the n*chi0 optically thin limit in the grey case. This
@@ -35,7 +37,7 @@ from wd_spectra.spectrum import Spectrum,planck_lambda_angstrom
 from .dq_dense_continuum_inputs import atomic_polarizability
 from .dq_pair_virial_quadrature import pair_virial_integrals
 from .dq_hornkohl_bounded_energy import BoundedDirectEnergyDQMaterial
-from .dq_hornkohl_gated_energy import gated_solve
+from .dq_hornkohl_cell import CellIntegratedDQMaterial
 from .dq_refractive_finite_volume import solve as fv_solve, formal_field
 from .dq_refractive_fv_response import integrated_response
 
@@ -284,7 +286,6 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
         self.interface_index_cache=OrderedDict()
         from .provenance import digest
         self.experiment_metadata=dict(refraction_enabled=True,
-            declared_eos_seed=False,
             ray_angles_per_invariant_interval=self.ray_angles,
             angular_coordinate='quadratic high-end turning-point map',
             maximum_process_memory_bytes=self.maximum_memory_bytes,
@@ -354,9 +355,7 @@ class RefractiveDQMaterial(BoundedDirectEnergyDQMaterial):
 
         options['ml2_coefficient_function']=coefficients
         try:
-            result=gated_solve(super().solve_adaptive_structure,seed,wave,
-                finish_in_energy_equations=getattr(self,'finish_conditioning_in_energy_equations',False),
-                **options)
+            result=super().solve_adaptive_structure(seed,wave,**options)
         finally:
             maximum_conservation_error=backend.maximum_conservation_error
             backend.release()

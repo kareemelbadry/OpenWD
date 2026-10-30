@@ -227,6 +227,7 @@ def test_combined_hydrogen_request_rejects_each_single_change_checkpoint(
 
 @pytest.mark.parametrize("family,previous_revision", [
     ("DAB", "hydrogen-stark-density-floor-2026-10-05"),
+    ("DQ", "helium-reos3-c1-2026-10-23"),
     ("DZ", "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12"),
     ("DAZ", "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:barklem-neutral-h-2026-10-12:si-ii-kurucz-transitions-2026-10-12"),
     ("D6", "metal-audit-2026-09-30"),

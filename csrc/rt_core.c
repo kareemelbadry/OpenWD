@@ -507,8 +507,10 @@ openwd_humlicek_w4_real(double x, double y)
 static PyObject *
 accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
 {
-    PyObject *objects[8] = {NULL};
-    Py_buffer views[8] = {{0}};
+    PyObject *objects[10] = {NULL};
+    Py_buffer views[10] = {{0}};
+    int n_objects = 8;
+    int has_limit = 0, has_red_temperature = 0;
     Py_ssize_t n_wave, n_depth, n_line, line, depth, wave;
     int index;
     const double pi = 3.1415926535897932384626433832795;
@@ -517,12 +519,19 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
     (void)self;
     if (!PyArg_ParseTuple(
             args,
-            "OOOOOOOO:accumulate_lte_metal_line_profiles",
+            "OOOOOOOO|OO:accumulate_lte_metal_line_profiles",
             &objects[0], &objects[1], &objects[2], &objects[3],
-            &objects[4], &objects[5], &objects[6], &objects[7])) {
+            &objects[4], &objects[5], &objects[6], &objects[7],
+            &objects[8], &objects[9])) {
         return NULL;
     }
-    for (index = 0; index < 8; ++index) {
+    has_limit = objects[8] != NULL && objects[8] != Py_None;
+    has_red_temperature = objects[9] != NULL && objects[9] != Py_None;
+    n_objects = 10;
+    for (index = 0; index < n_objects; ++index) {
+        if ((index == 8 && !has_limit) || (index == 9 && !has_red_temperature)) {
+            continue;
+        }
         const int flags = PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES |
                           (index == 7 ? PyBUF_WRITABLE : 0);
         if (PyObject_GetBuffer(objects[index], &views[index], flags) < 0) {
@@ -556,7 +565,12 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
         views[4].shape[0] != n_line || views[4].shape[1] != n_depth ||
         views[5].shape[0] != n_line ||
         views[6].shape[0] != n_line || views[6].shape[1] != n_depth ||
-        views[7].shape[0] != n_wave) {
+        views[7].shape[0] != n_wave ||
+        (has_limit && (views[8].ndim != 2 ||
+                       views[8].shape[0] != n_line ||
+                       views[8].shape[1] != n_depth)) ||
+        (has_red_temperature && (views[9].ndim != 1 ||
+                                 views[9].shape[0] != n_depth))) {
         PyErr_SetString(PyExc_ValueError,
                         "LTE metal-profile array shapes are inconsistent");
         goto cleanup_lte_metal;
@@ -571,6 +585,12 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
         const double *minimum_half_window = (const double *)views[5].buf;
         const double *population_scale = (const double *)views[6].buf;
         double *absorption = (double *)views[7].buf;
+        const double *maximum_half_window =
+            has_limit ? (const double *)views[8].buf : NULL;
+        const double *red_temperature =
+            has_red_temperature ? (const double *)views[9].buf : NULL;
+        /* h / k_B in K s: red-wing Boltzmann factor exp(-h|dnu|/kT). */
+        const double h_over_k = 4.799243073366221e-11;
 
         Py_BEGIN_ALLOW_THREADS
         for (line = 0; line < n_line; ++line) {
@@ -595,6 +615,15 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
                 }
                 if (100.0 * gamma > half_window) {
                     half_window = 100.0 * gamma;
+                }
+                /* Optional physical support limit (e.g. the impact-theory
+                 * validity detuning); never below the Doppler core. */
+                if (maximum_half_window != NULL) {
+                    const double limit =
+                        fmax(maximum_half_window[line_depth], 10.0 * sigma);
+                    if (limit < half_window) {
+                        half_window = limit;
+                    }
                 }
                 start = lower_bound_double(
                     wavelength, n_wave, line_center - half_window);
@@ -621,8 +650,12 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
                     const double detuning =
                         light_speed / (wavelength[wave] * 1.0e-8) -
                         center_frequency;
-                    const double profile = humlicek_w4_real(
+                    double profile = humlicek_w4_real(
                         detuning * scale, gamma_nu * scale);
+                    if (red_temperature != NULL && detuning < 0.0) {
+                        profile *= exp(h_over_k * detuning /
+                                       red_temperature[depth]);
+                    }
                     absorption[wave * n_depth + depth] +=
                         profile * profile_scale;
                 }
@@ -631,13 +664,15 @@ accumulate_lte_metal_line_profiles(PyObject *self, PyObject *args)
         Py_END_ALLOW_THREADS
     }
 
-    for (index = 0; index < 8; ++index) {
-        PyBuffer_Release(&views[index]);
+    for (index = 0; index < n_objects; ++index) {
+        if (views[index].obj != NULL) {
+            PyBuffer_Release(&views[index]);
+        }
     }
     Py_RETURN_NONE;
 
 cleanup_lte_metal:
-    for (index = 0; index < 8; ++index) {
+    for (index = 0; index < 10; ++index) {
         if (views[index].obj != NULL) {
             PyBuffer_Release(&views[index]);
         }
@@ -3020,7 +3055,7 @@ static PyMethodDef module_methods[] = {
     {"accumulate_lte_metal_line_profiles",
      accumulate_lte_metal_line_profiles,
      METH_VARARGS,
-     PyDoc_STR("accumulate_lte_metal_line_profiles(wavelength, center, strength, sigma, gamma, half_window, population, absorption) -> None")},
+     PyDoc_STR("accumulate_lte_metal_line_profiles(wavelength, center, strength, sigma, gamma, half_window, population, absorption[, maximum_half_window[, red_wing_temperature]]) -> None")},
     {"accumulate_metal_line_profiles",
      accumulate_metal_line_profiles,
      METH_VARARGS,

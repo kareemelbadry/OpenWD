@@ -13,7 +13,7 @@ comparison and its tested range.
 | DAB, DBA | `DABConfig` | Homogeneous H/He | LTE | [DAB/DBA](DAB.md) |
 | DZ, DBZ | `DZConfig` | Helium with metals | LTE | [DZ/DBZ/DAZ](DZ.md) |
 | DAZ | `DAZConfig` | Hydrogen with metals | LTE | [DZ/DBZ/DAZ](DZ.md) |
-| DQ | `DQConfig` | Helium with trace carbon and C₂ | LTE | [DQ](DQ.md) |
+| DQ (in development) | `DQConfig` | Helium with trace carbon and C₂ | LTE | [DQ](DQ.md) |
 | DO | `DOConfig` | Hot pure helium | NLTE H/He | [DO/DAO](DO-DAO.md) |
 | DAO, hot DA | `DAOConfig` | Hot homogeneous H/He | NLTE H/He | [DO/DAO](DO-DAO.md) |
 | PG 1159 | `PG1159Config` | Hot He/C/O with trace elements | NLTE He/C/O | [PG 1159](PG1159.md) |

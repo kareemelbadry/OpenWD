@@ -26,10 +26,10 @@ def test_default_is_checked_combination(tmp_path):
 
 def test_structure_cache_cap_restored_on_failure(tmp_path, monkeypatch):
     mat = make_material(DQConfig(), ModelData.default(), tmp_path)
-    cold = next(cls for cls in type(mat).__mro__ if cls.__name__ == 'ColdDQ')
+    cold = next(cls for cls in type(mat).__mro__ if cls.__name__ == 'ProductionDQMaterial')
     def fail(self, *args, **kwargs):
         assert self.integrated_swan.strength_cache_bytes == 32*1024**2
-        assert self.maximum_memory_bytes == 4*1024**3
+        assert self.maximum_memory_bytes == 10*1024**3
         raise RuntimeError('deliberate solve failure')
     monkeypatch.setattr(cold.__bases__[0], 'solve', fail)
     with pytest.raises(RuntimeError, match='deliberate'):

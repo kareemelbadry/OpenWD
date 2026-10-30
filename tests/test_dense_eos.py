@@ -96,3 +96,93 @@ def test_fixed_density_helium_solver_recovers_pressure_solution() -> None:
         pressure_state.neutral_he_density,
         rtol=1.0e-11,
     )
+
+
+def _smooth_reos3():
+    from wd_spectra.models.common import ModelData
+    return read_helium_reos3_table(ModelData.default().helium_reos3).with_interpolation(
+        "ideal-excess"
+    )
+
+
+def test_ideal_excess_reos_reproduces_every_tabulated_point():
+    table = _smooth_reos3()
+    linear = table.with_interpolation("log-linear")
+    for index in (6, 7, 8, 9, 10):
+        pressure = table.pressure_by_temperature[index][5:95:7]
+        temperature = np.full(pressure.shape, table.temperature_grid[index])
+        smooth_rho, smooth_u, inside = table.evaluate(pressure, temperature)
+        rho, u, _ = linear.evaluate(pressure, temperature)
+        assert np.all(inside)
+        np.testing.assert_allclose(smooth_rho, rho, rtol=1e-13)
+        np.testing.assert_allclose(smooth_u, u, rtol=1e-12)
+
+
+def test_ideal_excess_reos_has_ideal_limit_and_no_knot_jumps():
+    from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
+
+    table = _smooth_reos3()
+    ideal_cp = 2.5 * BOLTZMANN / HELIUM_MASS
+    temperature = np.array([4000.0, 5999.0, 6001.0, 8000.0, 9900.0])
+    _, cp, expansion, gradient, inside = table.thermodynamics(
+        np.full(temperature.shape, 1.0e8), temperature
+    )
+    assert np.all(inside)
+    # Dilute neutral He: exact monatomic ideal gas between the isotherms
+    # (the log-linear interpolant is wrong by up to ~40% here).
+    np.testing.assert_allclose(cp / ideal_cp, 1.0, atol=3e-3)
+    np.testing.assert_allclose(gradient, 0.4, atol=2e-3)
+    for pressure in (1.0e8, 1.0e10, 1.0e11):
+        for knot in (6000.0, 10000.0):
+            values = table.thermodynamics(
+                np.full(2, pressure), np.array([knot * (1 - 1e-7), knot * (1 + 1e-7)])
+            )
+            for field in values[1:4]:
+                np.testing.assert_allclose(field[0], field[1], rtol=1e-5)
+
+
+def test_ideal_excess_reos_thermodynamics_are_derivatives_of_its_density_and_energy():
+    table = _smooth_reos3()
+    pressure = np.array([1.0e6, 1.0e9, 3.0e10, 1.0e11, 5.0e11])
+    temperature = np.array([4500.0, 6100.0, 7300.0, 11000.0, 16000.0])
+    density, cp, expansion, gradient, inside = table.thermodynamics(pressure, temperature)
+    assert np.all(inside) and np.all(cp > 0) and np.all(expansion > 0)
+    h = 1e-5
+    hot_rho, hot_u, _ = table.evaluate(pressure, temperature * np.exp(h))
+    cold_rho, cold_u, _ = table.evaluate(pressure, temperature * np.exp(-h))
+    numeric_cp = ((hot_u + pressure / hot_rho) - (cold_u + pressure / cold_rho)) / (
+        temperature * (np.exp(h) - np.exp(-h))
+    )
+    np.testing.assert_allclose(cp, numeric_cp, rtol=1e-6)
+    np.testing.assert_allclose(
+        expansion, -(np.log(hot_rho) - np.log(cold_rho)) / (2 * h), rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        gradient, pressure * expansion / (density * temperature * cp), rtol=1e-12
+    )
+
+
+def test_ideal_excess_reos_continues_the_dilute_limit_below_the_table():
+    from wd_spectra.constants import BOLTZMANN, HELIUM_MASS
+
+    table = _smooth_reos3()
+    temperature = np.array([4000.0, 6500.0, 7500.0])
+    pressure = np.array([1.0, 3.0, 5.0])  # below the 1e-10 g cm^-3 isotherm limit
+    density, energy, inside = table.evaluate(pressure, temperature)
+    assert np.all(inside)
+    # Ideal neutral He, up to the table's own (interpolated) 1e4 K ionization
+    # at its lowest density: <0.3% between the 6000 and 10000 K isotherms.
+    np.testing.assert_allclose(
+        density, pressure * HELIUM_MASS / (BOLTZMANN * temperature), rtol=3e-3
+    )
+    np.testing.assert_allclose(
+        density[0], pressure[0] * HELIUM_MASS / (BOLTZMANN * temperature[0]), rtol=1e-5
+    )
+    _, cp, _, gradient, inside = table.thermodynamics(pressure, temperature)
+    assert np.all(inside) and np.all(cp > 0) and np.all(gradient > 0)
+    # Neutral ideal gas at 4000 K; the onset of He ionization at the lowest
+    # densities lowers nabla_ad at 6500-7500 K (physical, not an artifact).
+    np.testing.assert_allclose(gradient[0], 0.4, atol=2e-3)
+    assert gradient[2] < gradient[1] < gradient[0]
+    # Pressures above the tabulated support stay outside the domain.
+    assert not table.evaluate(np.array([1e20]), np.array([6000.0]))[2][0]

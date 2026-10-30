@@ -264,14 +264,12 @@
     {
       "pdf": "dq-paper.pdf",
       "preview": "dq-paper.png",
-      "guides": [
-        "docs/models/DQ.md"
-      ],
+      "guides": [],
       "paper_source": "paper/figures/dq_four_object_optical.pdf",
       "in_manuscript": false,
       "pdf_sha256": "4175b6433b65cbfbb264d3f548d0f35cebff32fc8f6b649b1a1f49ba1537b42d",
       "preview_sha256": "1c53c6b27d6861e1fd8a415fb687b8f0ccd12d4f17cad47c907ad752444b1d84",
-      "note": "Not restyled; the DQ figure is commented out of the current manuscript. The asset predates the 2026-10-05 paper_source file and was not replaced.",
+      "note": "Not restyled; the DQ figure is commented out of the current manuscript. The asset predates the 2026-10-05 paper_source file and was not replaced. Made with the pre-2026-10 DQ physics; the DQ guide now shows the 23-star sample instead.",
       "plotter_in_paper_workspace": {
         "path": "release/OpenWD/research/plot_dq_paper_comparison.py"
       }

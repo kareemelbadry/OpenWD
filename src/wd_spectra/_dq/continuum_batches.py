@@ -10,7 +10,8 @@ from . import base
 CONTINUUM_BATCH_SIZE = 1024
 
 
-def helium_continuum_absorption(atmosphere, wavelength, correction=None):
+def helium_continuum_absorption(atmosphere, wavelength, correction=None, *,
+                                 prescription='automatic'):
     wave = np.asarray(wavelength, dtype=float)
     if wave.ndim != 1 or np.any(~np.isfinite(wave)) or np.any(wave <= 0):
         raise ValueError('Finite positive 1D wavelengths required')
@@ -18,7 +19,8 @@ def helium_continuum_absorption(atmosphere, wavelength, correction=None):
         correction = np.asarray(correction, dtype=float)
         if correction.shape != (len(wave), atmosphere.n_depth):
             raise ValueError('Expected wavelength-by-depth dense-He correction')
-    options = dict(include_electron_scattering=False, include_rayleigh_scattering=False)
+    options = dict(include_electron_scattering=False, include_rayleigh_scattering=False,
+                   helium_minus_prescription=prescription)
     if len(wave) <= CONTINUUM_BATCH_SIZE:
         return base.helium_continuum_mass_absorption_coefficient(
             atmosphere, wave, helium_minus_correction=correction, **options)

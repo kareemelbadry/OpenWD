@@ -98,21 +98,22 @@ def test_dense_material_uses_the_same_host_eos_for_convection(inputs):
     )
     a = material.with_temperature(seed, seed.temperature)
     thermo = material.thermodynamics(a)
-    from wd_spectra.eos import hummer_mihalas_helium_thermodynamics
-
-    expected = hummer_mihalas_helium_thermodynamics(
-        a.temperature,
-        np.asarray(a.metadata["dq_helium_host_pressure"]),
-        helium_reos3_table=bulk,
-        correlated_microfields=True,
-        neutral_radius_scale=0.5,
-    )
-    np.testing.assert_array_equal(
-        thermo.specific_heat_constant_pressure, expected.specific_heat_constant_pressure
-    )
-    np.testing.assert_array_equal(
-        thermo.adiabatic_temperature_gradient, expected.adiabatic_temperature_gradient
-    )
+    table = material.helium_reos3
+    assert table.interpolation == "ideal-excess"
+    pressure = np.asarray(a.metadata["dq_helium_host_pressure"])
+    _, cp, expansion, gradient, inside = table.thermodynamics(pressure, a.temperature)
+    assert np.all(inside)
+    np.testing.assert_array_equal(thermo.specific_heat_constant_pressure, cp)
+    np.testing.assert_array_equal(thermo.adiabatic_temperature_gradient, gradient)
+    # Independent check: centered differences of the same smooth interpolant.
+    h = 1e-5
+    hot = table.evaluate(pressure, a.temperature * np.exp(h))
+    cold = table.evaluate(pressure, a.temperature * np.exp(-h))
+    enthalpy = lambda r, u: u + pressure / r
+    numeric_cp = (enthalpy(*hot[:2]) - enthalpy(*cold[:2])) / (
+        a.temperature * (np.exp(h) - np.exp(-h)))
+    np.testing.assert_allclose(cp, numeric_cp, rtol=1e-6)
+    np.testing.assert_allclose(expansion, -(np.log(hot[0]) - np.log(cold[0])) / (2 * h), rtol=1e-6)
     assert np.all(thermo.specific_heat_constant_pressure > 0)
 
 

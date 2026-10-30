@@ -72,10 +72,11 @@ See the [DQ guide](models/DQ.md). Each DQ run must also pass the independent
 | Points | Settings | Evidence |
 | --- | --- | --- |
 | J1235: 9347/8.041, log N(C)/N(He) = −4.107 | standard | Canary `dq-j1235` |
-| J1225: 6294/7.924, log N(C)/N(He) = −5.33 | standard | Cold start (paper comparison) |
+| 23 DQs, 5786–9347 K, Koester & Kepler (2019) parameters | standard; also `swan_helium_broadening="exomol-weisskopf"` | Cold starts, all converged; compared with SDSS |
 
-The other DQ paper models (4400–7256 K) started from saved atmospheres. They
-are spectral comparisons, not cold-start evidence.
+The spectra agree well with SDSS above about 7000 K and acceptably down to
+6300 K. Cooler DQs and peculiar DQs are converged but not reproduced (see the
+[DQ guide](models/DQ.md#validation)).
 
 ## DO and DAO
 

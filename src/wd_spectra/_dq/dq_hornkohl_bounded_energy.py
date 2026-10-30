@@ -1,4 +1,4 @@
-"""Same cold direct-energy DQ experiment, with bounded carbon-line work."""
+"""Cell-integrated DQ opacity with bounded (screened) carbon-line work."""
 
 from .dq_hornkohl_cell import CellIntegratedDQMaterial
 from .dq_bounded_carbon_lines import BoundedCarbonLines

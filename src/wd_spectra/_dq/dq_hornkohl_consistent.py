@@ -105,7 +105,8 @@ class ConsistentDQMaterial(dq.DQMaterial):
     def _absorption_from_chemistry(self,a,carbon,c2,wavelength,*,include_c2=True):
         dense=self.dense_continuum.correction(wavelength,a.temperature,a.helium_lte_state.neutral_he_density)\
             if self.dense_continuum is not None else None
-        opacity=helium_continuum_absorption(a,wavelength,dense)
+        opacity=helium_continuum_absorption(a,wavelength,dense,
+            prescription=self.config.helium_minus_free_free)
         opacity+=self.helium_line_opacity(a,wavelength,opacity)
         opacity+=dq.helium_i_resonance_line_mass_absorption_coefficient(a,wavelength)
         opacity+=dq.helium_ii_line_mass_absorption_coefficient(a,wavelength,stark_table=self.he_ii)
@@ -127,7 +128,8 @@ class ConsistentDQMaterial(dq.DQMaterial):
         a,carbon,_=self.chemistry(current)
         dense=self.dense_continuum.correction(wavelength,a.temperature,a.helium_lte_state.neutral_he_density)\
             if self.dense_continuum is not None else None
-        opacity=helium_continuum_absorption(a,wavelength,dense)
+        opacity=helium_continuum_absorption(a,wavelength,dense,
+            prescription=self.config.helium_minus_free_free)
         opacity+=dq.metal_bound_free_mass_absorption_coefficient(a,wavelength,self.atomic,carbon,self.photo)
         return opacity
 

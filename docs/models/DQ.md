@@ -2,6 +2,12 @@
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
+> **Status: in development, not yet ready for broader use.** DQ models
+> converge from cold starts and pass all atmosphere checks. Their spectra
+> match SDSS well only above about 7000 K. Below that the Swan bands are too
+> deep, and peculiar DQs are not reproduced (see [Validation](#validation)).
+> Do not use them to fit stellar parameters or carbon abundances yet.
+
 `DQConfig` computes hydrogen-free, nonmagnetic, helium-dominated LTE
 atmospheres with trace carbon and C₂. The transfer is refractive in both the
 structure and the final spectrum. Each request is a cold start from a gray
@@ -44,17 +50,47 @@ optional `wavelength` array changes only the output grid.
 | `quality` | `"standard"` | The only accepted value. |
 | `maximum_seconds` | 28800 | Wall-clock budget. The run raises an error when it is used up. |
 | `include_c2_ca` | `True` | C₂ C–A band opacity. `False` is a diagnostic omission. |
+| `helium_minus_free_free` | `"partial-wave"` | He⁻ free–free below 5063 Å. `"automatic"` restores the Carbon et al. (1969) fit. |
+| `swan_helium_broadening` | `"none"` | `"exomol-weisskopf"` turns on the empirical Swan-line cut described below. |
 
 ## Physics
 
 - **Equation of state.** The helium fluid uses the He-REOS.3 table
-  (Becker et al. 2014). He, C and C₂ are in coupled chemical equilibrium.
-- **Continuum.** The He⁻ free–free opacity includes the dense-helium
-  correction of Iglesias et al. (2002), as applied by Blouin et al. (2018).
+  (Becker et al. 2014). Only its departure from the ideal monatomic gas,
+  ln(ρ/ρ_ideal) and u − 3kT/2m, is interpolated: PCHIP in log P and a monotone
+  C¹ Hermite in log T. c_P, Q and ∇ad are analytic derivatives of the same
+  interpolant. Linear interpolation in log T had given ∇ad jumps of up to 40%
+  at the isotherms and stalled convective models. He, C and C₂ are in coupled
+  chemical equilibrium.
+- **Continuum.** The He⁻ free–free opacity follows John (1994) above
+  5063 Å. Blueward, as in DZ, a first-principles e–He partial-wave shape is
+  scaled to John's edge value. The older Carbon et al. (1969) fit is 9–23%
+  higher at DQ photospheric temperatures and jumps at the edge. The opacity
+  includes the dense-helium correction of Iglesias et al. (2002). The fluid structure factor comes from
+  a Rogers–Young closure (checked against Monte Carlo), and the table extends
+  to 2.91 g cm⁻³. The 1/|ε|² factor of Blouin et al. (2018) is not applied,
+  because the refractive transfer already supplies the 1/n propagation factor
+  ([record](../development/history/dq-dense-he-ff-2026-10-15.md)).
+- **Carbon line wings.** At n_He ≈ 10²²–10²³ cm⁻³, the far red Lorentz wings
+  of the UV C I lines used to dominate the optical continuum of cool DQs. The
+  C*–He upper states are repulsive (Allard & Spiegelman 2024), so the red wing
+  is bounded by the ground-state Boltzmann factor exp(−h|Δν|/kT). Blue wings
+  and line cores are unchanged. Unified C–He profiles would replace this bound.
 - **C₂ Swan bands.** The Hornkohl/Parigger line list (Parigger et al. 2015) is
   scaled to the band strength of Brooke et al. (2013). ExoMol 8states
   (Yurchenko et al. 2018; McKemmish et al. 2020) fills the levels outside its
-  coverage. The density shift of the bands follows Blouin et al. (2019).
+  coverage. The density shift of the bands follows Blouin et al. (2019)
+  (0.2ρ eV, integrated over each depth cell). NEVPT2 C₂–He calculations
+  give the same mean shift. Lines otherwise have thermal Doppler profiles.
+- **Optional Swan cut (empirical).** `swan_helium_broadening="exomol-weisskopf"`
+  gives each Swan line an ExoMol impact Lorentzian, cut off at the Weisskopf
+  detuning. The cut discards the Lorentz area beyond it: 60–95% of the line
+  strength at n_He = 10²²–10²³ cm⁻³. That makes the bands of cool DQs
+  shallower and closer to SDSS (see below). The gain is phenomenological;
+  the cut has no physical justification. An ab initio test (SA-CASSCF on
+  C₂ + He) found that He contact changes the Swan transition strength by
+  at most ~5% even at 1 g cm⁻³, far less than the strength the cut removes.
+  It is off by default.
 - **Other C₂ systems.** ExoMol 8states gives the other systems and the
   partition function. The Deslandres–d'Azambuja (C–A) system uses band
   envelopes from the Einstein coefficients of Lino da Silva (2024).
@@ -63,6 +99,10 @@ optional `wavelength` array changes only the output grid.
 - **Transfer.** Refractive radiative transfer includes bent and trapped
   rays, scattering and a screened lower boundary. The method follows
   Blouin et al. but is not an exact copy.
+- **Solver.** DQ supplies only physics to the shared structure solver,
+  which runs unmodified, as for cool DBs. When boundary screening fails, the
+  bottom pressure rises fourfold and the solve repeats. See the
+  [October 2026 audit record](../development/history/dq-shared-solver-2026-10-14.md).
 - **Sampling.** The structure uses every fourth wavelength node of the
   combined line and continuum grid. The final spectrum uses the full grid.
 - **Acceptance.** A run must pass the five atmosphere checks. It must then
@@ -72,16 +112,75 @@ optional `wavelength` array changes only the output grid.
 
 ## Validation
 
-[![SDSS spectra of four DQ white dwarfs compared with OpenWD predictions](../assets/dq-paper.png)](../assets/dq-paper.pdf)
+> **Out of date.** The two 23-star figures and the table below were made
+> before the partial-wave He⁻ free–free default. The
+> [six-star comparison](#release-check) further down uses the current code.
 
-SDSS spectra (gray) and OpenWD predictions (orange) of SDSS J0940+0210,
-J1225+4706, J0804+1714 and J1803+2320 (4400–7256 K). Parameters come from
-Koester & Kepler (2019) for J0940 and Blouin & Dufour (2019) for the others.
-The flux scale uses (R/d)², with R² = GM/g and the published masses and
-parallaxes. Nothing is fitted. J1225 is a public cold start. The other three
-models were relaxed from saved research atmospheres. The models reproduce the
-main Swan bands. Differences in the continuum and band shapes grow toward
-the coolest star. J0804 and J1803 are peculiar DQs.
+[![OpenWD DQ models against SDSS spectra of 23 DQs, sorted by Teff](../assets/dq-sample-montage.png)](../assets/dq-sample-montage.png)
+
+Twenty-three DQs from Koester & Kepler (2019) were modeled, 5786–9347 K, with
+SDSS DR17 spectra at S/N ≥ 15. Each uses the Koester & Kepler Teff, log g and
+C/He. The flux scale is (R/d)², from the published mass and the Gaia
+parallax. Nothing is fitted. All 23 models converged from cold starts. In the
+figure, SDSS is black, the default model blue, and the model at Coutu et al.
+(2019) parameters orange where available.
+
+[![Band-depth, shape and absolute RMS against Teff, default model and Swan cut](../assets/dq-sample-scores.png)](../assets/dq-sample-scores.png)
+
+The scores are RMS differences after 10 Å smoothing: band depth, continuum-
+normalized shape (4200–5720 Å) and absolute flux (3850–6720 Å). Circles are
+the default model; triangles add the optional Swan cut. Color is the density
+at τR = 2/3.
+
+| Teff | Photospheric ρ | Default model | With the Swan cut |
+| --- | --- | --- | --- |
+| ≳ 7000 K | ≲ 0.05 g cm⁻³ | Good: band-depth RMS 0.01–0.05, shape 0.01–0.06 | Unchanged |
+| 6300–7000 K | 0.05–0.2 g cm⁻³ | Acceptable: bands up to ~0.1 too deep | Depth error about halved |
+| ≲ 6000 K | ≳ 0.2 g cm⁻³ | Bands far too deep (J1201: 0.28) | Good to 5800 K, except J1201 (0.13) |
+
+The largest absolute-flux misfits (J0239, J2150) come from the flux scale or
+calibration, not the band shapes. The Swan cut is never meaningfully worse,
+but its improvement is phenomenological and not physically justified (see
+[Physics](#physics)).
+
+### Release check
+
+Six of the stars were rerun cold with the release code, with both He⁻
+free–free choices:
+
+[![Six DQs from this release against SDSS, with the earlier He⁻ free–free](../assets/dq-release-validation.png)](../assets/dq-release-validation.png)
+
+| Star | Teff | Shape RMS, release / Carbon fit | Band-depth RMS, release / Carbon fit |
+| --- | ---: | ---: | ---: |
+| J1235+3918 | 9347 K | 0.093 / 0.088 | 0.023 / 0.016 |
+| J0916+1011 | 8451 K | 0.091 / 0.106 | 0.014 / 0.009 |
+| J0940+0210 | 7256 K | 0.064 / 0.053 | 0.036 / 0.025 |
+| J0929+3310 | 6659 K | 0.165 / 0.148 | 0.178 / 0.153 |
+| J1225+4706 | 6294 K | 0.132 / 0.147 | 0.158 / 0.150 |
+| J1201+3400 | 5953 K | 0.365 / 0.319 | 0.324 / 0.286 |
+
+Here, shape is the RMS over 4200–5720 Å after both spectra are normalized at
+6320–6500 Å. Band depth is the RMS of ln(model/data) about a linear trend over
+the same range. All twelve models converge from cold starts and pass the
+five atmosphere checks and the bolometric check. The partial-wave free–free is the more accurate physics,
+but with structure feedback it makes the bands slightly deeper and the red
+continuum slightly fainter. Band-depth RMS rises in every star compared. The
+older, too-large Carbon fit was partly standing in for opacity the models
+still lack, as it did in cool DZs. The 6300–6700 K stars are also 10–18%
+too bright at 3900–4300 Å.
+
+Peculiar DQs (J0804, J1803; Teff < 6000 K, ρ ≈ 0.4–1 g cm⁻³) are not
+reproduced. Their modeled Swan bands are about twice too deep, and the
+band shapes and positions differ from the observed ones. Tested and rejected:
+
+- full Voigt, Lorentz or ab initio quasi-static Swan profiles;
+- the Blouin et al. recipe;
+- turning off refraction or the dense He⁻ ff correction;
+- He–He–He collision-induced absorption;
+- fitting C/He (as a diagnostic).
+
+A real fix needs C₂–He line shapes at fluid densities. Earlier four-star
+figures (`dq-paper.png`) were made with the previous DQ physics.
 
 ## Limitations
 
@@ -89,8 +188,10 @@ the coolest star. J0804 and J1803 are peculiar DQs.
   carbon-dominated DQs, hydrogen-bearing DQs and DQp stars are not.
 - The dense-mixture EOS, the molecular collision profiles and the gray
   refractive ML2 coupling are approximations.
-- In the coolest, densest stars, the band and continuum shapes differ from
-  the observations.
+- Below about 6300 K (photospheric ρ ≳ 0.2 g cm⁻³) the default Swan bands are
+  too deep. Peculiar DQs are not reproduced, with or without the Swan cut.
+- The optional Swan cut discards line strength and is not a physical line
+  profile.
 - The C–A system is a band-envelope approximation, not a resolved line list.
 - The bolometric check fixes the integrated flux, not its wavelength
   distribution. The stride-four structure sampling is not a 1% spectral bound.

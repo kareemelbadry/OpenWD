@@ -33,6 +33,18 @@ class DQConfig:
     quality: str = 'standard'
     maximum_seconds: float = 28800.
     include_c2_ca: bool = True
+    # He perturbation of the resolved Swan lines. 'none' (default): thermal
+    # Doppler lines with the rigid 0.2 rho eV shift. 'exomol-weisskopf' is an
+    # EMPIRICAL opt-in: an ExoMol-width impact Lorentzian truncated at the
+    # Weisskopf detuning, which discards the truncated line strength (60-95%
+    # at n_He = 1e22-1e23 cm^-3). It improves cool/dense DQ band depths but is
+    # not strength-conserving physics; see docs/models/DQ.md.
+    swan_helium_broadening: str = 'none'
+    # He- free-free below John's (1994) 0.5063-micron edge, as in DZ:
+    # 'partial-wave' scales a first-principles e-He wavelength shape to John's
+    # edge value (continuous); 'automatic' keeps the Carbon et al. (1969) fit,
+    # 9-23% higher in DQ photospheres and discontinuous at the edge.
+    helium_minus_free_free: str = 'partial-wave'
 
 
 def validate_config(config):
@@ -50,6 +62,10 @@ def validate_config(config):
         raise ValueError('Refractive DQ currently supports only quality="standard"')
     if type(config.include_c2_ca) is not bool:
         raise ValueError('include_c2_ca must be boolean (False is a diagnostic opacity omission)')
+    if config.swan_helium_broadening not in ('none', 'exomol-weisskopf'):
+        raise ValueError("swan_helium_broadening must be 'none' or 'exomol-weisskopf'")
+    if config.helium_minus_free_free not in ('partial-wave', 'automatic'):
+        raise ValueError("helium_minus_free_free must be 'partial-wave' or 'automatic'")
 
 
 def warn_dq_approximation():
@@ -73,6 +89,10 @@ def _load_result(directory, config, data):
         raise RuntimeError('DQ output parameters differ from the request')
     if report.get('config', {}).get('include_c2_ca') is not config.include_c2_ca:
         raise RuntimeError('DQ output C–A opacity selection differs from the request')
+    if report.get('config', {}).get('swan_helium_broadening') != config.swan_helium_broadening:
+        raise RuntimeError('DQ output Swan broadening selection differs from the request')
+    if report.get('config', {}).get('helium_minus_free_free') != config.helium_minus_free_free:
+        raise RuntimeError('DQ output He- free-free selection differs from the request')
     if any(report['physical_config'].get(k) != v for k, v in parameters.items()):
         raise RuntimeError('DQ physical parameters differ from the request')
     if (report['status'] != 'completed' or not report.get('spectral_qualification')
@@ -141,6 +161,8 @@ def compute_dq(config=DQConfig(), wavelength=None, *, data=None,
                '--read-output-grid']
     if not config.include_c2_ca:
         command.append('--no-c2-ca')
+    command += ['--swan-helium-broadening', config.swan_helium_broadening,
+                '--helium-minus-free-free', config.helium_minus_free_free]
     environment = os.environ.copy()
     environment['OPENWD_DATA'] = str(data.root)
     # Installed package root, never a research/results directory.
