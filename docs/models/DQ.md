@@ -128,12 +128,30 @@ at τR = 2/3.
 The largest absolute-flux misfits (J0239, J2150) come from the flux scale or
 calibration, not the band shapes. The Swan cut is never meaningfully worse.
 
-These sample models predate the partial-wave He⁻ free–free default. On fixed
-J1311 (5529 K) and J1235 (9347 K) atmospheres, that change raises the
-line-free continuum by up to 8% and 3% at 3600–5063 Å, and raises J1235's
-1000–3000 Å flux by 10%. It leaves the Swan
-band depths unchanged to within 0.003 and does not change the flux redward of
-5063 Å.
+These sample models predate the partial-wave He⁻ free–free default. Six of
+the stars were rerun cold with the release code, with both He⁻ free–free
+choices:
+
+[![Six DQs from this release against SDSS, with the earlier He⁻ free–free](../assets/dq-release-validation.png)](../assets/dq-release-validation.png)
+
+| Star | Teff | Shape RMS, release / Carbon fit | Band-depth RMS, release / Carbon fit |
+| --- | ---: | ---: | ---: |
+| J1235+3918 | 9347 K | 0.093 / 0.088 | 0.023 / 0.016 |
+| J0916+1011 | 8451 K | 0.091 / 0.106 | 0.014 / 0.009 |
+| J0940+0210 | 7256 K | 0.064 / 0.053 | 0.036 / 0.025 |
+| J0929+3310 | 6659 K | 0.165 / 0.148 | 0.178 / 0.153 |
+| J1225+4706 | 6294 K | 0.132 / 0.147 | 0.158 / 0.150 |
+| J1201+3400 | 5953 K | 0.365 / 0.319 | 0.324 / 0.286 |
+
+Here, shape is the RMS over 4200–5720 Å after both spectra are normalized at
+6320–6500 Å. Band depth is the RMS of ln(model/data) about a linear trend over
+the same range. All twelve models converge from cold starts and pass the five atmosphere checks and the
+bolometric check. The partial-wave free–free is the more accurate physics,
+but with structure feedback it makes the bands slightly deeper and the red
+continuum slightly fainter. Band-depth RMS rises in every star compared. The
+older, too-large Carbon fit was partly standing in for opacity the models
+still lack, as it did in cool DZs. The 6300–6700 K stars are also 10–18%
+too bright at 3900–4300 Å.
 
 Peculiar DQs (J0804, J1803; Teff < 6000 K, ρ ≈ 0.4–1 g cm⁻³) are not
 reproduced. Their modeled Swan bands are about twice too deep, and the
