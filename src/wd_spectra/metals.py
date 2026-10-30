@@ -531,6 +531,45 @@ _O_I_6258_6271_MULTIPLET = (
 )
 _O_I_6258_6271_RADIATIVE_DAMPING_RATE_S = 43_651_583.22401656
 
+# O I 2p3(2D)3p 3D, 3F -> 2p3(2D)4d 3Do (6094--6262 A) and -> 2p3(2D)5s 3Do
+# (6368--6554 A): (lower, upper energy in cm^-1, absorption f).  NIST lists the
+# upper levels (autoionizing, 4So + ed) but no transition strengths.  With a
+# spectator 2D core, S(SL->SL') = (2S+1)(2L+1)(2L'+1){l L 2; L' l' 1}^2 R and
+# S(J->J') = (2J+1)(2J'+1){L S J; J' 1 L'}^2 S(SL->SL')/(2S+1).  The radial
+# factor R is the mean over the OP (TOPbase, retrieved 2026-10-25) LS multiplets of
+# the same arrays between bound terms: 3p' 3D -> 4d' 3Po, 3Fo for 3p -> 4d
+# (gf 0.124, 0.614; spread +-10%) and 3p' 1P, 1F -> 5s' 1Do for 3p -> 5s
+# (gf 0.0440, 0.118; +-9%).  The same R reproduces the independent Stout
+# 3p' 3D3 -> 4d' 3Fo4 strength to 12% and the NBS 3p' 3F -> 4d' 3Go relative
+# fine structure exactly (absolute scale 25% lower).  Wavelengths follow from
+# the observed NIST level energies; components below f = 1e-4 are omitted.
+_O_I_EXCITED_CORE_3D_TRANSITIONS = (
+    (113294.854, 129703.000, 4.4095e-03),  # 6094.53 3D2-4d 3Do1
+    (113298.320, 129703.000, 2.2043e-02),  # 6095.82 3D1-4d 3Do1
+    (113294.816, 129697.500, 3.2652e-03),  # 6096.56 3D3-4d 3Do2
+    (113294.854, 129697.500, 2.0407e-02),  # 6096.58 3D2-4d 3Do2
+    (113298.320, 129697.500, 7.3451e-03),  # 6097.87 3D1-4d 3Do2
+    (113294.816, 129692.300, 2.6113e-02),  # 6098.50 3D3-4d 3Do3
+    (113294.854, 129692.300, 4.5698e-03),  # 6098.51 3D2-4d 3Do3
+    (113714.444, 129692.300, 2.3368e-03),  # 6258.66 3F4-4d 3Do3
+    (113721.413, 129697.500, 2.0769e-03),  # 6259.35 3F3-4d 3Do2
+    (113727.165, 129703.000, 1.9627e-03),  # 6259.45 3F2-4d 3Do1
+    (113721.413, 129692.300, 2.5953e-04),  # 6261.39 3F3-4d 3Do3
+    (113727.165, 129697.500, 3.6333e-04),  # 6261.61 3F2-4d 3Do2
+    (113294.854, 128998.200, 2.4474e-03),  # 6368.07 3D2-5s 3Do1
+    (113298.320, 128998.200, 1.2234e-02),  # 6369.48 3D1-5s 3Do1
+    (113294.816, 128990.200, 1.8120e-03),  # 6371.30 3D3-5s 3Do2
+    (113294.854, 128990.200, 1.1325e-02),  # 6371.32 3D2-5s 3Do2
+    (113298.320, 128990.200, 4.0760e-03),  # 6372.72 3D1-5s 3Do2
+    (113294.816, 128978.800, 1.4485e-02),  # 6375.93 3D3-5s 3Do3
+    (113294.854, 128978.800, 2.5349e-03),  # 6375.95 3D2-5s 3Do3
+    (113727.165, 128998.200, 1.3328e-02),  # 6548.34 3F2-5s 3Do1
+    (113721.413, 128990.200, 1.4102e-02),  # 6549.31 3F3-5s 3Do2
+    (113714.444, 128978.800, 1.5860e-02),  # 6551.21 3F4-5s 3Do3
+    (113727.165, 128990.200, 2.4669e-03),  # 6551.78 3F2-5s 3Do2
+    (113721.413, 128978.800, 1.7614e-03),  # 6554.20 3F3-5s 3Do3
+)
+
 
 # CI-chondrite number ratios relative to calcium from columns 5--6 of
 # Lodders (2003), ApJ 591, 1220, Table 1.  Blouin, Dufour & Allard (2018)
@@ -850,7 +889,9 @@ class AtomicTransition:
     # Optional unified (non-impact) neutral-He line profile replacing the
     # Lorentzian He broadening of this line in helium atmospheres; see
     # atomic_database_with_si_ii_he_unified_profile.
-    helium_unified_profile: "SiIIHeUnifiedProfile | None" = None
+    helium_unified_profile: (
+        "SiIIHeUnifiedProfile | MgIbHeUnifiedProfile | MgIbHeComputedProfile | None"
+    ) = None
     independently_validated_supplement: bool = False
 
 
@@ -1208,6 +1249,13 @@ class MetalLTEState:
     # opacity applies the same level survival so populations stay normalized.
     neutral_perturber_number_density: Mapping[str, FloatArray] | None = None
     neutral_perturber_radius_cm: Mapping[str, float] | None = None
+    # The population atom, not an opacity-table index namespace. Retain it
+    # for matching external photoionization terms to the partition levels.
+    # This is a runtime reference: its line-selection caches repeatedly
+    # reference whole ions and must not be expanded into population exports.
+    atomic_database: AtomicDatabase | None = field(
+        default=None, metadata={"serialize": False},
+    )
 
 
 @dataclass(frozen=True)
@@ -1409,7 +1457,10 @@ class MgIIHeProfileTable:
         self,
         wavelength_angstrom: ArrayLike,
         helium_density: ArrayLike,
+        temperature: ArrayLike | None = None,
     ) -> FloatArray:
+        # Single-condition table: the local temperature is not used.
+        del temperature
         wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
         density = np.asarray(helium_density, dtype=np.float64)
         if wavelength.ndim != 1:
@@ -1470,6 +1521,110 @@ class MgIIHeProfileTable:
             1.0,
         )
         return sigma.reshape((-1,) + (1,) * density.ndim) * density_scale
+
+
+class UnifiedIonicHeProfileGrid:
+    """Resonance-doublet + He unified-profile cross sections on a (T, n_He) grid.
+
+    ``complete_line``: the table resolves the impact core (bin averages), so
+    at n_He >= 1e20 it is the whole line rather than an envelope over the
+    ordinary Voigt profile.
+
+    Tables computed with the OpenWD unified-profile engine (Anderson-Talman
+    autocorrelation with Allard's modulated dipole, straight paths,
+    Maxwell-averaged) from ab initio ion-He potentials; see the ``source``
+    string stored with each table.  Each fine-structure line is placed at its
+    own vacuum wavenumber with its f-value and the lines are summed; values are
+    bin averages over the tabulated vacuum wavelength cells.  Dense-fluid
+    physics: each profile carries its physical band area (an R-dependent
+    transition dipole moves strength into other bands as He packs around the
+    ion, instead of the unit area of Allard's tables), and the quasi-static
+    part is corrected from independent to correlated perturbers with a
+    classical Monte Carlo of the He fluid (HFD-B He-He; equation of state
+    within 5% of REOS3) using diatomics-in-molecules transition energies.  log sigma is interpolated bilinearly
+    in (log T, log n_He); T is held at the grid edges.  Outside the density
+    grid the cross section scales linearly with n_He from the nearest edge:
+    the binary (first-order) far-wing law.  Its impact core is not meant to
+    replace the ordinary Voigt core: callers merge by envelope.
+    """
+
+    complete_line = True
+
+    def __init__(self, path: str | Path):
+        with np.load(path, allow_pickle=False) as table:
+            self.temperatures = np.asarray(table["temperature_kelvin"], dtype=np.float64)
+            self.densities = np.asarray(table["helium_density_cm3"], dtype=np.float64)
+            self.wavelength_angstrom = np.asarray(
+                table["wavelength_vacuum_angstrom"], dtype=np.float64
+            )
+            sigma = np.asarray(table["cross_section_cm2"], dtype=np.float64)
+            self.source = str(table["source"])
+        if (
+            self.temperatures.ndim != 1 or self.temperatures.size < 2
+            or np.any(np.diff(self.temperatures) <= 0)
+            or self.densities.ndim != 1 or self.densities.size < 2
+            or np.any(np.diff(self.densities) <= 0)
+            or self.wavelength_angstrom.ndim != 1
+            or np.any(np.diff(self.wavelength_angstrom) <= 0)
+            or sigma.shape != (
+                self.temperatures.size, self.densities.size, self.wavelength_angstrom.size
+            )
+            or np.any(~np.isfinite(sigma)) or np.any(sigma < 0)
+        ):
+            raise ValueError(f"invalid unified ionic He profile table: {path}")
+        self.cross_section_by_condition = sigma
+
+    def cross_section(self, wavelength_angstrom, helium_density, temperature=None):
+        wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
+        density = np.asarray(helium_density, dtype=np.float64)
+        if wavelength.ndim != 1 or np.any(~np.isfinite(density)) or np.any(density < 0.0):
+            raise ValueError("wavelength and helium density must be physical")
+        if temperature is None:
+            raise ValueError("the unified ionic He table needs the local temperature")
+        t = np.broadcast_to(np.asarray(temperature, dtype=np.float64), density.shape).ravel()
+        n = density.ravel()
+        log_t, log_n = np.log(self.temperatures), np.log(self.densities)
+        x = np.log(np.clip(t, self.temperatures[0], self.temperatures[-1]))
+        y = np.log(np.clip(np.maximum(n, self.densities[0]), self.densities[0], self.densities[-1]))
+        it = np.clip(np.searchsorted(log_t, x) - 1, 0, log_t.size - 2)
+        jn = np.clip(np.searchsorted(log_n, y) - 1, 0, log_n.size - 2)
+        wt = (x - log_t[it]) / (log_t[it + 1] - log_t[it])
+        wn = (y - log_n[jn]) / (log_n[jn + 1] - log_n[jn])
+        inside = (wavelength >= self.wavelength_angstrom[0]) & (
+            wavelength <= self.wavelength_angstrom[-1]
+        )
+        result = np.zeros((wavelength.size, n.size))
+        if not np.any(inside):
+            return result.reshape((wavelength.size,) + density.shape)
+        w_in = wavelength[inside]
+        # Interpolate in wavelength only the grid rows that some depth needs.
+        rows = {}
+
+        def row(i, j):
+            if (i, j) not in rows:
+                rows[(i, j)] = np.interp(
+                    w_in, self.wavelength_angstrom, self.cross_section_by_condition[i, j]
+                )
+            return rows[(i, j)]
+
+        tiny = np.finfo(np.float64).tiny
+        for k in range(n.size):
+            corners = (
+                (row(it[k], jn[k]), (1 - wt[k]) * (1 - wn[k])),
+                (row(it[k] + 1, jn[k]), wt[k] * (1 - wn[k])),
+                (row(it[k], jn[k] + 1), (1 - wt[k]) * wn[k]),
+                (row(it[k] + 1, jn[k] + 1), wt[k] * wn[k]),
+            )
+            positive = np.all([c > 0.0 for c, _ in corners], axis=0)
+            log_mean = sum(w * np.log(np.maximum(c, tiny)) for c, w in corners)
+            linear = sum(w * c for c, w in corners)
+            result[inside, k] = np.where(positive, np.exp(log_mean), linear)
+        scale = np.where(
+            n < self.densities[0], n / self.densities[0],
+            np.where(n > self.densities[-1], n / self.densities[-1], 1.0),
+        )
+        result *= scale[np.newaxis, :]
+        return result.reshape((wavelength.size,) + density.shape)
 
 
 @dataclass(frozen=True)
@@ -2997,6 +3152,86 @@ def augment_oxygen_i_6258_6271_multiplet(
     )
 
 
+def augment_oxygen_i_excited_core_3d_transitions(
+    database: AtomicDatabase,
+) -> AtomicDatabase:
+    """Add the O I ``2p3(2D)3p 3D, 3F -> 2p3(2D)4d, 5s 3Do`` multiplets.
+
+    Stout and NIST list the observed ``4d'`` and ``5s' 3Do`` levels but no
+    transitions to them.  These upper levels autoionize (``4So + ed``), so
+    the Opacity Project treats them as resonances and tabulates no
+    bound-bound strengths.  The strengths here follow from the spectator-core
+    LS relation for one ``3p -> 4d`` (or ``3p -> 5s``) electron jump, with the
+    radial factor taken from the OP (TOPbase) multiplets between bound
+    members of the same transition arrays (see
+    ``_O_I_EXCITED_CORE_3D_TRANSITIONS``).  Only transitions between observed
+    levels are added; existing records are kept, and the function is
+    idempotent.  Natural widths come from the usual upper-level radiative
+    sums; the OP resonance widths of these levels (<~1e11 s^-1) are below the
+    electron-impact widths in the atmospheres where the lines form.
+    """
+
+    key = ("O", 0)
+    if key not in database.ions:
+        return database
+    ion = database.ions[key]
+
+    def level_at(energy: float) -> AtomicLevel | None:
+        matches = [
+            level for level in ion.levels
+            if abs(level.energy_wavenumber - energy) <= 0.02
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    existing_pairs = {
+        (transition.lower_index, transition.upper_index)
+        for transition in ion.transitions
+    }
+    added: list[AtomicTransition] = []
+    for lower_energy, upper_energy, oscillator_strength in (
+        _O_I_EXCITED_CORE_3D_TRANSITIONS
+    ):
+        lower, upper = level_at(lower_energy), level_at(upper_energy)
+        if lower is None or upper is None:
+            # A custom or subset atom without these levels is left unchanged.
+            continue
+        pair = (lower.index, upper.index)
+        if pair in existing_pairs:
+            continue
+        wavelength_cm = 1.0 / (upper.energy_wavenumber - lower.energy_wavenumber)
+        einstein_a = (
+            8.0 * PI**2 * ELEMENTARY_CHARGE_ESU**2
+            / (ELECTRON_MASS * LIGHT_SPEED * wavelength_cm**2)
+            * lower.statistical_weight / upper.statistical_weight
+            * oscillator_strength
+        )
+        added.append(
+            AtomicTransition(
+                lower_index=lower.index,
+                upper_index=upper.index,
+                einstein_a=einstein_a,
+                transition_type="E1",
+                wavelength_vacuum_angstrom=wavelength_cm * 1.0e8,
+                absorption_oscillator_strength=oscillator_strength,
+            )
+        )
+        existing_pairs.add(pair)
+    if not added:
+        return database
+
+    label = "OP-normalized LS O I 2p3(2D)3p-4d/5s 3Do supplement"
+    ions = dict(database.ions)
+    ions[key] = replace(
+        ion,
+        transitions=ion.transitions + tuple(added),
+        source=f"{ion.source}; {label}",
+    )
+    return AtomicDatabase(
+        MappingProxyType(ions),
+        source=f"{database.source}; {label}",
+    )
+
+
 def atomic_database_with_melendez_barbuy_feii_oscillator_strengths(
     database: AtomicDatabase,
 ) -> AtomicDatabase:
@@ -4034,6 +4269,231 @@ def atomic_database_with_si_ii_he_unified_profile(
     )
 
 
+class MgIbHeUnifiedProfile:
+    """Unified Mg I b (3s3p 3P_J - 3s4s 3S1) + He profile for one J component.
+
+    Allard et al. (2016, A&A 588, A142) absolute cross sections at 6000 K,
+    recovered from their figure vectors (n_He = 1, 1.75, 2, 3, 4e21 cm^-3;
+    ``scripts/extract_allard_mgib_figure_profiles.py``).  Each curve is used
+    as a shape normalized to unit area; the transition's own oscillator
+    strength sets the strength.  The paper shows J1 coinciding with J0 at
+    1e21 cm^-3, so J1 uses the J0 sequence.  Between tabulated densities the
+    normalized profiles are interpolated linearly in log n_He.  Below 1e21
+    the profile is the impact Lorentzian (Allard's Table 2 widths and shifts,
+    plus ``Gamma_other``) plus the part of the 1e21 profile beyond impact
+    theory (signed, zero integral) scaled by n_He/1e21 (binary collisions),
+    as for Ca I 4227, so the profile is continuous at 1e21.  Above
+    4e21 the 4e21 shape is held: the satellite keeps moving blueward at higher
+    density, which this figure-resolution bridge cannot represent.  The paper
+    finds the wings nearly temperature independent at 4000-8000 K; the 6000-K
+    calculation is used at all temperatures.  Detunings outside the plotted
+    range (-100..1000 cm^-1 at 1e21, to ~1900 cm^-1 at 4e21) carry no unified
+    opacity; the ordinary Voigt line supplies the core by the envelope merge.
+    """
+
+    window_angstrom = 600.0
+    # Allard et al. (2016) Table 2, 6000 K: HWHM and shift per perturber (cm^-1 cm^3).
+    impact_hwhm = {0: 5.37e-20, 1: 5.37e-20, 2: 5.57e-20}
+    impact_shift = {0: 2.79e-20, 1: 2.30e-20, 2: 1.89e-20}
+
+    def __init__(self, path, component: int) -> None:
+        data = np.loadtxt(path, comments="#")
+        if data.ndim != 2 or data.shape[1] != 4:
+            raise ValueError("Mg I b--He table must have four columns")
+        sequence = 0 if component == 1 else component
+        rows = data[data[:, 1] == sequence]
+        self.component = int(component)
+        self.densities = np.unique(rows[:, 0])
+        if self.densities.size < 2:
+            raise ValueError("Mg I b--He table needs at least two densities")
+        self.detuning_cm1 = np.arange(-250.0, 2100.0, 0.5)
+        shapes = []
+        for density in self.densities:
+            curve = rows[rows[:, 0] == density]
+            x, y = curve[:, 2], curve[:, 3]
+            if np.any(np.diff(x) <= 0) or np.any(y < 0) or not np.all(np.isfinite(y)):
+                raise ValueError("Mg I b--He curves must be finite and increasing")
+            area = trapezoid(y, x)
+            shapes.append(np.interp(self.detuning_cm1, x, y, left=0.0, right=0.0) / area)
+        self.shapes = np.array(shapes)          # per cm^-1, unit area
+        self._log_densities = np.log(self.densities)
+        self._reference_hwhm = self.impact_hwhm[self.component] * self.densities[0]
+        self._reference_shift = self.impact_shift[self.component] * self.densities[0]
+        # Signed beyond-impact part of the least-dense profile.  Its integral
+        # is zero, so the low-density profile keeps unit area and equals the
+        # tabulated one at the table edge.
+        self.excess_at_minimum = self.shapes[0] - self._reference_lorentz(self.detuning_cm1)
+        self.source = (
+            "Allard et al. (2016) Mg I b-He unified profiles (6000 K, figure vectors)"
+        )
+
+    def _reference_lorentz(self, detuning):
+        h, d = self._reference_hwhm, self._reference_shift
+        return h / PI / ((detuning - d) ** 2 + h ** 2)
+
+    def profile(self, detuning_cm1, temperature, helium_density, gamma_other):
+        """Profile per unit angular frequency [s], shape (n_detuning, n_depth)."""
+
+        density = np.atleast_1d(np.asarray(helium_density, dtype=np.float64))
+        gamma = np.broadcast_to(np.asarray(gamma_other, dtype=np.float64), density.shape)
+        detuning = np.asarray(detuning_cm1, dtype=np.float64)
+        per_cm = np.zeros((detuning.size, density.size))
+        clipped = np.clip(density, self.densities[0], self.densities[-1])
+        log_n = np.log(np.maximum(clipped, 1.0))
+        index = np.clip(np.searchsorted(self._log_densities, log_n) - 1,
+                        0, self.densities.size - 2)
+        weight = (log_n - self._log_densities[index]) / (
+            self._log_densities[index + 1] - self._log_densities[index])
+        tabulated = np.array([np.interp(detuning, self.detuning_cm1, row, left=0.0, right=0.0)
+                              for row in self.shapes])
+        dense = density >= self.densities[0]
+        per_cm[:, dense] = (
+            (1.0 - weight[dense])[np.newaxis, :] * tabulated[index[dense]].T
+            + weight[dense][np.newaxis, :] * tabulated[index[dense] + 1].T
+        )
+        thin = ~dense
+        if np.any(thin):
+            n = density[thin]
+            hwhm = (self.impact_hwhm[self.component] * n
+                    + gamma[thin] / (4.0 * PI * LIGHT_SPEED))
+            shift = self.impact_shift[self.component] * n
+            lorentz = hwhm / PI / ((detuning[:, np.newaxis] - shift) ** 2 + hwhm ** 2)
+            inside = (detuning >= self.detuning_cm1[0]) & (detuning <= self.detuning_cm1[-1])
+            excess = np.where(
+                inside,
+                np.interp(detuning, self.detuning_cm1, self.excess_at_minimum),
+                -self._reference_lorentz(detuning),
+            )
+            per_cm[:, thin] = np.maximum(
+                lorentz + excess[:, np.newaxis] * (n / self.densities[0]), 0.0
+            )
+        return per_cm / (2.0 * PI * LIGHT_SPEED)
+
+
+class MgIbHeComputedProfile:
+    """Unified Mg I b (3s3p 3P_J - 3s4s 3S1) + He profile from a computed (T, n_He) table.
+
+    Computed with the OpenWD unified-profile engine (Anderson-Talman autocorrelation,
+    Allard's modulated dipole, straight paths, Maxwell average) from the Allard et al.
+    (2016) Mg-He potentials and transition dipoles (their Figs. 1-3, no spin-orbit), for
+    3000-12000 K and n_He = 1e19-1e23 cm^-3.  Each lower-state component (3p b Sigma,
+    a Pi) carries its own Boltzmann factor.  The blue satellites at multiples of the
+    difference-potential maximum (395 cm^-1) pile up with density: the absorption
+    maximum moves from the line to ~480 cm^-1 at 3e21 and ~1800 cm^-1 at 1e22, which
+    the 4e21-limited figure bridge cannot represent.  Profiles carry their physical
+    band area (R-dependent dipoles).  The same shape serves all three J components.
+    One upper 4s curve serves both lower components (V_4s = V_Pi + dV_Pi; the Sigma
+    difference potential is rebuilt as V_4s - V_Sigma inside 6.4 a0, where Allard's
+    Fig. 3 Sigma curve leaves its frame).
+    log profile is interpolated bilinearly in (log T, log n_He); T is held at the grid
+    edges, n_He above 1e23 is held, and below 1e19 the profile scales as n_He (binary
+    wings; the Voigt core supplies the line centre through the envelope merge).  Because
+    the peaks move with density, geometric interpolation loses band area between nodes
+    (~10% median for 0.25-dex nodes); the table therefore uses 0.05-dex density nodes and
+    500-K temperature nodes below 7000 K (median loss 0.3%, worst 3.6%).
+    Above n_He = 1e20 the table replaces the Voigt line entirely (complete_line), so
+    radiative, Stark and neutral-H damping are not added; there the He impact width
+    (>= 5 cm^-1) exceeds them by more than an order of magnitude.
+    """
+
+    window_angstrom = 3000.0
+    complete_line = True
+
+    def __init__(self, path, component: int) -> None:
+        with np.load(path, allow_pickle=False) as table:
+            self.temperatures = np.asarray(table["temperature_kelvin"], dtype=np.float64)
+            self.densities = np.asarray(table["helium_density_cm3"], dtype=np.float64)
+            self.detuning_cm1 = np.asarray(table["detuning_cm1"], dtype=np.float64)
+            self.profiles = np.asarray(table["profile_per_cm1"], dtype=np.float64)
+            self.source = str(table["source"])
+        if self.profiles.shape != (self.temperatures.size, self.densities.size,
+                                   self.detuning_cm1.size):
+            raise ValueError("invalid Mg I b--He profile table")
+        self.component = int(component)
+
+    def profile(self, detuning_cm1, temperature, helium_density, gamma_other):
+        """Profile per unit angular frequency [s], shape (n_detuning, n_depth)."""
+
+        del gamma_other          # below 1e20 the Voigt core carries them; above, He dominates (class doc)
+        density = np.atleast_1d(np.asarray(helium_density, dtype=np.float64))
+        t = np.broadcast_to(np.asarray(temperature, dtype=np.float64), density.shape)
+        detuning = np.asarray(detuning_cm1, dtype=np.float64)
+        lt, ln = np.log(self.temperatures), np.log(self.densities)
+        x = np.log(np.clip(t, self.temperatures[0], self.temperatures[-1]))
+        y = np.log(np.clip(density, self.densities[0], self.densities[-1]))
+        it = np.clip(np.searchsorted(lt, x) - 1, 0, lt.size - 2)
+        jn = np.clip(np.searchsorted(ln, y) - 1, 0, ln.size - 2)
+        wt = (x - lt[it]) / (lt[it + 1] - lt[it])
+        wn = (y - ln[jn]) / (ln[jn + 1] - ln[jn])
+        tiny = np.finfo(np.float64).tiny
+        rows = {}
+
+        def row(i, j):
+            if (i, j) not in rows:
+                rows[(i, j)] = np.interp(detuning, self.detuning_cm1, self.profiles[i, j],
+                                         left=0.0, right=0.0)
+            return rows[(i, j)]
+
+        per_cm = np.zeros((detuning.size, density.size))
+        for k in range(density.size):
+            corners = ((row(it[k], jn[k]), (1 - wt[k]) * (1 - wn[k])),
+                       (row(it[k] + 1, jn[k]), wt[k] * (1 - wn[k])),
+                       (row(it[k], jn[k] + 1), (1 - wt[k]) * wn[k]),
+                       (row(it[k] + 1, jn[k] + 1), wt[k] * wn[k]))
+            positive = np.all([c > 0.0 for c, _ in corners], axis=0)
+            per_cm[:, k] = np.where(
+                positive,
+                np.exp(sum(w * np.log(np.maximum(c, tiny)) for c, w in corners)),
+                sum(w * c for c, w in corners),
+            )
+        scale = np.where(density < self.densities[0], density / self.densities[0], 1.0)
+        return per_cm * scale[np.newaxis, :] / (2.0 * PI * LIGHT_SPEED)
+
+
+def atomic_database_with_mg_i_b_he_unified_profile(
+    database: AtomicDatabase, path: str | Path,
+) -> AtomicDatabase:
+    """Attach the Allard et al. (2016) Mg b--He profiles to Mg I 3p 3P - 4s 3S.
+
+    Only the three E1 components 3s3p 3P_J - 3s4s 3S1 (5168.8, 5174.1,
+    5185.0 A vacuum) change: their neutral-He broadening becomes the unified
+    profile in helium atmospheres.  Oscillator strengths, populations and
+    other widths are unchanged; other lines are untouched.
+    """
+
+    ion = database.ions.get(("Mg", 0))
+    if ion is None:
+        return database
+    levels = {level.index: level for level in ion.levels}
+    tables: dict[int, "MgIbHeUnifiedProfile | MgIbHeComputedProfile"] = {}
+    changed, attached = [], 0
+    for transition in ion.transitions:
+        lower = levels.get(transition.lower_index)
+        upper = levels.get(transition.upper_index)
+        if (
+            transition.transition_type == "E1"
+            and lower is not None and upper is not None
+            and _stout_core_orbital_term(lower) == ("3s", "3p", "3Po")
+            and _stout_core_orbital_term(upper) == ("3s", "4s", "3S")
+        ):
+            j = int(round((lower.statistical_weight - 1.0) / 2.0))
+            if j not in tables:
+                tables[j] = (MgIbHeComputedProfile(path, j) if str(path).endswith(".npz")
+                             else MgIbHeUnifiedProfile(path, j))
+            transition = replace(transition, helium_unified_profile=tables[j])
+            attached += 1
+        changed.append(transition)
+    if attached == 0:
+        return database
+    ions = dict(database.ions)
+    ions["Mg", 0] = replace(ion, transitions=tuple(changed))
+    return AtomicDatabase(
+        MappingProxyType(ions),
+        source=database.source
+        + f"; {next(iter(tables.values())).source} for {attached} lines",
+    )
+
+
 def atomic_database_with_kurucz_iron_group_positions(
     database: AtomicDatabase, directory: str | Path | None = None
 ) -> AtomicDatabase:
@@ -5038,8 +5498,10 @@ def metal_lte_state(
     probabilities for charged Q-MHD microfields and ground-state neutral He
     perturbers.  The partitions depend on the electron density, so they are
     iterated with charge neutrality to self-consistency.  The state is then
-    marked for level dissolution, and line opacity applies the same survival
-    probabilities.
+    marked for level dissolution, and opacity applies the same survival
+    probabilities. Neutral-He excluded volume applies only to Rydberg
+    levels, retaining the released low-level reservoir. No additional
+    ground-state compensation is applied to the Saha partition ratio.
     """
 
     if reference_species == "auto":
@@ -5100,7 +5562,6 @@ def metal_lte_state(
     hydrogen_host_template = (
         host_state if isinstance(host_state, HydrogenLTEState) else None
     )
-
     def populations_at_electron_density(
         electron_density: FloatArray,
     ) -> tuple[
@@ -5497,6 +5958,7 @@ def metal_lte_state(
         log_hydrogen_abundance=log_hydrogen_abundance,
         trace_hydrogen_state=trace_hydrogen_state,
         metal_level_dissolution=bool(occupation_probability_partitions),
+        atomic_database=atomic_database,
         neutral_perturber_number_density=(
             None if neutral_perturbers is None else MappingProxyType(neutral_perturbers)
         ),
@@ -5690,6 +6152,7 @@ def helium_metal_lte_state_from_mass_fractions(
         composition_mode="bulk",
         mass_fraction=MappingProxyType(normalized_mass_fraction),
         total_mass_density=np.asarray(total_mass_density),
+        atomic_database=atomic_database,
     )
 
 
@@ -5809,40 +6272,9 @@ def _humlicek_w4(x: FloatArray, y: FloatArray) -> FloatArray:
     four regions and coefficients.
     """
 
-    x = np.asarray(x, dtype=np.float64)
-    y = np.broadcast_to(np.asarray(y, dtype=np.float64), x.shape)
-    t = y - 1j * x
-    s = np.abs(x) + y
-    w = np.empty(x.shape, dtype=np.complex128)
-    region1 = s >= 15.0
-    region2 = (s >= 5.5) & ~region1
-    region3 = (s < 5.5) & (y >= 0.195 * np.abs(x) - 0.176)
-    region4 = ~(region1 | region2 | region3)
-    if np.any(region1):
-        tt = t[region1]
-        w[region1] = tt * 0.5641896 / (0.5 + tt * tt)
-    if np.any(region2):
-        tt = t[region2]
-        u = tt * tt
-        w[region2] = tt * (1.410474 + u * 0.5641896) / (0.75 + u * (3.0 + u))
-    if np.any(region3):
-        tt = t[region3]
-        w[region3] = (
-            16.4955 + tt * (20.20933 + tt * (11.96482 + tt * (3.778987 + tt * 0.5642236)))
-        ) / (
-            16.4955 + tt * (38.82363 + tt * (39.27121 + tt * (21.69274 + tt * (6.699398 + tt))))
-        )
-    if np.any(region4):
-        tt = t[region4]
-        u = tt * tt
-        w[region4] = np.exp(u) - tt * (
-            36183.31 - u * (3321.9905 - u * (1540.787 - u * (219.0313 - u * (
-                35.76683 - u * (1.320522 - u * 0.56419)))))
-        ) / (
-            32066.6 - u * (24322.84 - u * (9022.228 - u * (2186.181 - u * (
-                364.2191 - u * (61.57037 - u * (1.841439 - u))))))
-        )
-    return w.real
+    from ._faddeeva import humlicek_w4
+
+    return humlicek_w4(x, y).real
 
 
 def _voigt_profile_per_angstrom(
@@ -6746,6 +7178,7 @@ def na_i_d_neon_impact_rate_coefficient(
 def classical_electron_stark_rate_coefficient(
     ion: AtomicIon,
     transition: AtomicTransition,
+    parent_ion: AtomicIon | None = None,
 ) -> float:
     """Return SYNSPEC's classical electron damping rate per electron.
 
@@ -6755,6 +7188,12 @@ def classical_electron_stark_rate_coefficient(
     The coefficient is in cm3 s-1.  It is only a fallback, but omitting it
     altogether makes saturated metal lines much too narrow in hydrogen- and
     helium-free C/O atmospheres.
+
+    An upper level above the first ionization limit (for example O I
+    ``2p3(2D).4d``) belongs to a series converging on an excited parent term.
+    When ``parent_ion`` (the next ionization stage) is supplied, its binding
+    energy is measured from that parent limit, as in the Unsold widths (see
+    :func:`_parent_limit_excitation_ev`); otherwise no width is assigned.
     """
 
     if ion.ionization_energy_ev is None:
@@ -6767,6 +7206,8 @@ def classical_electron_stark_rate_coefficient(
         ion.ionization_energy_ev
         - upper.energy_wavenumber / EV_TO_WAVENUMBER
     )
+    if binding_energy_ev <= 0.0 and parent_ion is not None:
+        binding_energy_ev += _parent_limit_excitation_ev(upper, parent_ion)
     if binding_energy_ev <= 0.0:
         return 0.0
     effective_n_squared = np.clip(
@@ -6796,11 +7237,49 @@ def _rydberg_orbital(label: str) -> tuple[int, int, str] | None:
     )
 
 
-def _level_quantum_defect(ion: AtomicIon, level: AtomicLevel, principal: int) -> float | None:
-    binding = ion.ionization_energy_ev - level.energy_wavenumber / EV_TO_WAVENUMBER
+def _level_quantum_defect(
+    ion: AtomicIon,
+    level: AtomicLevel,
+    principal: int,
+    parent_excitation_ev: float = 0.0,
+) -> float | None:
+    binding = (
+        ion.ionization_energy_ev + parent_excitation_ev
+        - level.energy_wavenumber / EV_TO_WAVENUMBER
+    )
     if binding <= 0.0:
         return None
     return principal - (ion.charge + 1.0) * float(np.sqrt(_RYDBERG_ENERGY_EV / binding))
+
+
+def _series_parent_excitation_ev(
+    atomic_database: AtomicDatabase,
+    ion: AtomicIon,
+    level: AtomicLevel,
+) -> float | None:
+    """Return the excitation of the parent term a level's series converges on.
+
+    Zero is returned for a level built on the ground term of the next ion (or
+    without a named parent term), so ground-parent series keep the first
+    ionization limit.  A level built on an excited parent term, such as O I
+    ``2p3(2Do).4d``, is a Rydberg level of the series converging on that term;
+    its binding energy is ``I + E(parent) - E(level)``
+    (see :func:`_parent_limit_excitation_ev`).  ``None`` marks an excited
+    parent that cannot be identified in the next ion.
+    """
+
+    parsed = _rydberg_orbital(level.label)
+    core = parsed[2] if parsed is not None else level.label
+    parents = _PARENT_TERM_PATTERN.findall(core)
+    next_ion = atomic_database.ions.get((ion.element, ion.charge + 1))
+    if not parents or next_ion is None or not next_ion.levels:
+        return 0.0
+    ground = min(next_ion.levels, key=lambda item: item.energy_wavenumber)
+    ground_terms = _PARENT_TERM_PATTERN.findall(ground.label)
+    if ground_terms and ground_terms[-1] == parents[-1]:
+        return 0.0
+    excitation = _parent_limit_excitation_ev(level, next_ion)
+    return excitation if excitation > 0.0 else None
 
 
 _LINEAR_STARK_LEVEL_CACHE: dict[tuple[int, int, int], object] = {}
@@ -6830,11 +7309,12 @@ def _linear_stark_rydberg_level(
 
     Linear (hydrogenic) Stark behaviour requires a nearly degenerate
     ``n``-manifold: the outer electron must be in an ``l >= 2`` orbital
-    converging on the ground term of the next ion, with a small positive
-    quantum defect.  The returned defect gap is the smallest defect difference
-    to an ``l +/- 1`` neighbour of the same ``n``.  Core-excited levels and
-    series converging on excited parent terms are excluded; their binding energy relative to the ground
-    ionization limit does not measure their Rydberg character.
+    with a small positive quantum defect.  The returned defect gap is the
+    smallest defect difference to an ``l +/- 1`` neighbour of the same ``n``
+    and parent core.  A series converging on an excited parent term (for
+    example O I ``2p3(2Do).nd``) is measured from that parent limit, where it
+    is as hydrogenic as the ground-parent series; levels whose excited parent
+    cannot be identified are excluded.
     """
 
     if ion.ionization_energy_ev is None:
@@ -6845,14 +7325,13 @@ def _linear_stark_rydberg_level(
     principal, angular, core = parsed
     if angular < 2:
         return None
-    parents = _PARENT_TERM_PATTERN.findall(core)
-    next_ion = atomic_database.ions.get((ion.element, ion.charge + 1))
-    if parents and next_ion is not None and next_ion.levels:
-        ground = min(next_ion.levels, key=lambda item: item.energy_wavenumber)
-        ground_terms = _PARENT_TERM_PATTERN.findall(ground.label)
-        if not ground_terms or ground_terms[-1] != parents[-1]:
-            return None
-    binding = ion.ionization_energy_ev - level.energy_wavenumber / EV_TO_WAVENUMBER
+    parent_excitation = _series_parent_excitation_ev(atomic_database, ion, level)
+    if parent_excitation is None:
+        return None
+    binding = (
+        ion.ionization_energy_ev + parent_excitation
+        - level.energy_wavenumber / EV_TO_WAVENUMBER
+    )
     if binding <= 0.0:
         return None
     core_charge = ion.charge + 1.0
@@ -6873,7 +7352,9 @@ def _linear_stark_rydberg_level(
         and parsed_other[0] == principal
         and parsed_other[2] == core
         and abs(parsed_other[1] - angular) == 1
-        and (value := _level_quantum_defect(ion, other, principal)) is not None
+        and (value := _level_quantum_defect(
+            ion, other, principal, parent_excitation
+        )) is not None
     ]
     has_upper = any(
         (parsed_other := _rydberg_orbital(other.label)) is not None
@@ -7013,8 +7494,13 @@ def _rydberg_stark_manifold(
     if angular not in energy_sum:
         return None
     core_charge = ion.charge + 1.0
+    # Untabulated high-l members lie at the hydrogenic energy below the
+    # series limit of their own parent term.
+    series_limit_ev = ion.ionization_energy_ev + _series_parent_excitation_ev(
+        atomic_database, ion, level
+    )
     hydrogenic = (
-        ion.ionization_energy_ev * EV_TO_WAVENUMBER
+        series_limit_ev * EV_TO_WAVENUMBER
         - _RYDBERG_FREQUENCY_HZ / LIGHT_SPEED * core_charge**2 / principal**2
     )
     energies = {l_value: energy_sum[l_value] / weight_sum[l_value] for l_value in energy_sum}
@@ -7622,6 +8108,50 @@ def metal_rydberg_level_occupation_probability(
     return charged_survival * neutral_survival
 
 
+def metal_lte_level_population(
+    ion: AtomicIon,
+    level: AtomicLevel,
+    metal_state: MetalLTEState,
+    temperature_kelvin: ArrayLike,
+) -> FloatArray:
+    """Return a level population with the same occupation convention as Q.
+
+    Trace-metal partitions use electron density; bulk-metal partitions use
+    the ionic microfield moment. Profile-only dissolution switches do not
+    change this normalization. Autoionizing levels retain the existing LTE
+    resonance-population approximation rather than a bound-state survival.
+    Their populations are not part of the bound-level partition sum.
+    """
+
+    temperature = np.asarray(temperature_kelvin, dtype=np.float64)
+    partition = metal_state.partition_function[(ion.element, ion.charge)]
+    weight = (
+        level.statistical_weight
+        * np.exp(-level.energy_wavenumber * WAVENUMBER_TO_ERG
+                 / (BOLTZMANN * temperature))
+    )
+    if metal_state.metal_level_dissolution and (
+        ion.ionization_energy_ev is None
+        or level.energy_wavenumber < ion.ionization_energy_ev * EV_TO_WAVENUMBER
+    ):
+        perturber_density = (
+            metal_ionic_microfield_perturber_density(metal_state)
+            if metal_state.reference_species == "metal"
+            else metal_state.electron_density
+        )
+        weight = weight * metal_rydberg_level_occupation_probability(
+            ion, level, perturber_density, temperature,
+            neutral_perturber_number_density=(
+                metal_state.neutral_perturber_number_density
+            ),
+            neutral_perturber_radius_cm=metal_state.neutral_perturber_radius_cm,
+        )
+    return (
+        metal_state.ion_number_density[ion.element][ion.charge]
+        * (weight / partition)
+    )
+
+
 def metal_rydberg_transition_survival_probability(
     ion: AtomicIon,
     lower_level: AtomicLevel,
@@ -7781,7 +8311,6 @@ def oxygen_i_dissolved_series_mass_absorption_coefficient(
     populations = metal_state.ion_number_density.get("O")
     if populations is None or populations.shape[0] == 0:
         return result
-    partition = metal_state.partition_function[("O", 0)]
     charged_perturber_density = metal_ionic_microfield_perturber_density(
         metal_state
     )
@@ -7806,14 +8335,8 @@ def oxygen_i_dissolved_series_mass_absorption_coefficient(
         ) if centers.size > 1 else centers[-1] + 1.0
         lower_population = lower_population_cache.get(lower.index)
         if lower_population is None:
-            lower_population = (
-                populations[0]
-                * lower.statistical_weight
-                * np.exp(
-                    -lower.energy_wavenumber * WAVENUMBER_TO_ERG
-                    / (BOLTZMANN * atmosphere.temperature)
-                )
-                / partition
+            lower_population = metal_lte_level_population(
+                ion, lower, metal_state, atmosphere.temperature,
             )
             lower_population_cache[lower.index] = lower_population
         for member_index, (center, line, effective_n) in enumerate(members):
@@ -7932,6 +8455,24 @@ def hydrogenic_metal_shell_mean_radius_cm(
     return BOHR_RADIUS_CM * (5.0 * effective_n**2 + 1.0) / (4.0 * core_charge)
 
 
+UNIFIED_COMPLETE_LINE_MINIMUM_HELIUM_DENSITY = 1.0e20
+
+
+def _computed_table_coverage(table, wavelength) -> FloatArray:
+    """Wavelengths a computed unified table describes completely (core included).
+
+    Figure-recovered bridges (clipped cores, limited conditions) are never
+    complete: they stay merged with the ordinary line by the envelope.
+    """
+    if not getattr(table, "complete_line", False):
+        return np.zeros(np.size(wavelength), dtype=bool)
+    grid = table.wavelength_angstrom
+    return (np.asarray(wavelength) >= grid[0]) & (np.asarray(wavelength) <= grid[-1])
+
+# Hydrogenic mean radius a0 (5 n*^2 + 1) / 4 of an n* = 4 neutral level.
+NEUTRAL_HARD_SPHERE_MINIMUM_LEVEL_RADIUS_CM = 20.25 * BOHR_RADIUS_CM
+
+
 def metal_neutral_hard_sphere_occupation_probability(
     level_radius_cm: ArrayLike,
     neutral_perturber_number_density: Mapping[str, ArrayLike],
@@ -7941,6 +8482,14 @@ def metal_neutral_hard_sphere_occupation_probability(
 
     This is ``exp[-4 pi/3 sum_j n_j (r_i+r_j)^3]`` in the low-excitation
     approximation, where neutral perturbers reside in their ground states.
+    It is applied only to Rydberg levels, mean radius at least
+    ``NEUTRAL_HARD_SPHERE_MINIMUM_LEVEL_RADIUS_CM`` (n* = 4 of a neutral).  A
+    neutral atom inside a low-lying orbital does not destroy the level: it
+    forms a quasi-molecule whose shifted, broadened transitions are the
+    collision-broadened line (unified/impact theory conserves the oscillator
+    strength).  Applied to ground and low excited states, the excluded volume
+    of dense He (cool DZ photospheres, n_He ~ 1e22) would leave Ca II with
+    U ~ 0.2 < g0 and remove lines such as Ca I 4227 that cool DZs show.
     """
 
     level_radius = np.asarray(level_radius_cm, dtype=np.float64)
@@ -7968,7 +8517,8 @@ def metal_neutral_hard_sphere_occupation_probability(
         ):
             raise ValueError("neutral perturber densities and radii must be physical")
         exponent += density * (radius + perturber_radius) ** 3
-    return np.exp(-np.minimum((4.0 * PI / 3.0) * exponent, 745.0))
+    rydberg = radius >= NEUTRAL_HARD_SPHERE_MINIMUM_LEVEL_RADIUS_CM
+    return np.where(rydberg, np.exp(-np.minimum((4.0 * PI / 3.0) * exponent, 745.0)), 1.0)
 
 
 def bulk_metal_neutral_perturber_data(
@@ -8524,7 +9074,6 @@ def metal_bound_free_mass_absorption_coefficient(
             fit = photoionization_database.fits.get((element, ion.charge))
             if fit is None or ion.charge >= populations.shape[0]:
                 continue
-            partition = metal_state.partition_function[(element, ion.charge)]
             ion_departure = None
             if ion_departure_coefficient is not None:
                 ion_departure = np.asarray(
@@ -8541,14 +9090,8 @@ def metal_bound_free_mass_absorption_coefficient(
             ground_population = np.zeros(atmosphere.n_depth)
             departure_weighted = np.zeros(atmosphere.n_depth)
             for level in ground_term_levels(ion):
-                level_population = (
-                    populations[ion.charge]
-                    * level.statistical_weight
-                    * np.exp(
-                        -level.energy_wavenumber * WAVENUMBER_TO_ERG
-                        / (BOLTZMANN * atmosphere.temperature)
-                    )
-                    / partition
+                level_population = metal_lte_level_population(
+                    ion, level, metal_state, atmosphere.temperature,
                 )
                 level_key = (element, ion.charge, level.index)
                 if (
@@ -8590,6 +9133,7 @@ def metal_line_mass_absorption_coefficient(
     *,
     mg_he_red_wing_table: MgHeRedWingTable | None = None,
     mg_ii_he_profile_table: MgIIHeProfileTable | None = None,
+    na_i_he_profile_table: "UnifiedIonicHeProfileGrid | None" = None,
     ca_i_he_profile_table: CaIHeProfileTable | None = None,
     ca_ii_he_profile_table: CaIIHeProfileTable | None = None,
     minimum_oscillator_strength: float = 1.0e-4,
@@ -8829,6 +9373,8 @@ def metal_line_mass_absorption_coefficient(
         replacement_ordinary["MgII"] = np.zeros_like(result)
     if ca_ii_he_profile_table is not None:
         replacement_ordinary["CaII"] = np.zeros_like(result)
+    if na_i_he_profile_table is not None:
+        replacement_ordinary["NaI"] = np.zeros_like(result)
     if transition_keys is not None:
         allowed = frozenset(
             (
@@ -8899,6 +9445,12 @@ def metal_line_mass_absorption_coefficient(
         atmosphere.helium_lte_state.neutral_he_density
         if atmosphere.helium_lte_state is not None else np.zeros(atmosphere.n_depth)
     )
+    # Computed unified tables resolve the impact core from n_He = 1e20 up
+    # (0.1-A cells near the lines; the impact HWHM exceeds the Doppler width).
+    # There the unified profile is the complete line: a Voigt core with an
+    # impact He width would restore absorption at line centre that the
+    # quasi-molecular satellites have already moved into the wings.
+    unified_complete_line = helium_density >= UNIFIED_COMPLETE_LINE_MINIMUM_HELIUM_DENSITY
     if metal_state.reference_species == "H":
         hydrogen_density = atmosphere.neutral_h_density
     elif (
@@ -8980,6 +9532,7 @@ def metal_line_mass_absorption_coefficient(
         "CaI": empty_profile_batch(),
         "MgII": empty_profile_batch(),
         "CaII": empty_profile_batch(),
+        "NaI": empty_profile_batch(),
         "CaI_reference": empty_profile_batch(),
         "HeUnified": empty_profile_batch(),
     }
@@ -9011,41 +9564,9 @@ def metal_line_mass_absorption_coefficient(
         lower_population = lower_population_cache.get(lower_key)
         if lower_population is None:
             lower = levels_by_ion[(ion.element, ion.charge)][line.lower_index]
-            partition = metal_state.partition_function[(ion.element, ion.charge)]
-            ion_population = metal_state.ion_number_density[ion.element][ion.charge]
-            lower_population = (
-                ion_population * lower.statistical_weight
-                * np.exp(
-                    -lower.energy_wavenumber * WAVENUMBER_TO_ERG
-                    / (BOLTZMANN * atmosphere.temperature)
-                ) / partition
+            lower_population = metal_lte_level_population(
+                ion, lower, metal_state, atmosphere.temperature,
             )
-            if (
-                metal_state.metal_level_dissolution
-                and dissolves(ion)
-                and (
-                    ion.ionization_energy_ev is None
-                    or lower.energy_wavenumber
-                    < ion.ionization_energy_ev * EV_TO_WAVENUMBER
-                )
-            ):
-                # Occupation probabilities describe bound levels.  Keep the
-                # LTE resonance-population approximation for autoionizing
-                # lower states, as in the transition-survival calculation;
-                # their negative binding energy must not erase the line.
-                lower_population = lower_population * (
-                    metal_rydberg_level_occupation_probability(
-                        ion,
-                        lower,
-                        ionic_microfield_charge_sum,
-                        atmosphere.temperature,
-                        correlated_microfields=rydberg_correlated_microfields,
-                        neutral_perturber_number_density=(
-                            rydberg_neutral_density
-                        ),
-                        neutral_perturber_radius_cm=rydberg_neutral_radius,
-                    )
-                )
             if (
                 level_departure_coefficient is not None
                 and lower_key in level_departure_coefficient
@@ -9109,7 +9630,9 @@ def metal_line_mass_absorption_coefficient(
         )
         classical_stark_rate = (
             local_classical_stark_scale
-            * classical_electron_stark_rate_coefficient(ion, line)
+            * classical_electron_stark_rate_coefficient(
+                ion, line, atomic_database.ions.get((ion.element, ion.charge + 1))
+            )
             if include_classical_electron_stark else 0.0
         )
         oxygen_series_stark_rate = (
@@ -9262,6 +9785,7 @@ def metal_line_mass_absorption_coefficient(
             "CaI" if is_ca_i_resonance and ca_i_he_profile_table is not None
             else "MgII" if is_mg_ii_resonance and mg_ii_he_profile_table is not None
             else "CaII" if is_ca_ii_resonance and ca_ii_he_profile_table is not None
+            else "NaI" if is_na_i_d_resonance and na_i_he_profile_table is not None
             else "HeUnified"
             if line.helium_unified_profile is not None and helium_present
             else None
@@ -9514,16 +10038,37 @@ def metal_line_mass_absorption_coefficient(
             )
             if include_oxygen_i_quasistatic_microfields else None
         )
-        if quasistatic_series_rate is not None or stark_mixing is not None:
-            core_charge = ion.charge + 1.0
+        if stark_mixing is not None:
+            # Both levels of an excited-parent series are measured from
+            # that parent limit, consistently with the upper Rydberg level.
+            lower_parent_ev = _series_parent_excitation_ev(
+                atomic_database, ion, lower_level
+            )
+            upper_parent_ev = _series_parent_excitation_ev(
+                atomic_database, ion, upper_level
+            )
+        else:
+            lower_parent_ev = upper_parent_ev = 0.0
+        lower_binding_ev = upper_binding_ev = 0.0
+        # Binding energies are needed only by the quasi-static/Stark-mixing
+        # branch below; ions without a tabulated ionization energy never reach it.
+        if (
+            (quasistatic_series_rate is not None or stark_mixing is not None)
+            and lower_parent_ev is not None and upper_parent_ev is not None
+        ):
             lower_binding_ev = (
-                ion.ionization_energy_ev
+                ion.ionization_energy_ev + lower_parent_ev
                 - lower_level.energy_wavenumber / EV_TO_WAVENUMBER
             )
             upper_binding_ev = (
-                ion.ionization_energy_ev
+                ion.ionization_energy_ev + upper_parent_ev
                 - upper_level.energy_wavenumber / EV_TO_WAVENUMBER
             )
+        if (
+            (quasistatic_series_rate is not None or stark_mixing is not None)
+            and lower_binding_ev > 0.0 and upper_binding_ev > 0.0
+        ):
+            core_charge = ion.charge + 1.0
             lower_effective_n = core_charge * np.sqrt(
                 _RYDBERG_ENERGY_EV / lower_binding_ev
             )
@@ -9776,12 +10321,15 @@ def metal_line_mass_absorption_coefficient(
         flush_profile_batch(batch_key)
     if unified_he_lines:
         unified = np.zeros_like(result)
+        complete_wavelengths = np.zeros(wavelength.size, dtype=bool)
         for center, oscillator_strength, population, gamma_other, table in (
             unified_he_lines
         ):
             window = np.abs(wavelength - center) < table.window_angstrom
             if not np.any(window):
                 continue
+            if getattr(table, "complete_line", False):
+                complete_wavelengths |= window
             detuning = 1.0e8 / wavelength[window] - 1.0e8 / center
             profile = table.profile(
                 detuning, atmosphere.temperature, helium_density, gamma_other
@@ -9794,23 +10342,20 @@ def metal_line_mass_absorption_coefficient(
         # As for the Mg II and Ca II tables, merge with the ordinary Voigt
         # opacity by an envelope: the Doppler core comes from the Voigt
         # profile, the collision wings from the unified profile.
-        result += np.maximum(unified, replacement_ordinary["HeUnified"])
+        result += np.where(
+            complete_wavelengths[:, np.newaxis] & unified_complete_line[np.newaxis, :],
+            unified,
+            np.maximum(unified, replacement_ordinary["HeUnified"]),
+        )
     if mg_ii_he_profile_table is not None and "Mg" in line_abundances:
         mg_ii = atomic_database.ions.get(("Mg", 1))
         if mg_ii is not None and metal_state.ion_number_density["Mg"].shape[0] > 1:
             ground = min(mg_ii.levels, key=lambda level: level.energy_wavenumber)
-            partition = metal_state.partition_function[("Mg", 1)]
-            ground_population = (
-                metal_state.ion_number_density["Mg"][1]
-                * ground.statistical_weight
-                * np.exp(
-                    -ground.energy_wavenumber * WAVENUMBER_TO_ERG
-                    / (BOLTZMANN * atmosphere.temperature)
-                )
-                / partition
+            ground_population = metal_lte_level_population(
+                mg_ii, ground, metal_state, atmosphere.temperature,
             )
             profile_cross_section = mg_ii_he_profile_table.cross_section(
-                wavelength, helium_density
+                wavelength, helium_density, temperature=atmosphere.temperature
             )
             stimulated = -np.expm1(
                 -PLANCK * LIGHT_SPEED
@@ -9828,26 +10373,25 @@ def metal_line_mass_absorption_coefficient(
             # The public bridge is recovered from a plotted curve.  Its
             # strongest core points are clipped by the figure axes, and a
             # single-condition profile scaled to a much lower density can
-            # also fall below the ordinary impact core.  Preserve the larger
-            # opacity everywhere instead of erasing a valid ordinary core
-            # merely because its wavelength lies inside the figure panel.
-            combined = np.maximum(
-                unified_opacity, replacement_ordinary["MgII"]
+            # also fall below the ordinary impact core; a computed table's
+            # bin-averaged core is likewise lower than the Doppler-broadened
+            # Voigt core.  Preserve the larger opacity everywhere.
+            complete = (
+                unified_complete_line[np.newaxis, :]
+                & _computed_table_coverage(mg_ii_he_profile_table, wavelength)[:, np.newaxis]
+            )
+            combined = np.where(
+                complete,
+                unified_opacity,
+                np.maximum(unified_opacity, replacement_ordinary["MgII"]),
             )
             result += combined
     if ca_i_he_profile_table is not None and "Ca" in line_abundances:
         ca_i = atomic_database.ions.get(("Ca", 0))
         if ca_i is not None:
             ground = min(ca_i.levels, key=lambda level: level.energy_wavenumber)
-            partition = metal_state.partition_function[("Ca", 0)]
-            ground_population = (
-                metal_state.ion_number_density["Ca"][0]
-                * ground.statistical_weight
-                * np.exp(
-                    -ground.energy_wavenumber * WAVENUMBER_TO_ERG
-                    / (BOLTZMANN * atmosphere.temperature)
-                )
-                / partition
+            ground_population = metal_lte_level_population(
+                ca_i, ground, metal_state, atmosphere.temperature,
             )
             profile_cross_section = ca_i_he_profile_table.cross_section(
                 wavelength,
@@ -9904,15 +10448,8 @@ def metal_line_mass_absorption_coefficient(
         ca_ii = atomic_database.ions.get(("Ca", 1))
         if ca_ii is not None and metal_state.ion_number_density["Ca"].shape[0] > 1:
             ground = min(ca_ii.levels, key=lambda level: level.energy_wavenumber)
-            partition = metal_state.partition_function[("Ca", 1)]
-            ground_population = (
-                metal_state.ion_number_density["Ca"][1]
-                * ground.statistical_weight
-                * np.exp(
-                    -ground.energy_wavenumber * WAVENUMBER_TO_ERG
-                    / (BOLTZMANN * atmosphere.temperature)
-                )
-                / partition
+            ground_population = metal_lte_level_population(
+                ca_ii, ground, metal_state, atmosphere.temperature,
             )
             profile_cross_section = ca_ii_he_profile_table.cross_section(
                 wavelength,
@@ -9932,12 +10469,47 @@ def metal_line_mass_absorption_coefficient(
                 * stimulated
                 / atmosphere.mass_density[np.newaxis, :]
             )
-            # As for Mg II, these vector-recovered data are a clipped figure
-            # bridge rather than a complete numerical profile grid.  An
-            # envelope is the only safe merge at the clipped core and when
-            # scaling away from the published density/temperature.
-            combined = np.maximum(
-                unified_opacity, replacement_ordinary["CaII"]
+            # As for Mg II: the envelope keeps the Doppler/Voigt core where a
+            # tabulated (clipped or bin-averaged) unified core lies below it.
+            complete = (
+                unified_complete_line[np.newaxis, :]
+                & _computed_table_coverage(ca_ii_he_profile_table, wavelength)[:, np.newaxis]
+            )
+            combined = np.where(
+                complete,
+                unified_opacity,
+                np.maximum(unified_opacity, replacement_ordinary["CaII"]),
             )
             result += combined
+    if na_i_he_profile_table is not None and "Na" in line_abundances:
+        na_i = atomic_database.ions.get(("Na", 0))
+        if na_i is not None:
+            ground = min(na_i.levels, key=lambda level: level.energy_wavenumber)
+            ground_population = metal_lte_level_population(
+                na_i, ground, metal_state, atmosphere.temperature,
+            )
+            stimulated = -np.expm1(
+                -PLANCK * LIGHT_SPEED
+                / (
+                    wavelength[:, np.newaxis] * 1.0e-8
+                    * BOLTZMANN * atmosphere.temperature[np.newaxis, :]
+                )
+            )
+            unified_opacity = (
+                na_i_he_profile_table.cross_section(
+                    wavelength, helium_density, temperature=atmosphere.temperature
+                )
+                * ground_population[np.newaxis, :]
+                * stimulated
+                / atmosphere.mass_density[np.newaxis, :]
+            )
+            complete = (
+                unified_complete_line[np.newaxis, :]
+                & _computed_table_coverage(na_i_he_profile_table, wavelength)[:, np.newaxis]
+            )
+            result += np.where(
+                complete,
+                unified_opacity,
+                np.maximum(unified_opacity, replacement_ordinary["NaI"]),
+            )
     return result

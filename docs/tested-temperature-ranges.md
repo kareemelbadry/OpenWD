@@ -1,247 +1,131 @@
-# Tested cold starts and limitations — September 2026
+# Tested points
 
-[Documentation home](README.md) · [Limitations overview](limitations.md)
+[Documentation home](README.md) · [Limitations](limitations.md) · [Model guide](models/README.md)
 
-These are **tested points**, not a guarantee throughout an interval.
-Unless noted, log g = 8 and quality is production. Numerical convergence
-certifies the declared equations on the structure grid, not complete physics
-or depth-grid independence.
-The separately synthesized spectrum also has known transfer-consistency
-limitations. Historical linear-synthesis audits gave 0.98613 of stellar flux
-for DA 3000 and 0.99314 for DB 10000. DA now defaults to monotone cubic synthesis;
-the checked 12000-K standard cold model integrates to 1.00016 without scaling.
-Other established synthesis defaults are unchanged. The new DQ module has its
-own refractive transfer and mandatory independent spectrum check; it does not
-enable the unfinished matched-transfer experiment for DA/DB. See the [DA guide](models/DA.md#spectrum-synthesis)
-and the
-[checkpoint's known spectrum limits](development/history/cold-start-numerics-2026-09-07.md#known-spectrum-consistency-limits-unfinished-changes-excluded).
+These are the parameters at which a fresh cold start passed all convergence
+checks. A cold start begins from a gray or continuum atmosphere and uses no
+saved model. The points are tested points, not guaranteed intervals. Accuracy
+between and outside them is not known.
 
-Public generation starts from scratch. No saved atmosphere or neighboring
-stellar model is required. Provisional thermal conditioning and lower-boundary
-mesh adaptation occur inside the same calculation. Historical continuation
-experiments remain in the research record but are excluded from this table.
+Points are given as effective temperature (Teff, K) / log g. "Canary" means
+that `python tools/validate.py cold --case <name>` repeats the cold start in
+the protected CI workflow. The "paper range" is the range of the paper's
+comparisons.
 
-| Composition / public workflow | Cold-start tested temperatures | Evidence |
+## DA
+
+Paper range: 3000–40,000 K. See the [DA guide](models/DA.md).
+
+| Points | Settings | Evidence |
 | --- | --- | --- |
-| DA, `compute_da` or `run_model` | 3000, 4000, 5000, 12000, 20000 K; convective seed and lower-boundary extension (2026-10-14): log g 8: 3000, 4000, 5000, 6000, 8000, 10000, 12000, 14000 K; 4250/6.0, 4500/7.0, 4750/7.75, 5000/7.25, 6500/6.0, 3000/9.5, 30000/5.0, 32000/6.0, 34000/6.25, 38000/6.0 (Teff/log g) | All-depth flux, cell-local energy, measured unrestricted correction, scattering closure and bottom screening pass. The 12000-K default comparison also tests standard 40-layer resolution. The 2026-10-14 points are fresh production cold starts; 2500 K/log g 9 still misses the all-depth flux gate. See the [DA guide](models/DA.md#cold-start-seed-and-lower-boundary-2026-10-14). |
-| Dense pure-He DB, `run_model` | 5000, 8000 K | Fresh 80-layer initialization, static convergence and independent wavelength/angular/source audits. Experimental dense physics. |
-| Pure-He DB, `compute_db` or `run_model`, column-mass default (DB-production-v5) | log g 6.0: 7000, 9500 K; 6.5: 7500, 8000 K; 7.0: 9000, 14000, 25000 K; 7.5: 20000, 28000, 40000 K; 8.0: 10000, 18000, 22000, 26000, 35000 K; 8.5: 24000 K; 9.0: 25000, 32000 K; 9.5: 12000 K | Production cold starts (2026-10-13) pass all five structure-grid gates; 22000 K/log g 8 also at standard 40-layer resolution. Several low-gravity points deepen their lower boundary once and restart. With the default 4x synthesis refinement, total flux exceeds sigma Teff^4 by 0.5-1.3% at the coolest low-gravity points. See the [DB guide](models/DB.md#column-mass-default-db-production-v5-2026-10-13). |
-| Pure-He DB, `transfer_discretization="optical-depth"` (DB-production-v4) | 10000, 22000 K | Strict structure-grid checks pass; 22000 K also tested at standard 40-layer resolution. The 10000 K calculation extends its own lower boundary from 80 to 84 nodes. |
-| Molecular DAB/DBA, `run_model` (in-process molecular closure, every metal-free DAB) | log g 8, log10(N_H/N_He) = -2: 7500, 8000, 9000, 10000 K; log10(N_H/N_He) = 0: 12000 K at log g 8 and 9, 15000 K at log g 9 | Production cold starts (2026-10-13) pass all five structure-grid gates; 7500, 10000 and 12000 K/log g 9 ran end to end through `run_model`. Allard Lyman profiles at every Teff. No independent wavelength/angular audit yet. |
-| Atomic DAB, `compute_dab` or automatically selected at 20000 K | 20000 K | Strict cold-start convergence and reviewed corrected-spectrum checks. The undoubled critical field intentionally changes high-series features relative to the old paper control. |
-| DZ, PG 1225 composition, `compute_dz` | 10800 K | Strict production cold-start convergence. This is not exact reproduction of the 40-node paper spectrum. |
-| DAZ, `compute_daz` or `run_model`, standard 40-layer resolution | G149-28: 8600 K, log g = 8.10; G29-38: 11820 K, log g = 8.40; GALEX J1931+0117: 20890 K, log g = 7.90 | Fresh public cold starts with each object's metal composition pass all five structure-grid certificate gates. These are individual points, not a temperature/abundance grid. |
-| Refractive DQ, `compute_dq` or `run_model`, standard | J1225: 6294 K, log g = 7.924, log(C/He) = -5.33 | Stride-four structure default: true-cold public call passed all five atmosphere gates, independent 218520-point spectrum qualification and output reading. Prior dense-grid J1235 evidence is historical. See [qualification details](#dq-release-qualification). |
-| D6, `compute_d6` or `run_model`, standard | SDSS J1637+3631: 15680 K, log g = 6.3, Hollands et al. (2025) composition | Fresh cold start with 25000 structural lines passes all five structure-grid gates (flux 5e-9, local energy 1.4e-4) in 118 minutes single-threaded through `run_model`. Mean matched RMS 0.0310 against the digitized Koester model and 0.056 against the GTC observation. J1235−3752 (18625 K, log g = 7.0, Fe/C = −1.65) also passes all five gates, in 98 minutes. See the [D6 guide](models/D6.md#validation-against-j1637). |
-| DAH, `compute_dah` or `run_model`, production | Paper sample: 10500–29316 K, dipole polar fields 6.13–437.1 MG | Default normalized Kurucz/Griem synthesis on nonmagnetic radiative DA structures. Eight frozen paper-spectrum controls; cold canaries at J1007+1237 (18687 K) and J1254+5612 (12870 K). The certificate applies to the underlying DA structure, not magnetic radiative equilibrium. [Physics and scope](models/DAH.md#results-at-published-parameters). |
-| Restricted NLTE DO, standard | 50000, 60000, 70000 K; log g=8 | Fresh public solves, 40 layers/He II 32/3 angles, independently certified. [Evidence and source revisions](development/history/do-dao-release-2026-09-20.md). |
-| Restricted NLTE DAO, standard | 60000 K, log g=8, log H/He=2; GD153 40204 K, log g=7.82, log H/He=6 | Fresh public solves, 40 layers/He II 32/H8/3 angles. Same independent gates. |
-| Restricted NLTE DAO, production | GD153 at the same fixed parameters | Fresh 80-layer/He II 8/4-angle solves with H8 and H20 separately. Observational profile discrepancies remain. |
-| PG 1159, `compute_pg1159` or `run_model`, standard, `refine_upper_atmosphere=True` | PG 1707+427: 85000 K, log g = 7.5; PG 1424+535: 110000 K, log g = 7.0; PG 1159-035: 140000 K, log g = 7.0 with `include_radiative_acceleration=True` | Fresh cold starts with the published mass fractions, all `spectrum-qualified`: all-depth flux 0.0086, 0.0056 and 0.0025 (limit 0.01), local energy 1.9e-4, 4.7e-4 and 2.1e-4 (limit 3e-3), in 54, 74 and 90 minutes single-threaded (September 27). Known observational differences are listed in the [limitations](limitations.md#pg-1159). |
+| 3000, 4000, 5000, 20000 / 8.0 | production | Canaries `da-3000`, `da-4000`, `da-5000`, `da-20000` |
+| 6000, 8000, 10000, 12000, 14000 / 8.0 | production | Cold starts, 8–31 min |
+| 4250/6.0, 4500/7.0, 4750/7.75, 5000/7.25, 6500/6.0, 3000/9.5 | production | Cold starts |
+| 30000/5.0, 32000/6.0, 34000/6.25, 38000/6.0 | production | Cold starts, one lower-boundary extension |
+| G 76−48: 6680/7.96, convection off | production and standard | Canaries `da-radiative-g76-48`, `da-radiative-g76-48-standard` |
 
-The revised solver repairs local energy errors that previously survived a
-small interface-flux residual. It does not inherit historical success flags,
-renormalize spectra, or impose convective flux as a remainder.
-See [numerical repair](development/history/cold-start-numerics-2026-09-07.md) and
-[certificate definitions](development/history/reliability-2026-09-07.md).
+2500/9.0 does not pass the all-depth flux check.
 
-## Reproduction from scratch
+## DB
 
-For ordinary DA and warm DB/DAB presets:
+Paper range: up to about 40,000 K, with a separate cool-DB comparison. See the
+[DB guide](models/DB.md).
 
-```python
-from wd_spectra import DAConfig, compute_da
-result = compute_da(DAConfig(effective_temperature=3000, logg=8,
-                            quality="production"))
-assert result.atmosphere.metadata["equilibrium_certificate"]["verified"]
-```
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| 10000, 22000 / 8.0 | `compute_db`, production; 22000 K also standard | Canaries `db-10000`, `db-22000`, `db-22000-standard` |
+| 12000/6.0, 13000/8.0, 16000/9.0, 17000/6.0, 18000/7.0, 20000/8.0, 27500/8.125, 30000/6.25, 32000/6.0, 32000/6.25, 34000/6.0, 34000/6.5, 36000/6.5, 36000/7.5, 38000/7.5, 40000/6.0, 40000/7.0, 40000/7.75, 45000/7.0, 55000/6.5, 60000/6.25 | default `transfer_discretization="auto"`, production | Cold starts, 3–29 min |
+| 7000/6.0, 7500/6.5, 8000/6.5, 9000/7.0, 9500/6.0 | column-mass discretization (selected by `"auto"` here), production | Cold starts, up to 2.5 h |
+| Dense helium: 4500, 5000, 5500, 6000, 6500, 7000, 8000 / 8.0 | `run_model`, production | Cold starts with an independent spectrum audit; canaries `dense-db-5000`, `dense-db-8000` |
 
-For automatic material selection, including dense helium and molecular mixtures:
+## DAB and DBA
 
-```python
-from wd_spectra import DBConfig, DABConfig, run_model
+Paper range: 9000–30,000 K. See the [DAB/DBA guide](models/DAB.md).
 
-db = run_model(DBConfig(effective_temperature=5000, quality="production"),
-               "results/db-5000-fresh", require_convergence=True)
-dab = run_model(DABConfig(effective_temperature=7500, quality="production"),
-                "results/dab-7500-fresh", require_convergence=True)
-```
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| 7500, 8000, 9000, 10000 / 8.0, log N(H)/N(He) = −2 | `run_model` (molecular closure), production | Cold starts; canaries `molecular-dab-7500`, `molecular-dab-9000`, `molecular-dab-10000` |
+| 12000/8.0, 12000/9.0, 15000/9.0, log N(H)/N(He) = 0 | `run_model` (molecular closure), production | Cold starts |
+| 20000/8.0, log N(H)/N(He) = −2 | `compute_dab` (atomic), production | Canary `dab-20000` |
 
-Use a new output directory for each calculation. The dense DB worker requires a
-source checkout with the normal installation; DAB needs the checksum-pinned
-H2-He table from the [declared molecular data](../research/cool_models/README.md).
-Missing data or invalid material domains fail explicitly; there is no alternate
-physics retry. `run_model` rejects checkpoint inputs.
+7250 K and 5000 K do not pass.
 
-`compute_*` functions remain explicit physics presets. In particular,
-`compute_db` at 5000 K does not select dense helium, and `compute_dab` stays
-atomic unless `include_molecules=True`, which `run_model` sets for every
-metal-free DAB. The earlier isolated molecular transport worker
-(`wd_spectra._cool.run_molecular_dab_mass_experiment`) is retained for research
-but is no longer selected by `run_model`.
+## DZ, DBZ and DAZ
 
-### DQ release qualification
+Paper range: 4000–25,000 K. See the [DZ/DBZ/DAZ guide](models/DZ.md).
 
-The September 18 **stride-four structure default** passed a fresh public
-`compute_dq` qualification at J1225 (6294 K, log g 7.924, log C/He −5.33),
-including automatic 40→41→42-node extensions. All five atmosphere gates,
-the independent 218,520-point spectrum, and public output reading passed.
-Fbol/(σTeff⁴) = **0.999176494939219**, without normalization. The final
-atmosphere and full spectrum match the accepted pre-promotion experiment
-bit-for-bit. Worker time was 22.91 minutes with tests/builds running alongside
-part of the solve; this is not an isolated speed benchmark.
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| DZ, PG 1225−079: 10800/8.0 | production | Canary `dz-pg1225` |
+| DAZ, G149-28: 8600/8.10 | standard | Canary `daz-g149-28` |
+| DAZ, G29-38: 11820/8.40 | standard | Canary `daz-g29-38` |
+| DAZ, GALEX J1931+0117: 20890/7.90 | standard | Canary `daz-galex1931` |
+| Cool DZs and one cool DAZ: 4000–8000 K | published parameters | Paper comparison |
 
-The accepted accuracy tradeoff is not a uniform 1% bound: J1225 differed
-from the dense-grid reference by 1.49% native optical and 0.29% at 3 Å FWHM.
-J1311's cold test was stopped unconverged; a separate warm diagnostic differed
-by 8.13% native and 1.29% at 3 Å. The full final spectrum and all convergence
-tolerances remain unchanged. See the
-[stride-four release record](development/history/dq-stride4-default-2026-09-18.md).
+Each point uses the metal composition of that star.
 
-The September 17 **dense-grid 2024 C–A/completed-Swan default** was independently
-requalified at J1235 through the public `compute_dq` API, starting from gray
-initialization without an input atmosphere, grid or spectrum. Its automatic
-40-to-41-node lower-domain extension was followed by a successful re-solve.
-All five measured gates passed: all-depth flux `3.90371258e-4`, local energy
-`1.88632427e-3`, temperature stationarity `0`, source closure `2.37774197e-15`
-and bottom-boundary response `9.81462143e-4`. The independent **218520-point**
-spectrum is finite and positive, with
-`F_bol/(sigma Teff^4) = 0.9999375372794359`, without normalization.
-The worker took **58.96 minutes** within a 4200-second resource budget; the
-public caller then read the result successfully and exited normally. No
-physical tolerance or 4-GiB memory guard was relaxed, and production sources
-and data stayed unchanged. See the
-[preceding default record](development/history/dq-completed-default-2026-09-17.md)
-for reproduction, memory fixes, tests and separate observational evidence.
+## DQ
 
-The following earlier release measurements are retained as historical evidence,
-not attributed to the new default. The earlier September 17 packaged J1235
-worker started without an input atmosphere,
-structure grid or spectrum, at the fixed parameters above. Its 41-depth
-atmosphere passed all five measured gates: all-depth flux error `1.80490e-4`,
-local energy error `1.58077e-3`, temperature stationarity `0`, source closure
-`2.41258e-15` and bottom-boundary response `1.00809e-3`. The independent
-154000-point spectrum had finite positive flux and
-`F_bol/(sigma Teff^4) = 1.0002868900589381`, within the absolute 0.002 limit
-without normalization. The worker reported about 100.5 minutes, excluding an
-additional laptop-sleep interval; runtime is machine- and parameter-dependent.
+See the [DQ guide](models/DQ.md). Each DQ run must also pass the independent
+218,520-point spectrum check.
 
-The original public caller failed only while reconstructing the saved helium
-state after the numerical worker finished. The corrected reader was verified
-against that completed output, with exact recovery of all bulk state arrays
-and flux. The calculation was not restarted, nor was that initial caller
-failure reclassified as an uninterrupted API pass. The
-[release record](development/history/dq-release-2026-09-17.md) preserves the
-source/checksum audit and the distinction between worker and reader validation.
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| J1235: 9347/8.041, log N(C)/N(He) = −4.107 | standard | Canary `dq-j1235` |
+| 23 DQs, 5786–9347 K, Koester & Kepler (2019) parameters | standard; also `swan_helium_broadening="exomol-weisskopf"` | Cold starts, all converged; compared with SDSS |
 
-Use the [DQ quick start](getting-started.md#dq-heliumcarbon-atmospheres) with
-`quality="standard"`. DQ's input tables are bundled and both public entry
-points require a true cold start and mandatory atmosphere/spectrum qualification.
-The saved-state spectral pytest is a separate regression, not cold evidence.
-Earlier research results are not a qualification of every object in this
-packaged release: historical J1803/J1311 cold starts remained unfinished and another J0916 cold check
-was waived. No independent DQ depth-convergence or observational-accuracy
-claim follows from this one release point.
+The spectra agree well with SDSS above about 7000 K and acceptably down to
+6300 K. Cooler DQs and peculiar DQs are converged but not reproduced (see the
+[DQ guide](models/DQ.md#validation)).
 
-## Numerical evidence
+## DO and DAO
 
-The table below retains the September 7–8 checkpoint measurements, not newly
-measured residuals for every subsequent release. The
-[microphysics audit](development/history/microphysics-audit-2026-09-10.md)
-records the corrected cold starts and reviewed regression promotion.
-Errors below are fractions, not percentages. Local energy uses each cell's
-exchange scale, not total stellar luminosity. Fresh molecular models use
-80 layers and the same 40-sweep provisional thermal budget; a subsequent
-full static solve must independently pass every physical gate.
+Paper range: 40,000–90,000 K. See the [DO/DAO guide](models/DO-DAO.md).
 
-| Fresh case | All-depth flux error | Cell-local energy error | Independent audit |
-| --- | ---: | ---: | --- |
-| DA 3000 | 3.82e-4 | 3.24e-4 | Structure grid only |
-| DA 4000 | 4.28e-6 | 4.18e-6 | Structure grid only |
-| DA 5000 | 3.53e-6 | 1.17e-5 | Structure grid only |
-| DA 20000 | 1.43e-7 | 4.29e-4 | Structure grid only |
-| DB 10000 | 5.64e-4 | 4.31e-5 | Structure grid only; bottom escape bound 8.27e-26 |
-| DB 22000, standard | 4.63e-10 | 1.69e-3 | Structure grid only |
-| Atomic DAB 20000 | 8.53e-8 | 1.59e-3 | Structure grid only |
-| Dense DB 5000 | 1.26e-4 | 1.24e-5 | Independent local error 0.00126 |
-| Dense DB 8000 | 6.76e-6 | 1.04e-5 | Independent local error 0.000955 |
-| Molecular DAB 7500 (former worker) | 3.74e-10 | 2.90e-6 | Independent flux 8.01e-5, local 7.69e-5 |
-| Molecular DAB 8000 (former worker) | 1.91e-10 | 1.75e-6 | Independent flux 1.53e-4, local 6.39e-5 |
-| Molecular DAB 9000 (former worker) | 1.16e-10 | 2.53e-7 | Independent flux 3.16e-4, local 5.98e-5 |
-| Molecular DAB 10000 (former worker) | 2.23e-10 | 4.85e-8 | Independent flux 4.63e-4, local 8.66e-5 |
-| In-process molecular DAB 7500, H/He -2 | 3.56e-10 | 2.30e-8 | Structure grid only; 46 iterations |
-| In-process molecular DAB 8000, H/He -2 | 3.46e-10 | 4.35e-8 | Structure grid only; 36 iterations |
-| In-process molecular DAB 9000, H/He -2 | 1.51e-10 | 1.38e-7 | Structure grid only; 63 iterations |
-| In-process molecular DAB 10000, H/He -2 | 2.62e-10 | 1.54e-6 | Structure grid only; 65 iterations |
-| In-process molecular DAB 12000, log g 8, H/He 0 | 4.04e-10 | 1.15e-5 | Structure grid only; 34 iterations |
-| In-process molecular DAB 12000, log g 9, H/He 0 | 3.29e-10 | 3.10e-7 | Structure grid only; 30 iterations |
-| In-process molecular DAB 15000, log g 9, H/He 0 | 1.63e-9 | 6.05e-5 | Structure grid only; 26 iterations |
-| DAZ G149-28, standard | 4.10e-6 | 2.54e-6 | Structure grid only; 32 iterations |
-| DAZ G29-38, standard | 6.12e-5 | 4.05e-6 | Structure grid only; 58 iterations |
-| DAZ GALEX J1931+0117, standard | 7.92e-6 | 8.88e-4 | Structure grid only; 97 iterations |
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| DO: 50000, 55000, 60000, 70000, 90000, 120000 / 8.0 | standard | Cold starts; canary `do-50000` |
+| DAO: 40000/8.0 (log N(H)/N(He) = 0); 60000/8.0 and 100000/8.0 (log N(H)/N(He) = 2) | standard | Cold starts; canary `dao-60000` |
+| Hot DA, GD 153: 40204/7.82, log N(H)/N(He) = 6 | standard; production with H8 and H20 | Cold starts |
+| Trace metals, G191-B2B: 52500/7.53, N(He)/N(H) = 1e-5 | standard and production | Cold start of host and metals |
 
-Independent quadrature audits hold the newly calculated atmosphere fixed.
-They are checks of that result, not re-relaxations or inputs needed for a cold
-start. They do not replace stationarity or depth-resolution tests.
+## PG 1159
 
-The three DAZ cases were rerun from scratch on September 8 with the established
-atmosphere and formal-integral synthesis methods. Temperatures, gas pressures,
-column masses and saved spectra exactly reproduce their pre-experiment cold
-results. The configurations and metal abundances are in
-[`research/validate_daz_cold_start.py`](../research/validate_daz_cold_start.py).
-The separate fixed-atmosphere DAZ paper comparisons also pass; these do not
-imply that a new cold atmosphere is identical to a paper checkpoint or that
-its final-spectrum integral is certified. See the [DAZ guide](models/DAZ.md).
+Paper range: 75,000–200,000 K. See the [PG 1159 guide](models/PG1159.md).
 
-The 8000 K DAB depth study compared 80, 159 and 317 layers: integrated absolute
-spectral differences decreased from 0.688% to 0.172% of stellar flux, approximately
-second order. The new 80-layer 7500 K cold spectrum differs by 0.985% in integrated
-absolute flux from the historical 166-layer calculation. These are different
-depth grids; neither comparison establishes universal depth independence.
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| PG 1707+427: 85000/7.5 | standard | Cold start, `spectrum-qualified` |
+| PG 1424+535: 110000/7.0 | standard | Cold start, `spectrum-qualified`; canary `pg1159-pg1424` (He/C/O only) |
+| PG 1159-035: 140000/7.0 | standard, `include_radiative_acceleration=True` | Cold start, `spectrum-qualified` |
 
-## Limits and preservation of established results
+## D6
 
-- No DA below 3000 K or pure-He DB below 5000 K is qualified here.
-- Molecular DAB 7250 K remained unqualified with the former worker and has not
-  been retried in-process; 5000 K experiments remain far from equilibrium.
-  There is no claim of a reliable 5000–10000 K DAB grid.
-- The old 7750 K continuation is not a cold-start qualification.
-- No abundance or gravity grid has been demonstrated. The cool DAB points
-  mean the homogeneous 1% hydrogen-by-number mixture above.
-- Dense pure-He thermodynamics combine REOS with approximate HNC chemical
-  potentials and trace-ion chemistry. Local table and trace-ion limits are
-  enforced. Refraction and collective He-minus corrections remain absent in
-  this pure-He DB workflow; the separate DQ adapter includes both.
-  The dense-neutral closure is not inserted into warm ionized helium or
-  hydrogen/helium mixtures.
-- Molecular mixtures include H2, H2+, H-, H3+, H/He ionization, H2-He/H2-H2 CIA
-  and neutral Ly-alpha wings. A consistent dense-mixture free energy,
-  nonideal dissociation, mixed HeH+/He2+ chemistry and pressure-distorted CIA
-  remain missing.
-- The DA seed retains its previously tested below-5000 K initialization policy.
-  The new local-energy completion and thermal step selection introduce no
-  additional Teff/composition switch.
-- DQ is restricted to nonmagnetic, hydrogen-free helium with trace carbon.
-  Dense-mixture EOS, molecular collision profiles and the grey refractive ML2
-  bridge remain approximate; DQp distortion and hot carbon-dominated DQs are
-  not supplied. Numerical qualification is not a precision-fitting validation.
+Paper range: 10,000–30,000 K. See the [D6 guide](models/D6.md).
 
-Separate reviewed corrected controls now protect UV, optical lines and IR for
-DA/DB, the paper DAB 9000/20000 models, PG 1225-079 and SDSS J0738+1835.
-Historical atmosphere/flux files remain unchanged, with hashes checked by tests.
-Those checks alone are not cold-start or equilibrium evidence. The legacy
-atomic 9000 K paper spectrum remains a spectral control; automatic generation
-at that point selects molecular physics.
-J0738's new production atmosphere passes its static checks, but its cold
-spectrum fails the paper comparison; it is not in the qualified reproduction
-table above. That discrepancy is not waived or explained away as a proven
-pre-existing difference.
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| SDSS J1637+3631: 15680/6.3 | standard | Canary `d6-j1637` |
+| J1235−3752: 18625/7.0 | standard | Cold start |
 
-The repaired 10000 K DB changes optical and IR band flux by only 0.0176% and
-0.0092%, but its 1150–3000 Angstrom flux rises by 0.271% and portions of the
-faint far-UV tail change by about 10%. This is disclosed, not described as an
-identical spectrum. The original boundary was not absorption-screened.
+## DAH
 
-Historical investigations, including unsuccessful runs and continuation
-experiments, remain in the [research archive](development/history/README.md).
-They document chronology, not current public reproduction instructions.
+Paper range: 10,500–29,316 K, dipole polar fields 6.13–437.1 MG. See the
+[DAH guide](models/DAH.md).
+
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| J1007+1237: 18687/8.04, 6.13 MG | production | Canary `dah-j1007+1237` |
+| J1254+5612: 12870/8.58, 60.43 MG | production | Canary `dah-j1254+5612` |
+| J1018+0111: 10500/8.00, 108.12 MG | standard, opt-in mean-field structure | Canary `dah-mean-field-j1018` |
+
+The certificate applies to the nonmagnetic structure. The RWA
+photoionization is tested to about 200 MG.
+
+## sdB
+
+Paper range: 20,000–40,000 K, log g 5–6. See the [sdB guide](models/sdB.md).
+
+| Points | Settings | Evidence |
+| --- | --- | --- |
+| HD 4539: 23200/5.20, log N(He)/N(H) = −2.27 | standard | Canary `sdb-hd4539` |

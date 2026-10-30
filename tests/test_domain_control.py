@@ -239,6 +239,8 @@ def test_db_default_does_not_request_early_deepening(monkeypatch):
     from wd_spectra.models.stellar import DBConfig, compute_db
     seen = {}
     monkeypatch.setattr(stellar, "_helium_tables", lambda data: (object(), object()))
+    # The dense-helium screen solves a real atmosphere (~10 s); its own tests cover it.
+    monkeypatch.setattr(stellar, "_refuse_dense_helium_photosphere", lambda config, data: None)
     monkeypatch.setattr(stellar, "solve_with_screened_boundary",
                         lambda solver, *a, **k: seen.update(k) or gray_helium_atmosphere(9000.0, 7.0, n_depth=12))
     monkeypatch.setattr(stellar, "synthesize_helium_spectrum", lambda *a, **k: object())

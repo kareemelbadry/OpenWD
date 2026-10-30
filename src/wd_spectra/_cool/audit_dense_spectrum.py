@@ -58,9 +58,17 @@ def coupled_linear_source(tau, planck, absorption, scattering, n_angle=4, chunk_
     return source
 
 
-def pure_helium_opacities(atmosphere, wave):
+def pure_helium_opacities(atmosphere, wave, *, lines=True):
     from wd_spectra.models import ModelData, DBConfig
     from wd_spectra.models.stellar import _helium_tables
+    if not lines:
+        # Continuum (with the dissolved-level pseudo-continuum) and no lines.
+        absorption = helium.helium_continuum_mass_absorption_coefficient(
+            atmosphere, wave, include_electron_scattering=False,
+            include_rayleigh_scattering=False)
+        scattering = (helium.helium_rayleigh_scattering_mass_coefficient(atmosphere, wave)
+                      + electron_scattering_mass_coefficient(atmosphere)[None, :])
+        return absorption, scattering
     hi, hii = _helium_tables(ModelData.default())
     absorption = helium.helium_continuum_mass_absorption_coefficient(
         atmosphere, wave, include_electron_scattering=False, include_rayleigh_scattering=False)
@@ -80,6 +88,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run_directory', type=Path)
     parser.add_argument('--interaction-table', type=Path, required=True)
+    parser.add_argument('--dense-heminus-ff', type=Path, default=None,
+        help='dense-fluid He- free-free factor table; must match the audited run')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--wavelength-count', type=int, default=4000)
     parser.add_argument('--skip-linear', action='store_true')
@@ -94,12 +104,13 @@ def main():
     from . import check_cool_db_transport_seed as runner
     from wd_spectra.models import ModelData
     from wd_spectra.dense_eos import read_helium_reos3_table
-    from .dense_helium_molecular_experiment import MolecularDenseEOS
+    from .dense_helium_molecular_experiment import MolecularDenseEOS, BULK_MINIMUM_TEMPERATURE
     from .dense_helium_atomic_experiment import atomic_dense_experiment
     from .dense_helium_fluid_experiment import KB_EV
     from .smooth_reos3_experiment import SmoothREOS3
     model = MolecularDenseEOS(SmoothREOS3(read_helium_reos3_table(
-        ModelData.default().helium_reos3), .1/KB_EV, 17000), args.interaction_table)
+        ModelData.default().helium_reos3), BULK_MINIMUM_TEMPERATURE, 17000), args.interaction_table,
+        helium_minus_table=args.dense_heminus_ff)
     meta = json.loads((args.run_directory/'experimental-metadata.json').read_text())
     mass_conservative=bool(meta['atmosphere'].get('experimental_mass_conservative_transfer',False))
     reconstruct_intensity=bool(meta['atmosphere'].get('experimental_positive_intensity_reconstruction',False))
@@ -145,13 +156,26 @@ def main():
         print(json.dumps(row), flush=True)
         np.savetxt(args.output/(name+'.txt'), np.column_stack((wave, flux)))
         (args.output/'summary.json').write_text(json.dumps(records, indent=2)+'\n')
-    source = planck.copy()
-    for _ in range(4):
-        field = radiation_field(depths, source, n_angle=4)
-        source = (absorption*planck+scattering*field.mean_intensity)/(absorption+scattering)
-    save('linear-four-sweeps', emergent_flux(depths, source, n_angle=4), source,
-         radiation_field(depths, source, n_angle=4))
-    if (args.wavelength_count == 4000 and args.maximum_wavelength==1e7
+    # Optical-depth transfer needs strictly increasing tau. Where the upper
+    # layers are nearly transparent (mm-cm wavelengths of the extended audit
+    # grid), kappa*dm falls below double-precision resolution of the
+    # accumulated tau. This comparison is not a qualification gate; record why
+    # it is skipped rather than abort the mass-coupled checks below.
+    flat = np.diff(depths, axis=-1) <= 0
+    if np.any(flat):
+        i = int(np.argwhere(flat)[0][0])
+        records.append(dict(method='linear-four-sweeps', skipped=True,
+            reason=f'optical depth not strictly increasing in double precision for {int(flat.any(axis=1).sum())} '
+                   f'wavelengths (first {wave[i]:.4g} A); mass-coupled checks unaffected'))
+        print(json.dumps(records[-1]), flush=True)
+    else:
+        source = planck.copy()
+        for _ in range(4):
+            field = radiation_field(depths, source, n_angle=4)
+            source = (absorption*planck+scattering*field.mean_intensity)/(absorption+scattering)
+        save('linear-four-sweeps', emergent_flux(depths, source, n_angle=4), source,
+             radiation_field(depths, source, n_angle=4))
+    if (args.wavelength_count == 4000 and args.maximum_wavelength==1e7 and not np.any(flat)
             and not meta['atmosphere'].get('experimental_spectrum_transfer')):
         previous = np.loadtxt(args.run_directory/'experimental-spectrum.txt')
         np.testing.assert_allclose(previous[:, 0], wave, rtol=1e-14)

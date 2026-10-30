@@ -1,0 +1,96 @@
+{
+  "source_commit": "ed95a103172c5d6559c84e02cee1ab831a9864ca",
+  "source_changes": [
+    "docs/development/README.md",
+    "docs/models/sdB.md",
+    "src/wd_spectra/models/sdb.py",
+    "src/wd_spectra/models/selection.py",
+    "tests/test_sdb_public.py",
+    "tests/test_validation_workflow.py",
+    "tools/validate.py",
+    "tools/validation_policy.py"
+  ],
+  "recipe": "separate sdb_lte_hhe.py + sdb_hybrid_nlte.py, no compute_sdb call",
+  "driver_sha256": {
+    "research/sdb_lte_hhe.py": "c0ba374838a5f5395bde0ac5b8b862779c27dcf165a94c91d4e20967e8554960",
+    "research/sdb_hybrid_nlte.py": "f0ff7ffafb655facabd110f9bf5a36d548019c7c3dee26b02904da01409a26a8"
+  },
+  "config": {
+    "teff": 23200.0,
+    "logg": 5.2,
+    "log_he_h": -2.27,
+    "quality": "standard"
+  },
+  "hydrogen_levels": 16,
+  "helium_i_atom": "14",
+  "accelerated_lambda": true,
+  "helium_conservation_row": "dominant",
+  "lte_convergence_status": "converged",
+  "lte_equilibrium_certificate": {
+    "schema": 1,
+    "scope": "declared equations on the structure grid",
+    "verified": true,
+    "checks": {
+      "all_depth_flux": {
+        "value": 3.3115074016265567e-08,
+        "tolerance": 0.003,
+        "passed": true,
+        "measured": true
+      },
+      "surface_flux": {
+        "value": null,
+        "tolerance": 0.003,
+        "passed": false,
+        "measured": false
+      },
+      "photospheric_flux": {
+        "value": null,
+        "tolerance": 0.003,
+        "passed": false,
+        "measured": false
+      },
+      "local_energy": {
+        "value": 0.00017669297876510843,
+        "tolerance": 0.003,
+        "passed": true,
+        "measured": true
+      },
+      "temperature_stationarity": {
+        "value": 5.0451892152025835e-05,
+        "tolerance": 0.0003,
+        "passed": true,
+        "measured": true
+      },
+      "source_closure": {
+        "value": 1.2646568170534123e-15,
+        "tolerance": 1e-06,
+        "passed": true,
+        "measured": true
+      },
+      "boundary_screening": {
+        "value": 1.0954720250367241e-20,
+        "tolerance": 0.003,
+        "passed": true,
+        "measured": true
+      }
+    },
+    "required_checks": [
+      "all_depth_flux",
+      "local_energy",
+      "temperature_stationarity",
+      "source_closure",
+      "boundary_screening"
+    ],
+    "failures": [],
+    "independent_grid_validation": false,
+    "full_physics_validation": false
+  },
+  "nlte_populations_converged": true,
+  "nlte_population_iterations": 140,
+  "nlte_population_change": 9.980316259869244e-05,
+  "control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
+  "fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
+  "absolute_flux_rtol": 0.001,
+  "fixed_spectrum_rtol": 1e-07,
+  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification."
+}

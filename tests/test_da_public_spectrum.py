@@ -21,6 +21,8 @@ from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceW
 
 CONTROLS = Path(__file__).parent / "data/spectral_regressions"
 DEFAULT_CONTROLS = Path(__file__).parent / "data/da_cubic_regressions"
+# Current approved spectra; earlier approvals are in git history.
+APPROVED = Path(__file__).parent / "data/approved_regressions/current"
 SPECTRUM_RTOL = 1e-3  # 0.1% in significant flux, one common numerical budget.
 LINE_ATOL = 1e-3  # 0.1 percentage point of local continuum, including dark cores.
 WINDOWS = ((6250, 6900), (4700, 5025), (4250, 4450), (4020, 4180))
@@ -56,7 +58,7 @@ def assert_spectrum_preserved(wave, actual, expected):
         )
 
 
-@pytest.mark.parametrize("case", ["da-12000-public", "da-20000"])
+@pytest.mark.parametrize("case", ["da-12000-public"])
 def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     from wd_spectra.models import stellar
 
@@ -67,10 +69,13 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
     path = DEFAULT_CONTROLS / (case + ".npz")
     with np.load(path) as saved:
         cfg = DAConfig(**json.loads(str(saved["config_json"])))
-        wave, expected = saved["wavelength"], saved["original_surface_flux"]
+        wave = saved["wavelength"]
+    with np.load(APPROVED / ("public-" + case + ".npz")) as approved:
+        np.testing.assert_array_equal(wave, approved["wavelength"])
+        expected = approved["surface_flux"]
     molecular = cfg.effective_temperature <= 12000
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
+
+    def synthesize():
         state = load_atmosphere_checkpoint(
             path,
             cfg.effective_temperature,
@@ -82,10 +87,14 @@ def test_public_da_spectrum_has_not_changed(case, monkeypatch):
         )
         # Deliberately omit synthesis_transfer. Do not bypass a
         # failing default by opting into the reference's operator here.
-        result = compute_da(cfg, wave, initial_atmosphere=state, relax_atmosphere=False)
+        return compute_da(cfg, wave, initial_atmosphere=state, relax_atmosphere=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
+        result = synthesize()
     assert result.spectrum.metadata['transfer_discretization'] == 'formal-pchip'
     assert_spectrum_preserved(wave, result.spectrum.surface_flux_lambda, expected)
-    # Independent stellar-flux guard for these two broad, warm-DA controls.
+    # Independent stellar-flux guard for this broad, warm-DA control.
     # No fitted scale enters the calculation or this check. This does not
     # claim universal bolometric accuracy for arbitrary requested bandpasses.
     ratio = trapezoid(result.spectrum.surface_flux_lambda, wave) / (

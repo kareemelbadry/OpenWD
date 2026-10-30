@@ -1,10 +1,8 @@
 """Full-resolution D6 operations shared by frozen tests and their offline builder."""
 
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from functools import lru_cache
 import json
-from pathlib import Path
-import sys
 import time
 
 import numpy as np
@@ -13,10 +11,6 @@ from wd_spectra import D6Config, compute_d6
 from wd_spectra.d6 import _bulk_atmosphere, radiative_equilibrium_d6_atmosphere
 from wd_spectra.models.common import ModelData, numerical_resolution
 from wd_spectra.models.d6 import _atomic_inputs, _N_DEPTH, _STRUCTURE_LINES
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
-from uv_atomic_control_legacy import legacy_uv_atomic_controls
-from independent_kurucz_control_legacy import previous_kurucz_defaults
 
 STEPS = 2
 ARRAYS = ("temperature", "gas_pressure", "mass_density", "electron_density")
@@ -38,21 +32,15 @@ def atomic_inputs():
 
 
 @contextmanager
-def atomic_input_scope(*, legacy=False, previous=False):
-    """Keep cached atoms local to a current or historical regression scope.
+def atomic_input_scope():
+    """Keep cached atoms local to one regression scope.
 
-    The immutable pre-Fe controls need their original Fe II atom. A cache
-    populated before the patch, or retained after it, would silently mix
-    physics identities. Clear it on both boundaries, including exceptions.
+    A cache populated by another test's monkeypatched inputs would silently
+    mix physics identities. Clear it on both boundaries, including exceptions.
     """
     atomic_inputs.cache_clear()
-    if legacy and previous:
-        raise ValueError("Choose one historical atomic policy")
     try:
-        context = (legacy_uv_atomic_controls() if legacy else
-                   previous_kurucz_defaults() if previous else nullcontext())
-        with context:
-            yield
+        yield
     finally:
         atomic_inputs.cache_clear()
 

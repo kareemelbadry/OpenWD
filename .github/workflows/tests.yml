@@ -19,12 +19,31 @@ env:
   OPENWD_NUM_THREADS: "1"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      spectra: ${{ steps.select.outputs.spectra }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Same rule as cold-start qualification: prose-only PRs skip spectra.
+      - id: select
+        run: python tools/validation_policy.py spectra
+
   unit-and-component:
+    # Every test file runs exactly once per Python version; shards are
+    # disjoint single-threaded workers (tools/ci_shard.py).
+    name: unit-and-component (${{ matrix.python-version }}, ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.12"]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,10 +60,20 @@ jobs:
         run: python -c "import pathlib, wd_spectra; assert pathlib.Path(wd_spectra.__file__).resolve().is_relative_to(pathlib.Path('src').resolve())"
       - name: Verify compiled acceleration backend
         run: python -c "from wd_spectra import _rt; assert hasattr(_rt, 'hydrogen_stark_lorentz_convolution')"
-      - run: python -m pytest -m 'not canary and not spectral' --durations=10
+      - name: Run this shard's test files
+        run: |
+          files=$(python tools/ci_shard.py tests ${{ matrix.shard }} 4)
+          python -m pytest -m 'not canary and not spectral' --durations=10 $files
 
   fixed-spectra:
+    name: fixed-spectra (${{ matrix.lane }}/2)
+    needs: changes
+    if: needs.changes.outputs.spectra == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,11 +81,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e '.[test]'
-      - run: python tools/validate.py spectra --output results/spectra
+      - name: Run this lane's fixed-atmosphere cases
+        run: |
+          cases=$(python tools/ci_shard.py spectra ${{ matrix.lane }} 2)
+          python tools/validate.py spectra $cases --output results/spectra
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fixed-atmosphere-spectra
+          name: fixed-atmosphere-spectra-${{ matrix.lane }}
           path: results/spectra
 
   cool-workflow-components:

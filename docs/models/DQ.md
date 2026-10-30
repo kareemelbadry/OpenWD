@@ -1,17 +1,16 @@
-# DQ: refractive helium/carbon atmospheres
+# DQ: helium atmospheres with carbon
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
-`DQConfig` predicts hydrogen-free, nonmagnetic, helium-dominated atmospheres
-with trace carbon and C₂. The public calculation starts from its own
-hydrostatic gray seed. It does not read a previous atmosphere, model spectrum,
-observed spectrum, object-name lookup, or neighboring grid model.
+`DQConfig` computes hydrogen-free, nonmagnetic, helium-dominated LTE
+atmospheres with trace carbon and C₂. The transfer is refractive in both the
+structure and the final spectrum. Each request is a cold start from a gray
+seed. OpenWD does not fit observations.
+
+All DQ data are bundled; see [Getting started](../getting-started.md) for the
+installation.
 
 ## Run a model
-
-Install OpenWD normally; the necessary constitutive tables are bundled. Model
-generation performs no downloads. The DQ runtime requires NumPy, SciPy and
-Numba, installed as package dependencies.
 
 ```python
 from wd_spectra import DQConfig, run_model
@@ -20,260 +19,153 @@ run = run_model(
     DQConfig(
         effective_temperature=9347,
         logg=8.041,
-        log_carbon_to_helium=-4.107,  # log10 N(C nuclei)/N(He nuclei)
-        maximum_seconds=28800,
+        log_carbon_to_helium=-4.107,  # log10 N(C)/N(He)
     ),
-    "results/my-dq",               # must be a new directory
+    "results/dq-9347",                # must be a new directory
     require_convergence=True,
 )
+spectrum = run.spectrum  # vacuum wavelength (Å), surface F_lambda
 ```
 
-These are inputs, not fitting starting guesses: OpenWD does not adjust them.
-Arbitrary finite positive temperatures and finite gravities are accepted,
-with `-12 <= log_carbon_to_helium <= -3`; this is not a guarantee of
-convergence or data-table coverage everywhere in that range. Only
-`quality="standard"` is exposed for this protocol. Hot carbon-dominated DQs,
-hydrogen-bearing DQs and DQp molecular distortion are outside its scope.
+A DQ run can take several hours and several GiB of memory. It runs in an
+isolated worker with one numerical thread. Progress is printed and written to
+`worker/progress.json` in the output directory. Run one object at a time.
 
-For an in-memory result and explicit diagnostics directory:
+`compute_dq(config, output_directory=...)` returns the result in memory. Its
+optional `wavelength` array changes only the output grid.
 
-```python
-from wd_spectra import compute_dq
+## Options
 
-result = compute_dq(
-    DQConfig(9347, 8.041, -4.107),
-    output_directory="results/my-dq-direct",
-)
-```
+| Option | Default | Effect |
+| --- | --- | --- |
+| `effective_temperature` | 8000 K | Teff. |
+| `logg` | 8.0 | log10 of the surface gravity (cgs). |
+| `log_carbon_to_helium` | -5.0 | log10 N(C)/N(He). Allowed range: -12 to -3. |
+| `quality` | `"standard"` | The only accepted value. |
+| `maximum_seconds` | 28800 | Wall-clock budget. The run raises an error when it is used up. |
+| `include_c2_ca` | `True` | C₂ C–A band opacity. `False` is a diagnostic omission. |
+| `swan_helium_broadening` | `"none"` | `"exomol-weisskopf"` turns on the empirical Swan-line cut described below. |
 
-The returned spectrum is unscaled surface `F_lambda` in
-`erg s^-1 cm^-2 Angstrom^-1`, on a vacuum-wavelength grid. An optional
-`wavelength=` array affects only output synthesis; it cannot reduce the
-structure sampling or bypass the independent flux test.
+## Physics
 
-Calculations can take hours and several GiB. Each request runs in an isolated
-worker using one numerical thread, so its process-local DQ solver adapters do
-not modify another spectral class in the caller. Run separate objects as
-separate requests, allowing for their memory requirements. Progress is printed
-and written to `worker/progress.json` and `worker/automatic-phases.json` under
-`run_model` (directly in the chosen directory under `compute_dq`).
+- **Equation of state.** The helium fluid uses the He-REOS.3 table
+  (Becker et al. 2014). Only its departure from the ideal monatomic gas,
+  ln(ρ/ρ_ideal) and u − 3kT/2m, is interpolated: PCHIP in log P and a monotone
+  C¹ Hermite in log T. c_P, Q and ∇ad are analytic derivatives of the same
+  interpolant. Linear interpolation in log T had given ∇ad jumps of up to 40%
+  at the isotherms and stalled convective models. He, C and C₂ are in coupled
+  chemical equilibrium.
+- **Continuum.** The He⁻ free–free opacity includes the dense-helium
+  correction of Iglesias et al. (2002). The fluid structure factor comes from
+  a Rogers–Young closure (checked against Monte Carlo), and the table extends
+  to 2.91 g cm⁻³. The 1/|ε|² factor of Blouin et al. (2018) is not applied,
+  because the refractive transfer already supplies the 1/n propagation factor
+  ([record](../development/history/dq-dense-he-ff-2026-10-15.md)).
+- **Carbon line wings.** At n_He ≈ 10²²–10²³ cm⁻³, the far red Lorentz wings
+  of the UV C I lines used to dominate the optical continuum of cool DQs. The
+  C*–He upper states are repulsive (Allard & Spiegelman 2024), so the red wing
+  is bounded by the ground-state Boltzmann factor exp(−h|Δν|/kT). Blue wings
+  and line cores are unchanged. Unified C–He profiles would replace this bound.
+- **C₂ Swan bands.** The Hornkohl/Parigger line list (Parigger et al. 2015) is
+  scaled to the band strength of Brooke et al. (2013). ExoMol 8states
+  (Yurchenko et al. 2018; McKemmish et al. 2020) fills the levels outside its
+  coverage. The density shift of the bands follows Blouin et al. (2019)
+  (0.2ρ eV, integrated over each depth cell). NEVPT2 C₂–He calculations
+  give the same mean shift. Lines otherwise have thermal Doppler profiles.
+- **Optional Swan cut (empirical).** `swan_helium_broadening="exomol-weisskopf"`
+  gives each Swan line an ExoMol impact Lorentzian, cut off at the Weisskopf
+  detuning. The cut discards the Lorentz area beyond it: 60–95% of the line
+  strength at n_He = 10²²–10²³ cm⁻³. That makes the bands of cool DQs
+  shallower and closer to SDSS (see below), but it is not
+  strength-conserving physics. It is off by default.
+- **Other C₂ systems.** ExoMol 8states gives the other systems and the
+  partition function. The Deslandres–d'Azambuja (C–A) system uses band
+  envelopes from the Einstein coefficients of Lino da Silva (2024).
+- **Atomic carbon.** C I–IV lines come from the Atomic Line List v3
+  (van Hoof et al. 2018).
+- **Transfer.** Refractive radiative transfer includes bent and trapped
+  rays, scattering and a screened lower boundary. The method follows
+  Blouin et al. but is not an exact copy.
+- **Solver.** DQ supplies only physics to the shared structure solver,
+  which runs unmodified, as for cool DBs. When boundary screening fails, the
+  bottom pressure rises fourfold and the solve repeats. See the
+  [October 2026 audit record](../development/history/dq-shared-solver-2026-10-14.md).
+- **Sampling.** The structure uses every fourth wavelength node of the
+  combined line and continuum grid. The final spectrum uses the full grid.
+- **Acceptance.** A run must pass the five atmosphere checks. It must then
+  pass an independent bolometric check on 218,520 wavelength points:
+  |F_bol/(σ Teff⁴) − 1| ≤ 0.002. No flux is rescaled. A failed check raises
+  an error.
 
-## Paper comparison
+## Validation
 
-The paper compares four SDSS stars at published temperature, gravity and
-carbon abundance, without refitting. J0940 uses
-[Koester & Kepler (2019)](https://doi.org/10.1051/0004-6361/201935946);
-the other three use
-[Blouin & Dufour (2019)](https://doi.org/10.1093/mnras/stz2915).
+[![OpenWD DQ models against SDSS spectra of 23 DQs, sorted by Teff](../assets/dq-sample-montage.png)](../assets/dq-sample-montage.png)
 
-| Object | Teff (K) | log g | log10 N(C)/N(He) | Initialization of the plotted model |
-| --- | ---: | ---: | ---: | --- |
-| SDSS J0940+0210 | 7256 | 8.094 | -5.769 | Re-relaxed saved atmosphere |
-| SDSS J1225+4706 | 6294 | 7.924 | -5.33 | Public cold start |
-| SDSS J0804+1714 | 5364 | 7.885 | -7.19 | Re-relaxed saved atmosphere |
-| SDSS J1803+2320 | 4400 | 7.694 | -7.79 | Re-relaxed saved atmosphere |
+Twenty-three DQs from Koester & Kepler (2019) were modeled, 5786–9347 K, with
+SDSS DR17 spectra at S/N ≥ 15. Each uses the Koester & Kepler Teff, log g and
+C/He. The flux scale is (R/d)², from the published mass and the Gaia
+parallax. Nothing is fitted. All 23 models converged from cold starts. In the
+figure, SDSS is black, the default model blue, and the model at Coutu et al.
+(2019) parameters orange where available.
 
-[![SDSS DQ spectra and predictions scaled using published masses and parallaxes](../assets/dq-paper.png)](../assets/dq-paper.pdf)
+[![Band-depth, shape and absolute RMS against Teff, default model and Swan cut](../assets/dq-sample-scores.png)](../assets/dq-sample-scores.png)
 
-[Download the comparison (PDF)](../assets/dq-paper.pdf).
-The models combine the dense-He EOS, coupled He/C/C2 chemistry, completed
-Swan and C-A opacity, and refractive transfer described below. The saved
-research starting states were re-relaxed with the paper's stride-four
-structure sampling; all four plotted results passed the atmosphere checks
-and the independent 0.2% bolometric-flux test. The warm-start rows are
-spectral comparisons, not evidence of public cold-start convergence at those
-points. Public `run_model` still starts from scratch.
+The scores are RMS differences after 10 Å smoothing: band depth, continuum-
+normalized shape (4200–5720 Å) and absolute flux (3850–6720 Å). Circles are
+the default model; triangles add the optional Swan cut. Color is the density
+at τR = 2/3.
 
-Surface flux is converted to flux at Earth using `(R/d)^2`, with
-`R^2 = G M / g` and the published masses and parallaxes. No flux factor is
-fitted. Predictions are convolved with the wavelength-dependent SDSS
-line-spread function, and both spectra are averaged in the same 5 Å bins
-after invalid pixels are masked. Shading is the propagated pipeline
-one-sigma error, without inter-pixel covariance. No extra velocity or
-extinction correction is applied to the SDSS vacuum wavelengths.
+| Teff | Photospheric ρ | Default model | With the Swan cut |
+| --- | --- | --- | --- |
+| ≳ 7000 K | ≲ 0.05 g cm⁻³ | Good: band-depth RMS 0.01–0.05, shape 0.01–0.06 | Unchanged |
+| 6300–7000 K | 0.05–0.2 g cm⁻³ | Acceptable: bands up to ~0.1 too deep | Depth error about halved |
+| ≲ 6000 K | ≳ 0.2 g cm⁻³ | Bands far too deep (J1201: 0.28) | Good to 5800 K, except J1201 (0.13) |
 
-The Swan-band pattern is recognizable, but continuum and band-profile
-discrepancies grow toward the coolest object. J0804 and J1803 are peculiar
-DQs: their inclusion exposes the limitations of the molecular profiles and
-does not extend the module's qualified scope to DQp stars.
+The largest absolute-flux misfits (J0239, J2150) come from the flux scale or
+calibration, not the band shapes. The Swan cut is never meaningfully worse.
 
-## What is required for success
+Peculiar DQs (J0804, J1803; Teff < 6000 K, ρ ≈ 0.4–1 g cm⁻³) are not
+reproduced. Their modeled Swan bands are about twice too deep, and the
+band shapes and positions differ from the observed ones. Tested and rejected:
 
-DQ supplies only physics to the shared structure solver: chemistry, opacity,
-refractive transfer and the equation of state enter through the solver's
-callbacks, and `solve_adaptive_lte_structure` runs unmodified, exactly as for
-cool DBs (ML2-gradient preconditioner, formal-flux completion, thermal
-conditioning and local-energy completion). The lower domain follows the cool-DB
-recipe: the gray seed starts at τR = 10⁻¹², and whenever boundary screening
-fails the bottom pressure is raised fourfold and the full phase sequence is
-repeated. When the flux is already balanced but local energy is not, the
-formal-flux phase hands over to the energy phases instead of chasing
-stationarity in optically thin layers that only the energy equations
-constrain (`use_completion_flux_handoff`). Until October 2026 DQ instead used a
-stack of patched Newton, coordinate and proposal layers; they were removed
-once the EOS kinks they were compensating for were fixed (see below and the
-[October 2026 audit record](../development/history/dq-shared-solver-2026-10-14.md)
-and the [dense He⁻ free-free record](../development/history/dq-dense-he-ff-2026-10-15.md)).
+- full Voigt, Lorentz or ab initio quasi-static Swan profiles;
+- the Blouin et al. recipe;
+- turning off refraction or the dense He⁻ ff correction;
+- He–He–He collision-induced absorption;
+- fitting C/He (as a diagnostic).
 
-A successful public request must pass all five atmosphere checks: all-depth
-flux, local energy balance, temperature stationarity, source closure, and
-lower-boundary screening. It must then pass an independent **218520-point**
-synthesis: 4000 logarithmic points from 1000 to 100000 Å, 150000 optical
-midpoints at 0.02 Å spacing between 3800 and 6800 Å, and 64521 logarithmic
-infrared nodes from 6800 to 100000 Å (R≈24000; one duplicate endpoint).
-The added infrared grid resolves molecular structure that the older
-154000-point qualification grid undersampled. All fluxes must be finite
-and positive, and `abs(F_bol/(sigma Teff^4) - 1) <= 0.002`. No flux
-normalization or parameter adjustment is applied. Source integrity and data
-checksums are recorded.
+A real fix needs C₂–He line shapes at fluid densities. Earlier four-star
+figures (`dq-paper.png`) were made with the previous DQ physics.
 
-Failed checks or exhausted budgets raise an error. Accepted diagnostic states
-and any intermediate products remain available; an atmosphere certificate
-alone does not cause an unqualified spectrum to be returned as successful.
-The public API deliberately has no saved-state restart mode.
+## Limitations
 
-## Physics and limitations
+- Only trace-carbon, hydrogen-free, nonmagnetic DQs are in scope. Hot
+  carbon-dominated DQs, hydrogen-bearing DQs and DQp stars are not.
+- The dense-mixture EOS, the molecular collision profiles and the gray
+  refractive ML2 coupling are approximations.
+- Below about 6300 K (photospheric ρ ≳ 0.2 g cm⁻³) the default Swan bands are
+  too deep. Peculiar DQs are not reproduced, with or without the Swan cut.
+- The optional Swan cut discards line strength and is not a physical line
+  profile.
+- The C–A system is a band-envelope approximation, not a resolved line list.
+- The bolometric check fixes the integrated flux, not its wavelength
+  distribution. The stride-four structure sampling is not a 1% spectral bound.
 
-**He-REOS.3 interpolation.** The Becker et al. (2014) table has isotherms only
-at 3000, 6000, 10000 and 20000 K in the DQ range. Interpolating the specific
-energy linearly in log T between them gave c_P and ∇ad errors of up to ~40%
-even in the ideal-gas limit, with jumps at every isotherm (∇ad 0.46 → 0.35
-across 6000 K at 10⁸ dyn cm⁻²). Those jumps produced wrong-sign Jacobian entries
-in near-adiabatic convection (the historical J1311 stall). The table is now
-interpolated as the exact ideal monatomic gas plus its tabulated non-ideal
-excess, `ln(ρ/ρ_ideal)` and `u − 3kT/2m`, with PCHIP in log P and a monotone C¹
-cubic Hermite in log T. Every tabulated point is reproduced; c_P, Q and ∇ad are
-the analytic derivatives of the same interpolant.
+See [limitations](../limitations.md) for the shared caveats.
 
-**Carbon line wings.** At DQ photospheric densities (n_He ≈ 10²²–10²³ cm⁻³) the
-neutral-He impact widths of C I lines exceed their Weisskopf (impact-validity)
-detuning, and symmetric Lorentz wings of the far-UV C I lines — including the
-Rydberg series near 1100–1130 Å — used to dominate the *optical* continuum of
-the cooler and carbon-poorer stars (up to 400× the He⁻ free-free opacity at
-4000 Å in J1803). A red detuning hΔν needs a C–He configuration in which the
-ground-state energy exceeds the upper-state energy by hΔν; because the C*–He
-upper-state interactions are repulsive (Allard & Spiegelman 2024, doi:10.1093/mnras/stae477),
-the ground-state Boltzmann factor bounds the red wing by exp(−h|Δν|/kT). This
-bound (`red_wing_boltzmann`) is applied to every DQ carbon line; blue wings and
-line cores are unchanged and no strength multiplier is introduced. Unified
-C–He profiles would replace it.
+## Tested range
 
-The implementation includes He-REOS.3 host thermodynamics, coupled He/C/C₂
-chemistry, dense-helium continuum corrections, and conservative refractive
-transfer with bent and trapped rays, scattering, and a screened lower
-boundary. Structure and synthesis use the same carbon-line declaration and
-molecular opacity. UV sampling is determined without reference to a past
-spectrum.
-
-Carbon UV resonance-wing support is decided from the complete atmospheric
-column before opacity work is divided into depth subsets. The same decision
-is used for cached columns and temperature probes, with cache invalidation
-if it changes. Carbon-line evaluation batches the union of retained lines
-while preserving the conservative opacity-screening bound. Non-DQ callers
-retain the shared line evaluator's original default behavior.
-
-Resolved thermal Swan lines retain the 29,004 Hornkohl/Parigger lines, with one absolute
-Brooke band-rate calibration, and add 1,232,442 ExoMol transitions outside their
-per-band vibrational/angular-momentum coverage. No observed spectrum sets the
-combination weights, and holes inside the supplied coverage envelope are not filled.
-The density shift is integrated
-over each depth cell; this is spatial quadrature, not extra collision
-broadening. Other C₂ systems and the partition function use ExoMol 8states.
-That list does **not** include the C¹Πg–A¹Πu Deslandres–d'Azambuja
-system. DQs additionally include that system in both structure and synthesis,
-using Lino da Silva's (2024) published Einstein coefficients for the same 63
-bands as the previous historical estimate. Historical band origins and ExoMol
-lower-A-state populations with the unchanged 8states partition are retained.
-No strength multiplier is fitted to stellar observations. This is a finite-bin
-rigid-rotor envelope, **not a modern resolved C–A line list**. High-v
-perturbations and detailed rotational factors remain uncertain. The source is
-a workshop presentation, not a fully validated modern line list. No unvalidated
-C–A pressure shift is applied. The older Cooper/Nicholls table is bundled for
-reproducibility, but is no longer selected by the default.
-
-An exact-temperature LRU caches Swan strengths and cumulative sums, without
-rounding temperatures, pruning lines, or changing arithmetic order. The cache
-has an explicit 1 GiB cap for synthesis, reduced to 32 MiB during structure
-iteration to leave room for response matrices; the overall
-4 GiB process guard remains unchanged. This recovers much of the larger-list
-synthesis cost, but does not promise faster cold convergence.
-DQ helium-continuum work is evaluated in 1,024-wavelength batches using the
-unchanged shared formula. This bounds temporary allocations and is tested
-bit-for-bit against a full-grid call; it does not change the wavelength grid.
-
-`DQConfig(include_c2_ca=False)` explicitly omits this contribution for
-diagnostic A/B comparisons; it does not relax any qualification check or
-change the Swan contribution. The isolated worker records the selection.
-The C–A file is only constitutive opacity data, not an observed or fitted
-spectrum. From a source checkout, rebuild the data using the audited sources:
-
-```sh
-PYTHONPATH=src python tools/build_dq_ca_2024.py \
-  --states /path/to/12C2__8states.states.bz2 \
-  --pdf /path/to/C2-deslandres-dazambuja.pdf --output results/ca-2024-rebuild
-PYTHONPATH=src python tools/build_dq_swan_completed.py \
-  --exomol /path/to/audited-exomol-branches.npz --output results/swan-rebuild
-```
-
-Structure quadrature first combines the atomic/molecular nodes with the
-4000-point logarithmic continuum mesh over 1000–100000 Å, including the
-infrared, then retains every fourth node plus both endpoints. This default
-reduces structure cost; it does not remove opacity sources or thin the final
-218,520-point independent spectrum. The same rule is applied afresh after
-each automatic lower-domain extension. All five equilibrium gates and the
-independent 0.2% luminosity gate remain mandatory, without flux rescaling.
-
-This is an accepted speed/accuracy tradeoff, **not a guaranteed 1% spectral
-error bound**. In fixed-parameter comparisons with the former dense structure
-grid, J1225 (6294 K) completed from scratch in 17.6 minutes, with maximum
-optical differences of 1.49% native and 0.29% after 3 Å FWHM smoothing.
-J1311 (5529 K) stalled from scratch and was stopped at 27.5 minutes; a
-separate converged warm diagnostic showed 8.13% native and 1.29% at 3 Å.
-That warm diagnostic is not a cold timing result. Both converged spectra
-passed the luminosity gate, which does not constrain individual line errors.
-No paired cold speedup factor is established for these two objects. See the
-[sampling release record](../development/history/dq-stride4-default-2026-09-18.md)
-for validation and limitations.
-
-Transfer and analytic temperature-response inner loops use allocation-free
-scalar arithmetic, tested bitwise against the previous kernels. A roughly
-3× response-kernel benchmark is not a claim of 3× end-to-end acceleration.
-The continuum table and all molecular data are checksum-pinned; their
-provenance is in the bundled data and [third-party notices](../../THIRD_PARTY_NOTICES.md).
-
-This follows important ingredients of the Blouin approach but is not an exact
-reproduction. Dense-mixture EOS, molecular collision profiles and the grey
-refractive ML2 bridge remain approximations. Numerical convergence does not
-guarantee observational agreement, abundance accuracy, or independent depth
-convergence. These limitations are recorded in every result rather than
-silently marked as validated.
-
-In particular, the bolometric constraint fixes the integral of the emergent
-spectrum, not its wavelength distribution. Refining a saved atmosphere
-without restoring equilibrium measures a discretization residual, not the
-error in the final converged luminosity. Spectral depth convergence requires
-reconverging both meshes at the same stellar parameters and comparing their
-spectra; neither a flux renormalization nor an unreconverged flux difference
-is a substitute for that test.
-
-See the [2024 C–A and completed-Swan default record](../development/history/dq-completed-default-2026-09-17.md),
-the [historical C–A validation record](../development/history/dq-ca-default-2026-09-17.md)
-and the [original release record](../development/history/dq-release-2026-09-17.md)
-for tests and the distinction between research warm starts and packaged
-cold-start qualification.
+See [tested points](../tested-temperature-ranges.md).
 
 ## Regression tests
 
-The normal fast test suite covers chemistry, refractive conservation and
-responses, controller transitions, and public cold-start/qualification
-contracts. The separate fixed-atmosphere spectrum test is included in
-`python tools/validate.py spectra --case dq-j1235`; this is not cold-start
-evidence. To run the expensive public cold canary explicitly:
+The fast test suite covers the chemistry, transfer and controller. The fixed
+spectrum check, `python tools/validate.py spectra --case dq-j1311`, uses the
+current default physics. The cold canary solves J1235 from scratch:
 
 ```sh
 python tools/validate.py cold --case dq-j1235 --jobs 1 --timeout 28800 --output results/dq-cold-check
 ```
 
-This test fixes the J1235 parameters, supplies no atmosphere or spectrum,
-and retains its worker outputs in the validation artifacts. It is also part
-of the scheduled/manual protected-canary workflow, not the fast push tests.
+The [transfer-kernel record](../development/history/dq-ca-default-2026-09-17.md)
+describes the bitwise tests of the DQ transfer kernels.

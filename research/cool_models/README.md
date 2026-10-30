@@ -78,29 +78,12 @@ are retained for exploration, not relabeled converged. These checks are not
 a depth-grid or full-physics certificate. The generated HNC table and its
 rebuild command are described in [data/README.md](data/README.md).
 
-## Molecular DAB: fresh 8000 K
+## Molecular DAB
 
-After verifying external data:
-
-```sh
-python research/cool_models/run_molecular_dab_mass_experiment.py \
-  --physical-detuning-lyman --consistent-stark-edge --require-convergence \
-  --pseudo-sweeps 40 --relax-bottom \
-  8000 --log-h-he -2 --physical-only --stable-transfer \
-  --step-method nonlinear-convection-current-energy --inner-scaling svd \
-  --inner-max-evaluations 1000 --max-iterations 35 --no-continuations \
-  --state-sum-h2 --output-root results/dab-cold-check
-```
-
-The separate `check_molecular_dab_result.py RUN_DIRECTORY` command checks
-recorded structure-grid evidence: flux, local energy, independently checked
-source closure, lower-boundary screening and a measured small correction in
-a non-collapsed trust region. `--require-convergence` applies that check to
-the run and exits nonzero on failure, retaining exploratory outputs.
-
-The final spectrum matches the structure's mass-transfer law, angular order,
-opacity and line-profile selections. It is not renormalized. A surface flux
-integral alone is not sufficient for success.
+The earlier isolated molecular transport worker
+(`run_molecular_dab_mass_experiment.py`), its result checker and its grid
+audit were removed on 2026-10-29; `run_model` no longer selected them. They
+remain in git history.
 
 ## Cold-start DAB at 7500 K
 
@@ -123,28 +106,6 @@ model generation or cold-start CI. See their [provenance](checkpoints/README.md)
 The fresh calculation screens its lower boundary without either input.
 The old `--refine-atmosphere` / `--extend-atmosphere` experiments remain
 diagnostics only. Molecular 7250 and 5000 K remain unqualified.
-
-### Independent DAB quadrature audit
-
-After the 7500 K cold calculation above, hold its atmosphere fixed and independently
-refine wavelength/angular sampling (no relaxation or normalization):
-
-```sh
-python research/cool_models/audit_molecular_dab_grid.py \
-  --audit-output results/dab-7500-audit.json \
-  --physical-detuning-lyman --consistent-stark-edge \
-  --thermal-maximum 1e9 --angles 16 --lyman-core-subdivisions 10 \
-  7500 --log-h-he -2 --physical-only --stable-transfer \
-  --step-method nonlinear-convection-current-energy --inner-scaling svd \
-  --inner-max-evaluations 1000 --max-iterations 1 --no-continuations \
-  --structure-wavelength-count 6000 --state-sum-h2 \
-  --resume-atmosphere results/dab-7500-fresh/worker/7500/atmosphere.npz \
-  --output-root results/dab-7500-audit-work
-```
-
-Inspect `flux_and_local_energy_pass` and source closure in the JSON; this
-diagnostic's process exit alone is not a convergence certificate. It cannot
-replace the prior measured-step check, depth tests or missing physical effects.
 
 ## Tests and historical workspace
 

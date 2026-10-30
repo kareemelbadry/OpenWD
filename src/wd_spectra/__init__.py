@@ -2,6 +2,7 @@
 
 from .models import (
     AtmosphereConvergenceWarning,
+    DenseHeliumPhotosphereError,
     DAConfig,
     DAZConfig,
     DQConfig,
@@ -38,8 +39,10 @@ from .atmosphere import (
     radiative_equilibrium_hydrogen_helium_atmosphere,
 )
 from .cool_da import (
+    TREMBLAY_2013_EFFECTIVE_TEMPERATURE_K,
     TREMBLAY_2013_LOG_ROSSELAND_DEPTH,
     TREMBLAY_2013_MEAN_3D_MINUS_1D_TEMPERATURE_K,
+    TREMBLAY_2013_UPPER_LAYER_ROSSELAND_DEPTH,
     atmosphere_with_tremblay_2013_mean_3d_temperature_difference,
     hydrostatic_atmosphere_with_tremblay_2013_mean_3d_temperature_difference,
     tremblay_2013_mean_3d_temperature_difference,
@@ -80,6 +83,7 @@ from .opacity import hydrogen_dissolved_level_pseudocontinuum_mass_absorption_co
 from .radiative_transfer import compiled_backend_available, emergent_flux
 from .spectrum import (
     Spectrum,
+    StokesSpectrum,
     planck_lambda_angstrom,
     synthesize_balmer_spectrum,
     synthesize_gray_spectrum,
@@ -102,6 +106,7 @@ __all__ = [
     "DOConfig", "DAOConfig", "compute_do", "compute_dao",
     "Atmosphere",
     "AtmosphereConvergenceWarning",
+    "DenseHeliumPhotosphereError",
     "BarklemSelfBroadeningTable",
     "DAConfig",
     "DAZConfig",
@@ -119,6 +124,7 @@ __all__ = [
     "select_physics",
     "run_model",
     "Spectrum",
+    "StokesSpectrum",
     "atmosphere_with_tremblay_2013_mean_3d_temperature_difference",
     "atmosphere_convergence_status",
     "compiled_backend_available",
@@ -170,5 +176,8 @@ __all__ += ['ChiantiScaledCollisionComponent', 'ChiantiTermCollisionStrength', '
 from .pg1159_presets import (PG1424_BEST_LINE_ATOM_COUNTS, PG1424_COMPOSITION_LADDER_ATOM_COUNTS, PG1424_ION_STAGE_NLTE_TRACE_ELEMENTS, PG1424_PUBLISHED_MASS_FRACTIONS, PG1424_RELAXED_STRUCTURE_ATOM_COUNTS, WERNER2015_LINE_ATOM_COUNTS, mutable_atom_counts)
 __all__ += ['PG1424_BEST_LINE_ATOM_COUNTS', 'PG1424_COMPOSITION_LADDER_ATOM_COUNTS', 'PG1424_ION_STAGE_NLTE_TRACE_ELEMENTS', 'PG1424_PUBLISHED_MASS_FRACTIONS', 'PG1424_RELAXED_STRUCTURE_ATOM_COUNTS', 'WERNER2015_LINE_ATOM_COUNTS', 'mutable_atom_counts']
 
-from .models.dah import DAHConfig, compute_dah
-__all__ += ["DAHConfig", "compute_dah"]
+from .models.dah import DAH_PAPER_PRESCRIPTION, DAHConfig, compute_dah, paper_dah_config
+__all__ += ["DAH_PAPER_PRESCRIPTION", "DAHConfig", "compute_dah", "paper_dah_config"]
+
+from .models.sdb import SdBConfig, compute_sdb
+__all__ += ["SdBConfig", "compute_sdb"]

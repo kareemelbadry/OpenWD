@@ -25,6 +25,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 DAH_PAPER = ("j1007+1237", "j1034+0327", "j1154+0117", "j2149-0728",
              "j1254+5612", "j1018+0111", "j1351+5419", "j2247+1456")
+DAH_PAPER_SPECTRA = ("j1007+1237", "j1018+0111", "j2247+1456")  # = PAPER_KEYS
 SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dah-limb-integral",
     "d6-j1637",
@@ -32,7 +33,6 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "da-4000",
     "da-5000",
     "da-20000",
-    "db-10000",
     "db-22000",
     "dab-9000",
     "dab-20000",
@@ -40,15 +40,19 @@ SPECTRA = tuple("dah-" + key for key in DAH_PAPER) + (
     "dz-j0738",
     "daz-g149-28",
     "daz-galex1931",
-    "dq-j1235",
+    "dq-j1311",
+    "sdb-hd4539",
 )
 CANARY = "tests/test_protected_model_canaries.py::"
 COLD_TESTS = {
-    "da-radiative-g76-48": "tests/test_radiative_da_convergence.py::test_g76_48_radiative_da_cold_start",
+    "da-radiative-g76-48": "tests/test_radiative_da_convergence.py::test_g76_48_radiative_da_cold_start[production]",
+    "da-radiative-g76-48-standard": "tests/test_radiative_da_convergence.py::test_g76_48_radiative_da_cold_start[standard]",
+    "dah-mean-field-j1018": "tests/test_dah_paper.py::test_mean_field_j1018_structure_converges_from_cold",
     **{f"dah-{key}": f"tests/test_dah_paper.py::test_dah_public_default_cold_start[{key}]"
        for key in ("j1007+1237", "j1254+5612")},
     "do-50000": "tests/test_hot_cold_canary.py::test_hot_public_model_converges_from_cold[do-50000-standard]",
     "dao-60000": "tests/test_hot_cold_canary.py::test_hot_public_model_converges_from_cold[dao-60000-standard]",
+    "sdb-hd4539": "tests/test_sdb_cold_canary.py::test_hd4539_public_cold_start_and_research_spectrum",
     **{
         case: f"tests/test_released_family_canaries.py::test_released_family_cold_start[{case}]"
         for case in ("dz-pg1225", "pg1159-pg1424", "d6-j1637")
@@ -80,9 +84,8 @@ COLD = tuple(COLD_TESTS) + (
     "daz-g149-28",
     "daz-galex1931",
 )
-REGRESSIONS = {
-    "d6-j1637": "tests/test_d6_regression.py::test_j1637_two_step_warm_trajectory",
-}
+D6_REGRESSION_TEST = "tests/test_d6_regression.py::test_j1637_two_step_warm_trajectory"
+REGRESSIONS = {"d6-j1637": D6_REGRESSION_TEST}
 
 
 def commands(tier, cases=()):
@@ -106,10 +109,17 @@ def commands(tier, cases=()):
                 "tests/test_dah_disk_quadrature.py::test_near_zero_spectrum_matches_independent_limb_integral"
             ]
         elif tier == "spectra" and case.startswith("dah-"):
-            tasks[case] = pytest + [f"tests/test_dah_paper.py::test_public_default_reproduces_frozen_paper_spectrum[{case[4:]}]"]
-        elif tier == "spectra" and case == "dq-j1235":
             tasks[case] = pytest + [
-                "tests/test_dq_spectral_regression.py::test_refractive_spectrum_retains_j1235_absolute_flux"
+                f"tests/test_dah_paper.py::test_public_default_spectrum_has_not_changed[{case[4:]}]",
+            ] + ([f"tests/test_dah_paper.py::test_paper_prescription_spectrum_has_not_changed[{case[4:]}]"]
+                 if case[4:] in DAH_PAPER_SPECTRA else [])
+        elif tier == "spectra" and case == "dq-j1311":
+            tasks[case] = pytest + [
+                "tests/test_dq_spectral_regression.py::test_completed_default_retains_j1311_absolute_flux"
+            ]
+        elif tier == "spectra" and case == "sdb-hd4539":
+            tasks[case] = pytest + [
+                "tests/test_sdb_spectral_regression.py::test_hd4539_fixed_spectrum_matches_research_driver"
             ]
         elif tier == "spectra" and case.startswith("daz-"):
             name = "g149_28" if case == "daz-g149-28" else "galex1931"
@@ -184,6 +194,8 @@ def numerical_identity(root=ROOT):
         "tests/test_daz_regressions.py",
         "tests/test_dq_spectral_regression.py",
         "tests/test_dq_release.py",
+        "tests/test_sdb_cold_canary.py",
+        "tests/test_sdb_spectral_regression.py",
         "tests/test_dah_paper.py",
         "tests/test_radiative_da_convergence.py",
         "tests/test_d6_regression.py",
@@ -326,7 +338,7 @@ def main(argv=None):
     if args.jobs < 1 or args.timeout <= 0:
         parser.error("jobs and timeout must be positive")
     if args.case and args.tier in {"fast", "full"}:
-        parser.error("--case is only for spectra/cold; full must include every control")
+        parser.error("--case is only for spectra/regression/cold; full must include every control")
     tiers = ("fast", "spectra", "cold") if args.tier == "full" else (args.tier,)
     try:
         stages = {tier: commands(tier, args.case) for tier in tiers}

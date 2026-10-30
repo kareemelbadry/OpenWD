@@ -14,8 +14,17 @@ velocity and one flux scale (5200--6100 A) are nuisance parameters.
   development-tree validation suite, so values are directly comparable);
 * ``blue_ratio``: median smoothed model/observation over 3820--4400 A;
 * ``feature_rms``: RMS difference of the locally normalized spectra
-  (each divided by its own 150-pixel running mean), which isolates the
-  magnetic line components from the continuum slope.
+  (each divided by its own 150-pixel running mean). It is dominated by
+  photon noise for most survey spectra and barely distinguishes models;
+  it is kept for continuity, not as a decision metric;
+* ``chi2_scale``: noise-weighted chi^2 per pixel over 3820--6950 A after one
+  least-squares flux scale (tests continuum and lines together);
+* ``chi2_cubic``: the same after a cubic multiplicative continuum in
+  log wavelength, which absorbs flux-calibration error and isolates the
+  magnetic features. Both use the survey inverse variance; the GH Leo
+  spectrum has none, and its noise is estimated from the high-pass
+  scatter (``noise_source``). The chi^2 values are comparable between models
+  of one object, not between objects.
 
 The same scores of the digitized Hardy model are reported as a reference.
 """
@@ -28,9 +37,11 @@ from pathlib import Path
 
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.optimize import minimize_scalar
 
 from .._compat import trapezoid
 from ..constants import LIGHT_SPEED
+from ..spectrum import StokesSpectrum
 from .observed import convolve_variable_log_gaussian, gaussian_smooth
 
 
@@ -138,6 +149,7 @@ class DAHObservation:
     sigma_log_wavelength: np.ndarray
     hardy_wavelength_angstrom: np.ndarray | None
     hardy_flux: np.ndarray | None
+    flux_nu_sigma: np.ndarray | None = None
 
 
 def load_dah_observation(key: str, root: str | Path | None = None) -> DAHObservation:
@@ -157,6 +169,7 @@ def load_dah_observation(key: str, root: str | Path | None = None) -> DAHObserva
             np.asarray(saved["sigma_log_wavelength"]),
             np.asarray(saved["hardy_wavelength_angstrom"]) if "hardy_flux" in saved else None,
             np.asarray(saved["hardy_flux"]) if "hardy_flux" in saved else None,
+            np.asarray(saved["flux_nu_sigma"]) if "flux_nu_sigma" in saved else None,
         )
 
 
@@ -206,6 +219,42 @@ def _scores(rest_wave: np.ndarray, observed: np.ndarray, model: np.ndarray) -> d
     }
 
 
+CHI2_WINDOW_ANGSTROM = (3_820.0, 6_950.0)
+
+
+def _estimated_noise(flux: np.ndarray) -> np.ndarray:
+    """Per-pixel noise from the robust scatter about a 3-pixel smooth."""
+
+    residual = flux - gaussian_smooth(flux, 3.0)
+    deviation = 1.4826 * np.median(np.abs(residual - np.median(residual)))
+    # The residual about a 3-pixel Gaussian retains ~0.8 of white noise.
+    return np.full_like(flux, 1.25 * deviation)
+
+
+def _chi2_scores(
+    rest_wave: np.ndarray, observed: np.ndarray, sigma: np.ndarray, model: np.ndarray
+) -> dict[str, float]:
+    """chi^2/N after one scale and after a cubic multiplicative continuum."""
+
+    selected = (
+        (rest_wave >= CHI2_WINDOW_ANGSTROM[0])
+        & (rest_wave <= CHI2_WINDOW_ANGSTROM[1])
+        & np.isfinite(sigma)
+        & (sigma > 0.0)
+    )
+    x = np.interp(np.log(rest_wave[selected]), np.log(CHI2_WINDOW_ANGSTROM), [-1.0, 1.0])
+    weight = 1.0 / sigma[selected]
+    scores = {}
+    for name, degree in (("chi2_scale", 0), ("chi2_cubic", 3)):
+        basis = np.polynomial.legendre.legvander(x, degree) * model[selected, np.newaxis]
+        coefficients = np.linalg.lstsq(
+            basis * weight[:, np.newaxis], observed[selected] * weight, rcond=None
+        )[0]
+        residual = (observed[selected] - basis @ coefficients) * weight
+        scores[name] = float(np.mean(residual**2))
+    return scores
+
+
 def score_dah_spectrum(
     key: str,
     model_wavelength_angstrom: ArrayLike,
@@ -227,6 +276,12 @@ def score_dah_spectrum(
     wave = observation.wavelength_angstrom[inside]
     flux = observation.flux_nu[inside]
     sigma = observation.sigma_log_wavelength[inside]
+    if observation.flux_nu_sigma is not None:
+        noise = observation.flux_nu_sigma[inside]
+        noise_source = "survey inverse variance"
+    else:
+        noise = _estimated_noise(flux)
+        noise_source = "estimated from high-pass scatter"
     reference_wave, reference_flux = (
         (observation.hardy_wavelength_angstrom, observation.hardy_flux)
         if observation.hardy_flux is not None
@@ -241,11 +296,191 @@ def score_dah_spectrum(
         "velocity_correlation": correlation,
         "velocity_reference": "Hardy curve" if observation.hardy_flux is not None else "model",
         **_scores(rest, flux, sampled),
+        **_chi2_scores(rest, flux, noise, sampled),
+        "noise_source": noise_source,
     }
     if observation.hardy_flux is not None:
         hardy = np.interp(rest, observation.hardy_wavelength_angstrom, observation.hardy_flux)
-        result["hardy"] = _scores(rest, flux, hardy)
+        result["hardy"] = {**_scores(rest, flux, hardy), **_chi2_scores(rest, flux, noise, hardy)}
     return result
+
+
+def _fit_polarization_shift(
+    wave: np.ndarray,
+    data: np.ndarray,
+    sigma: np.ndarray,
+    model_wave: np.ndarray,
+    stokes_i: np.ndarray,
+    stokes_v: np.ndarray,
+    limit: float,
+) -> float:
+    """Profile a weighted scale and offset on a fixed set of observed pixels."""
+
+    weight = (np.min(sigma) / sigma) ** 2
+    total_weight = np.sum(weight)
+    centered_data = data - np.sum(weight * data) / total_weight
+    data_variance = np.sum(weight * centered_data**2)
+    relative_floor = (64.0 * np.finfo(float).eps) ** 2
+    if data_variance <= relative_floor * np.sum(weight * data**2):
+        return float("nan")
+
+    def objective(shift):
+        shifted_wave = wave - shift
+        prediction = np.interp(shifted_wave, model_wave, stokes_v) / np.interp(
+            shifted_wave, model_wave, stokes_i
+        )
+        centered_model = prediction - np.sum(weight * prediction) / total_weight
+        variance = np.sum(weight * centered_model**2)
+        if variance <= relative_floor * np.sum(weight * prediction**2):
+            return 0.0
+        covariance = np.sum(weight * centered_data * centered_model)
+        return -covariance**2 / variance
+
+    # A coarse scan avoids choosing an arbitrary local extremum. Refine in A,
+    # never in observed-pixel indices; gaps do not change the wavelength scale.
+    spacing = min(float(np.median(np.diff(wave))), float(np.median(np.diff(model_wave))))
+    intervals = 2 * max(2, int(np.ceil(min(2048.0, limit / spacing))))
+    shifts = np.linspace(-limit, limit, intervals + 1)
+    costs = np.asarray([objective(shift) for shift in shifts])
+    best = int(np.argmin(costs))
+    tolerance = 64.0 * np.finfo(float).eps * data_variance
+    if -costs[best] <= tolerance:
+        return float("nan")
+    tied = np.flatnonzero(costs <= costs[best] + tolerance)
+    if tied[-1] - tied[0] > 2:
+        return float("nan")
+    lower, upper = shifts[max(0, best - 1)], shifts[min(intervals, best + 1)]
+    refined = minimize_scalar(
+        objective, bounds=(lower, upper), method="bounded",
+        options={"xatol": min(1.0e-5, 1.0e-6 * limit)},
+    )
+    if not refined.success:
+        return float("nan")
+    shift = float(refined.x if refined.fun < costs[best] else shifts[best])
+    # A boundary solution asks for a wider search; it is not a measured shift.
+    return shift if abs(shift) < limit - min(1.0e-4, 1.0e-6 * limit) else float("nan")
+
+
+def score_dah_circular_polarization(
+    wavelength_angstrom: ArrayLike,
+    v_over_i: ArrayLike,
+    sigma_v_over_i: ArrayLike,
+    model: StokesSpectrum,
+    *,
+    observed_convention: str,
+    resolution_fwhm_angstrom: float | None = None,
+    window_angstrom: tuple[float, float] = CHI2_WINDOW_ANGSTROM,
+    max_shift_angstrom: float = 100.0,
+) -> dict[str, float]:
+    """Score an observed V/I spectrum against a rest-frame ``StokesSpectrum``.
+
+    The observation is on vacuum wavelengths, as for ``score_dah_spectrum``.
+    ``observed_convention`` declares its V sign: ``"optical"`` is the exported
+    convention (Landi Degl'Innocenti, Bagnulo & Fossati 2007) and ``"iau"`` has
+    V_iau = -V_optical. Model I and V are convolved separately to the Gaussian
+    FWHM (interpolated when None) and then divided.
+
+    ``chi2_v`` is the mean squared normalized residual of the unscaled model;
+    ``v_scale`` the least-squares factor on the model V/I (negative for a sign
+    error, away from one for a level error). Both use the unshifted model.
+    ``shift_angstrom`` minimizes the uncertainty-weighted residual with a fitted
+    scale and constant offset for alignment only. It is positive when observed
+    features lie redward of the model's. The search is bounded by
+    ``+/-max_shift_angstrom`` and uses the actual wavelengths, including gaps.
+    All trial shifts use the same pixels with complete model/LSF coverage.
+    A flat profile, ambiguous alignment, insufficient overlap, or an optimum
+    at the search boundary gives NaN for the shift. A zero model V gives NaN
+    for ``v_scale``. An empty scoring window raises ValueError. These scores
+    diagnose agreement; they do not establish physical polarimetric accuracy.
+    """
+
+    if observed_convention not in ("iau", "optical"):
+        raise ValueError("observed_convention must be 'iau' or 'optical'")
+    wave = np.asarray(wavelength_angstrom, dtype=np.float64)
+    data = np.asarray(v_over_i, dtype=np.float64) * (-1.0 if observed_convention == "iau" else 1.0)
+    sigma = np.asarray(sigma_v_over_i, dtype=np.float64)
+    if wave.ndim != 1 or data.shape != wave.shape or sigma.shape != wave.shape:
+        raise ValueError("wavelength, V/I and sigma must be matching 1D arrays")
+    if np.any(~np.isfinite(wave)) or np.any(wave <= 0.0) or np.any(np.diff(wave) <= 0.0):
+        raise ValueError("observed wavelengths must be finite, positive and strictly increasing")
+    model_wave = np.asarray(model.wavelength_angstrom, dtype=np.float64)
+    model_i = np.asarray(model.surface_flux_lambda, dtype=np.float64)
+    model_v = np.asarray(model.surface_flux_v_lambda, dtype=np.float64)
+    if (
+        model_wave.ndim != 1 or model_wave.size < 2
+        or model_i.shape != model_wave.shape or model_v.shape != model_wave.shape
+    ):
+        raise ValueError("model wavelength, I and V must be matching 1D arrays with at least two pixels")
+    if (
+        np.any(~np.isfinite(model_wave)) or np.any(model_wave <= 0.0)
+        or np.any(np.diff(model_wave) <= 0.0) or np.any(~np.isfinite(model_i))
+        or np.any(model_i <= 0.0) or np.any(~np.isfinite(model_v))
+    ):
+        raise ValueError(
+            "model wavelengths must increase and be finite/positive; "
+            "I must be finite/positive and V finite"
+        )
+    if not np.isfinite(max_shift_angstrom) or max_shift_angstrom <= 0.0:
+        raise ValueError("max_shift_angstrom must be finite and positive")
+    if (
+        len(window_angstrom) != 2 or not np.all(np.isfinite(window_angstrom))
+        or window_angstrom[0] >= window_angstrom[1]
+    ):
+        raise ValueError("window_angstrom must be a finite increasing pair")
+    margin = 0.0
+    if resolution_fwhm_angstrom is not None:
+        if not np.isfinite(resolution_fwhm_angstrom) or resolution_fwhm_angstrom <= 0.0:
+            raise ValueError("resolution_fwhm_angstrom must be finite and positive")
+        margin = 4.0 * resolution_fwhm_angstrom / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        # The log-Gaussian has a slightly wider red wing than +/-4 sigma in A.
+        margin *= np.exp(margin / model_wave[0])
+
+    valid = (
+        (wave >= window_angstrom[0])
+        & (wave <= window_angstrom[1])
+        & np.isfinite(data)
+        & np.isfinite(sigma)
+        & (sigma > 0.0)
+        & (wave >= model_wave[0] + margin)
+        & (wave <= model_wave[-1] - margin)
+    )
+    wave, data, sigma = wave[valid], data[valid], sigma[valid]
+    if wave.size == 0:
+        raise ValueError("no valid observed pixels in the scoring window with model coverage")
+
+    def sample_stokes(output_wave):
+        if resolution_fwhm_angstrom is None:
+            return (np.interp(output_wave, model_wave, flux) for flux in (model_i, model_v))
+        sigma_log = resolution_fwhm_angstrom / (2.0 * np.sqrt(2.0 * np.log(2.0))) / output_wave
+        return (convolve_variable_log_gaussian(model_wave, flux, output_wave, sigma_log)
+                for flux in (model_i, model_v))
+
+    stokes_i, stokes_v = sample_stokes(wave)
+    prediction = stokes_v / stokes_i
+    weight = (np.min(sigma) / sigma) ** 2
+    denominator = np.sum(weight * prediction**2)
+    scale = np.sum(weight * data * prediction) / denominator if denominator > 0.0 else float("nan")
+    shift = float("nan")
+    overlap = ((wave >= model_wave[0] + margin + max_shift_angstrom)
+               & (wave <= model_wave[-1] - margin - max_shift_angstrom))
+    fit_wave = wave[overlap]
+    if fit_wave.size >= 3:
+        template_wave, template_i, template_v = model_wave, model_i, model_v
+        if resolution_fwhm_angstrom is not None:
+            lower, upper = fit_wave[0] - max_shift_angstrom, fit_wave[-1] + max_shift_angstrom
+            template_wave = np.unique(np.concatenate((
+                model_wave[(model_wave > lower) & (model_wave < upper)], fit_wave, [lower, upper],
+            )))
+            template_i, template_v = sample_stokes(template_wave)
+        shift = _fit_polarization_shift(
+            fit_wave, data[overlap], sigma[overlap], template_wave,
+            template_i, template_v, max_shift_angstrom,
+        )
+    return {
+        "chi2_v": float(np.mean(((data - prediction) / sigma) ** 2)),
+        "v_scale": float(scale),
+        "shift_angstrom": shift,
+    }
 
 
 def comparison_arrays(
@@ -497,5 +732,6 @@ __all__ = [
     "DAH_VALIDATION_TARGETS",
     "comparison_arrays",
     "load_dah_observation",
+    "score_dah_circular_polarization",
     "score_dah_spectrum",
 ]

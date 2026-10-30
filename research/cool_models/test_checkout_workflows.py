@@ -1,9 +1,7 @@
 import hashlib
 from pathlib import Path
-import tarfile
 import pytest
 import research_paths
-from experiment_source_archive import archive_sources
 from run_cool_db import commands
 import check_data
 
@@ -15,20 +13,6 @@ def test_data_path_is_explicit_and_independent_of_working_directory(monkeypatch,
     assert research_paths.data_directory() == expected
     monkeypatch.setenv("OPENWD_RESEARCH_DATA", str(tmp_path / "tables"))
     assert research_paths.data_directory() == tmp_path / "tables"
-
-
-def test_source_archive_contains_the_actual_checkout_from_another_cwd(monkeypatch, tmp_path):
-    paths = research_paths.source_paths()
-    assert Path("wd_spectra/adaptive_structure.py") in paths
-    assert Path("wd_spectra/_cool/run_molecular_dab_mass_experiment.py") in paths
-    monkeypatch.chdir(tmp_path)
-    selected = paths[:2]
-    manifest = archive_sources(selected, tmp_path / "sources.tar.gz", base_directory=research_paths.REPOSITORY)
-    with tarfile.open(tmp_path / "sources.tar.gz") as archive:
-        for path in selected:
-            content = archive.extractfile(str(path)).read()
-            assert content == (research_paths.REPOSITORY / path).read_bytes()
-            assert hashlib.sha256(content).hexdigest() == manifest[str(path)]
 
 
 def test_dense_recipe_has_no_temperature_switch_or_supplied_state(tmp_path):
@@ -55,4 +39,4 @@ def test_external_data_check_fails_closed(monkeypatch, tmp_path):
 
 def test_bundled_hnc_cache_is_the_qualified_generated_table():
     table = Path(__file__).parent / "data/molecular-hnc-electron-domain-table.npz"
-    assert hashlib.sha256(table.read_bytes()).hexdigest() == "4bf3134197d7309ccb6ee227bf2a659c30438ec263e322cb020aec8371fc10e7"
+    assert hashlib.sha256(table.read_bytes()).hexdigest() == "b72c73cec42f5f2661742bb9a4051283abc36185f5059d213d4ab0db2c8607f4"

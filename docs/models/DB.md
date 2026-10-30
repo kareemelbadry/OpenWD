@@ -1,195 +1,166 @@
-# DB module
+# DB: helium atmospheres
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
-`compute_db` solves a homogeneous pure-helium LTE atmosphere. It combines a
-Hummer--Mihalas/Q-MHD helium EOS, He I/II/III continuum opacity, corrected
-Doppler-convolved Beauchamp25-LD He I Stark profiles, Schoening/SYNSPEC He II
-profiles, Unsold neutral-He broadening, and ML2/alpha=1.25 convection.
+`DBConfig` computes a homogeneous, pure-helium, plane-parallel LTE
+atmosphere and its emergent spectrum, with ML2/α = 1.25 convection.
+`run_model` selects one of two treatments. Warm DBs use a dilute-gas helium
+EOS. Cool DBs, where the photosphere is dense and neutral, use a dense-helium
+treatment.
 
-```bash
-python examples/one_shot_db.py --teff 20000 --logg 8.0 \
-  --quality standard --output results/db-20000-8.0
+## Run it
+
+```python
+from wd_spectra import DBConfig, run_model
+
+run = run_model(
+    DBConfig(effective_temperature=20_000, logg=8.0, quality="production"),
+    "results/db-20000",  # must be a new directory
+    require_convergence=True,
+)
+print(run.selection.workflow)  # "db" (warm) or "dense-db" (cool)
+spectrum = run.spectrum         # surface F_lambda, vacuum Angstrom
 ```
 
-Typical standard calculations take roughly 3--10 minutes on a current laptop;
-cool neutral-line models can be slower. No previous atmosphere is needed.
+Each run is a cold start. A warm model takes about 3–30 minutes on a laptop.
+A dense-helium model takes about 10–15 minutes.
 
-## Paper comparisons
+| `quality` | Depth points | Use |
+| --- | --- | --- |
+| `"quick"` | 20 | Interface test only. Not a converged model. |
+| `"standard"` | 40 | Exploration (warm DBs only). |
+| `"production"` | 80 | Science use. Required for dense helium. |
 
-The paper compares pure-He models with the one-dimensional ML2/alpha=1.25
-Montreal/Tremblay grid of
-[Cukanovaite et al. (2021)](https://doi.org/10.1093/mnras/staa3684).
-The six points are 10000, 16000, 22000 and 30000 K at log g = 8, plus log g
-= 7 and 9 at 22000 K. OpenWD relaxes its own helium atmosphere at each point
-and synthesizes the spectrum using the corrected B25 He I profiles and
-neutral-He broadening. The reference grid is used only for comparison.
+The command-line equivalent is
+`python examples/one_shot_db.py --teff 20000 --logg 8.0 --quality production --output results/db-20000`.
 
-[![DB surface-flux spectra compared with the Montreal grid](../assets/db-paper-grid.png)](../assets/db-paper-grid.pdf)
+## Options
 
-[Download the grid comparison (PDF)](../assets/db-paper-grid.pdf).
-The left panels cover 900--30000 Å and the right panels show optical helium
-lines. The curves retain their absolute surface-flux scale; no continuum
-factor is applied to make the displayed spectra agree.
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `effective_temperature` | `20000.0` | Teff in K. Dense helium requires an integer value. |
+| `logg` | `8.0` | log10 of surface gravity in cm s⁻². |
+| `quality` | `"standard"` | Numerical resolution (see above). |
+| `mixing_length_alpha` | `1.25` | ML2 mixing length. |
+| `neutral_broadening` | `"unsold"` | Neutral-He broadening of He I lines: `"unsold"`, `"montreal"` (larger of Unsöld, Deridder–van Rensbergen and Ali–Griem widths) or `"none"`. |
+| `transfer_discretization` | `"auto"` | `"auto"` uses column-mass cells where He⁻ free–free dominates the outer-layer opacity, and optical-depth cells elsewhere. `"column-mass"` and `"optical-depth"` force one. |
+| `photospheric_depth_concentration` | `1.0` | Concentrates depth points across 0.01 < τ < 10. |
 
-The second figure uses five SPY/UVES DBs at the fixed temperatures and
-gravities of [Voss et al. (2007)](https://doi.org/10.1051/0004-6361:20077285),
-from 11002 to 27288 K. An OpenWD atmosphere is calculated at each star's
-parameters, and the Montreal grid is bilinearly interpolated to the same
-point. Both models are convolved to `R = 18500`; data and predictions use
-the same local continuum-fitting procedure in the stellar rest frame.
+If a production model fails its stationarity check, try
+`photospheric_depth_concentration=2`. This fixed the model at 27,000 K and
+log g = 9.25.
 
-[![Observed SPY He I profiles with Montreal and OpenWD predictions](../assets/db-paper-spy.png)](../assets/db-paper-spy.pdf)
+## Physics
 
-[Download the SPY comparison (PDF)](../assets/db-paper-spy.pdf).
-The sample follows the growth and subsequent weakening of the optical He I
-lines. Noise, normalization and line-profile differences remain visible.
-These atomic-helium comparisons do not test the cool dense-neutral extension
-below, and normalized line agreement does not establish an absolute flux scale.
+### Warm DBs
+
+- **Structure.** Adaptive trust-region Newton solver, as for DA, with
+  ML2/α = 1.25 ([Beauchamp et al. 1999](https://doi.org/10.1086/307148);
+  [Bergeron et al. 2011](https://doi.org/10.1088/0004-637X/737/1/28)).
+- **Equation of state.** He I, He II and He III ionization with charge
+  neutrality. Hummer–Mihalas occupation probabilities through n = 40 with
+  correlated Q-MHD microfields. The neutral hard-sphere radius is
+  0.5 n_eff² a₀ / Z, as for hydrogen.
+- **Continuum.** He I and He II bound–free, He II/He III and He⁻ free–free,
+  the He–He⁺ continuum and dissolved-level opacity. Electron and Rayleigh
+  scattering. He⁻ free–free from
+  [John (1994)](https://doi.org/10.1093/mnras/269.4.871) inside its table,
+  and from the John & Seaton / Carbon & Gingerich fit outside it.
+- **He I lines.** 36 optical transitions with the corrected, normalized,
+  Doppler-convolved "B25" profiles of
+  [Tremblay et al. (2026)](https://doi.org/10.3847/1538-4357/ae5e72), which
+  update [Beauchamp et al. (1997)](https://doi.org/10.1086/312961). Unsöld
+  (1955) van der Waals broadening. The He I resonance series is included in
+  the blanketing.
+- **He II lines.** Schöning–Butler tables from SYNSPEC, and hydrogenic
+  profiles for other members.
 
 ## Cool helium
 
-Use `run_model(DBConfig(...), output_directory)` to select the experimental
-dense-neutral helium treatment when indicated by the local material screen.
-It combines the tabulated bulk EOS with approximate chemical potentials and
-trace-ion chemistry, without inserting that closure into warm ionized helium.
-The command-line example uses the same automatic selection as `run_model`.
-The lower-level `compute_db` preset remains an explicit atomic-physics interface.
-The dense driver propagates the requested `logg` through hydrostatic column mass,
-ML2 initialization, the structure solver and the independent spectrum audit.
-Saved structures record their gravity, and the audit rejects a mismatch with
-the request. The production recipe and its numerical tolerances are unchanged.
-The material-domain checks still apply at every depth; accepting a parameter is
-not a claim that its atmosphere or spectrum has been qualified.
-
-Protected cold starts cover the established prescription at 10000 and 22000 K
-and the dense workflow at 5000 and 8000 K. See [tested points](../tested-temperature-ranges.md),
-[cool-model setup](../getting-started.md#cool-helium-and-mixed-atmospheres), and
-[physical limitations](../limitations.md#physical-approximations).
-
-## Column-mass default (DB-production-v5, 2026-10-13)
-
-`DBConfig(transfer_discretization="column-mass")` is the default. It uses mass
-control volumes for the structure's transfer, its cell-by-cell energy balance
-and the final spectrum together, starts the cold-start grid at Rosseland
-tau = 1e-12, and whenever the lower-boundary screen fails (also together with
-other failed checks) deepens the mesh by a factor 4 in bottom pressure and
-re-solves it from the first phase. `transfer_discretization="optical-depth"`
-restores DB-production-v4 exactly.
-
-Why: the optical-depth cell width averages the two adjacent optical-depth
-steps, so a cell's heating weight follows its neighbours' extinction. In cool,
-low-gravity helium that extinction is He- free-free, proportional to the
-electron density, which rises roughly as T^20. The linearized energy equations
-then have growing odd-even temperature modes in the outer layers
-(tau_R ~ 1e-8 to 1e-6); the solver stalls on a saw-tooth outer atmosphere.
-PR18's grid failed or timed out at 36 DB points between 7000 and 11000 K,
-mostly log g 6-7.5. Column-mass volumes take every factor of a cell's balance
-from its own node. A thin top (tau_R = 1e-12) keeps the top cell optically thin
-when it heats; with 1e-8 or 1e-10 the top node of hot DBs (20000-22000 K) could
-become opaque in the He I continuum and run away. Low-gravity helium is
-transparent far below a Rosseland-scaled bottom, so the bottom can leak more
-than half the flux; deepening on any screen failure and restarting the solve
-handles it.
-
-Production cold starts with this structure recipe pass all five certificate
-gates at 7000/6.0, 7500/6.5, 8000/6.5, 9000/7.0, 9500/6.0, 12000/9.5,
-14000/7.0, 18000/8.0, 20000/7.5, 24000/8.5, 25000/7.0, 25000/9.0, 26000/8.0,
-28000/7.5, 32000/9.0, 35000/8.0 and 40000/7.5 (Teff/log g), and at the canary
-configurations 10000/8.0 and 22000/8.0 (production) and 22000/8.0 (standard).
-The other former failures (7500/6.0, 8500/7.0, 8500/7.25, 9000/7.75, 9500/7.0,
-10000/6.25) converged with intermediate versions of the recipe. The coolest
-low-gravity points are the slowest: 7000/6.0 takes about 2.5 h and 7500/6.5
-about 2 h, most of it a full solve on the first, too-shallow mesh before it
-is deepened. Deepening right after the first solver phase (the opt-in
-`early_deepening_escape_limit` of `solve_with_screened_boundary`) cut
-7500/6.5 to 14 minutes but stalled 7000/6.0, so it is not used by default.
-
-The final spectrum uses the same 4x depth refinement as the other modules.
-Its shape is insensitive to the structure resolution, but its total flux runs
-above sigma Teff^4 by 0.5-1.3% at the coolest low-gravity points (production:
-1.0134 at 8000/6.5, 1.0078 at 9000/7.0, 1.0065 at 9500/6.0, 1.0051 at
-10000/8.0). The same structures synthesized on the solved column-mass grid
-(refinement 1) conserve it to 0.05%, but their spectral shape changes by about
-1.25% in the optical between 40 and 80 layers.
-Spectra differ from v4 by up to about 0.4% in the optical and infrared at
-production resolution (0.04% integrated in the optical at 22000/8.0). The DB
-cold-start canary references were recaptured with v5 (2026-10-14); the
-fixed-atmosphere spectral controls keep v4's optical-depth synthesis.
-
-## Flux conservation (2026-10-01)
-
-Two numerics settings are on by default:
-
-- `photospheric_depth_concentration=1` concentrates the structure depths
-  across 0.01 < tau < 10 at an unchanged point count.
-- `synthesis_transfer_depth_refinement=4` subdivides each depth interval for
-  the final formal solution.
-
-Before, the 40-point standard structures emitted up to 2-3% more than
-sigma Teff^4. The bare-grid formal solution partly cancelled this, so the
-totals looked right while the structure was not. Standard-quality totals
-are now within about 0.75% (see the [DZ guide](DZ.md) for the method). Setting
-both to 0 and 1 restores the previous numerics.
-
-## Dense spectrum reconstruction
-
-The experimental mass-conservative dense-He spectrum uses the existing
-positive-intensity reconstruction option in both its coupled transfer solve
-and independent prescribed-source check. This avoids tiny negative source
-values caused by numerical cancellation in faint radiation fields. It does
-not clip negative values, normalize the flux, change the atmosphere, or relax
-the qualification limits. The selected transfer option is saved in the
-metadata and retained by the independent spectrum audit. Older saved runs
-without that flag retain their previous audit option.
-
-The regression fixture is one transfer row from a 5,000 K/log g 7 development
-calculation. It checks the transfer operation. Dense DB runs preserve the
-requested gravity as described in [Cool helium](#cool-helium); individual
-parameter points still require atmosphere and spectrum qualification.
-
-## A tested warm-model setting
-
-At 27,000 K/log g 9.25, a fresh production calculation with the default
-`photospheric_depth_concentration=1` failed the temperature-stationarity check.
-Changing this existing setting to 2 passed all five required structure checks
-on the same unchanged source, with the same physics and acceptance limits:
+`run_model` evaluates a gray photosphere at Rosseland optical depth 2/3
+before it solves the model. If that photosphere is neutral (electron fraction
+below 10⁻³) and the dense EOS changes its density by at least 5%, it selects
+the dense-helium workflow (`"dense-db"`). At log g = 8 the switch is near
+8500 K. At higher gravity it moves to higher Teff.
 
 ```python
-from wd_spectra.models import DBConfig, run_model
+from wd_spectra import DBConfig, run_model
 
-result = run_model(
-    DBConfig(
-        effective_temperature=27000,
-        logg=9.25,
-        quality="production",
-        photospheric_depth_concentration=2,
-    ),
-    "results/db-27000-9.25-depth2",  # fresh output directory
+run = run_model(
+    DBConfig(effective_temperature=5000, logg=8.0, quality="production"),
+    "results/db-5000",
     require_convergence=True,
 )
+print(run.selection.workflow)  # "dense-db"
 ```
 
-Both runs used 80 layers. The solved atmospheres had 37 and 43 layers,
-respectively, between Rosseland optical depths 0.01 and 10. The measured
-unrestricted log-temperature correction decreased from 0.00299 to
-0.00000145; the acceptance limit stayed at 0.0003. The maximum optical
-surface-flux difference was 0.1504% over 3,000–10,000 Å, without normalization.
-The failed default result remains an unfinished reference despite that small
-spectral difference.
+The dense workflow runs in a separate single-threaded process. It uses its
+own output wavelength grid; do not pass `wavelength=`. `compute_db` keeps the
+dilute physics. It raises `DenseHeliumPhotosphereError` for a dense
+photosphere.
 
-[![Warm DB layer placement and convergence before/after](../assets/db-depth-concentration-before-after.png)](../assets/db-depth-concentration-before-after.pdf)
+The dense-helium physics:
 
-[Download the before/after figure (PDF)](../assets/db-depth-concentration-before-after.pdf).
-The upper panels show temperature versus column mass and differences at the
-same column mass. The latter use linear interpolation in log column mass
-within the shared domain. The lower panels show the actual layer placement
-and three residuals divided by their unchanged acceptance limits. Values below
-one pass those displayed checks. Source closure and lower-boundary screening
-also pass in both runs; the [evidence record](../assets/db-depth-concentration-evidence.json)
-retains all five checks and the two exact configurations.
+- **EOS.** Bulk density and internal energy from He-REOS.3
+  ([Becker et al. 2014](https://doi.org/10.1088/0067-0049/215/2/21)).
+- **Trace ionization.** He⁺ and free electrons with non-ideal chemical
+  potentials from integral-equation fluid calculations. Ions are divided
+  between bound He₂⁺ and free He⁺.
+- **Continuum.** Dense-fluid correction to He⁻ free–free absorption.
+  He₂⁺ bound–free and He–He⁺ free–free absorption
+  ([Stancil 1994](https://doi.org/10.1086/174411)). He–He–He
+  collision-induced absorption
+  ([Kowalski 2014](https://doi.org/10.1051/0004-6361/201424242)). Rayleigh
+  scattering with the fluid structure factor. No refraction.
 
-This is a demonstrated numerical setting for one model, not a new default or
-automatic retry policy. Independent depth convergence and physical accuracy
-at these parameters remain unverified. The opacity, equation of state,
-convection prescription, solver limits, and production point count are unchanged.
+Details are in the
+[dense-db development note](../development/history/dense-db-v6-2026-10-22.md).
+
+## Validation
+
+[![DB spectra: OpenWD compared with Cukanovaite+2021](../assets/db-paper-grid.png)](../assets/db-paper-grid.pdf)
+
+**OpenWD and the Cukanovaite et al. (2021) grid.** Six models: 10,000,
+16,000, 22,000 and 30,000 K at log g = 8, and log g = 7 and 9 at 22,000 K.
+The grid is 1D ML2/α = 1.25
+([Cukanovaite et al. 2021](https://doi.org/10.1093/mnras/staa3684)). Left:
+900–30,000 Å surface flux. Right: optical He I lines. No flux scaling.
+[PDF](../assets/db-paper-grid.pdf).
+
+[![Observed SPY He I profiles with Cukanovaite+2021 and OpenWD](../assets/db-paper-spy.png)](../assets/db-paper-spy.pdf)
+
+**Five SPY/UVES DBs, 11,002–27,288 K.** Parameters are fixed at the values
+of [Voss et al. (2007)](https://doi.org/10.1051/0004-6361:20077285). Both
+models are convolved to R = 18,500 and normalized like the data. Both fit
+well; most residuals come from the normalization.
+[PDF](../assets/db-paper-spy.pdf).
+
+[![Cool DBs: OpenWD, Cukanovaite+2021 and Blouin+2018](../assets/db-cool-paper.png)](../assets/db-cool-paper.pdf)
+
+**Cool DBs at log g = 8.** Top: spectral-energy distributions from OpenWD and
+Cukanovaite et al. (2021). Bottom: band-averaged flux of each model relative
+to the dense-fluid photometry of
+[Blouin et al. (2018)](https://doi.org/10.3847/1538-4357/aad4a9).
+[PDF](../assets/db-cool-paper.pdf).
+
+- Down to about 6500 K, OpenWD agrees with Cukanovaite et al. to a few per
+  cent between 3000 Å and 1.2 µm.
+- At lower Teff, OpenWD agrees better with Blouin et al. in the UV and
+  optical: within 0.15 mag in GALEX NUV and SDSS u at 5000 K.
+- In H and Ks, OpenWD is 0.4 and 0.7 mag fainter than Blouin et al. at
+  5000 K. The cause is the strength of pressure ionization. With the
+  [Kowalski et al. (2007)](https://doi.org/10.1103/PhysRevB.76.075112)
+  ionization, OpenWD reproduces Blouin et al. to 0.1 mag.
+
+## Limitations
+
+- LTE and 1D mixing-length convection. Above about 40,000 K, NLTE matters;
+  use [DOConfig](DO-DAO.md).
+- The dense-helium treatment is experimental. Its pressure ionization and
+  dense opacities are untested by observations at these densities.
+
+See also the general [limitations](../limitations.md).
+
+## Tested range
+
+See [tested points](../tested-temperature-ranges.md).

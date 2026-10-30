@@ -117,8 +117,9 @@ def _load_result(directory, config, data):
     reclosed = material.chemistry(atmosphere)[0]
     for field in ('mass_density', 'electron_density'):
         np.testing.assert_allclose(getattr(reclosed, field), getattr(atmosphere, field), rtol=2e-13)
-    wave, flux = np.loadtxt(directory/'model/spectrum.txt', unpack=True)
-    spectrum = Spectrum(wave, flux, meta['spectrum_metadata'])
+    values = np.loadtxt(directory/'model/spectrum.txt')
+    spectrum = Spectrum(values[:, 0], values[:, 1], meta['spectrum_metadata'],
+                        values[:, 2] if values.shape[1] == 3 else None)
     with np.load(directory/'independent-spectrum.npz', allow_pickle=False) as fine:
         qualify_spectrum(reclosed, Spectrum(fine['wavelength'], fine['flux'], {}), config)
     return ModelResult('DQ', reclosed, spectrum, config,

@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Literal, Mapping
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -19,7 +20,8 @@ from ..atmosphere import (
     radiative_equilibrium_hydrogen_helium_atmosphere,
 )
 from ..cool_da import (
-    atmosphere_with_tremblay_2013_mean_3d_temperature_difference,
+    TREMBLAY_2013_EFFECTIVE_TEMPERATURE_K,
+    hydrostatic_atmosphere_with_tremblay_2013_mean_3d_temperature_difference,
 )
 from ..dense_eos import read_helium_reos3_table
 from ..helium_ii_stark import read_helium_ii_stark_table
@@ -53,6 +55,7 @@ from ..spectrum import (
     synthesize_hydrogen_spectrum,
 )
 from .common import (
+    DenseHeliumPhotosphereError,
     ModelData,
     ModelResult,
     Quality,
@@ -85,7 +88,17 @@ class DAConfig:
         "neale-tennyson-1995", "none"
     ] = "neale-tennyson-1995"
     mixing_length_alpha: float | None = 0.7
+    # Retired: True raises; kept so stored configurations still load.
     use_cool_mean_3d_temperature_differential: bool = False
+    # Line-profile mode.  The Tremblay et al. (2013) <3D>-1D temperature
+    # difference (log g=8 CO5BOLD sequence, 5997-12999 K) is added to the
+    # converged 1D structure with hydrostatic re-integration on the Rosseland
+    # scale before synthesis: all layers below 9000 K, tau_R >= 1e-2 above.
+    # The spectrum is not flux-conserving (-1.5 to -2.5% bolometric, UV
+    # suppressed at 6-8 kK); use it for Balmer line profiles and the default
+    # 1D spectrum for SEDs and photometry.  Outside the table range the 1D
+    # spectrum is returned and the metadata says why.
+    mean_3d_line_profiles: bool = False
     balmer_self_broadening_prescription: str | None = None
     balmer_self_broadening_truncation_closure: str = "stark-core"
     atmosphere_solver: Literal["adaptive-newton"] = (
@@ -130,16 +143,21 @@ class DBConfig:
     # historical uniform depths and bare-grid formal solution.
     photospheric_depth_concentration: float = 1.0
     synthesis_transfer_depth_refinement: int = 4
-    # "column-mass" (default): mass control volumes for the structure transfer,
-    # local energy balance and final spectrum together; the cold-start grid top
-    # starts at Rosseland tau 1e-12; and whenever lower-boundary screening fails
-    # (also together with other failed checks) the mesh is deepened (x4 bottom
-    # pressure) and re-solved from the first phase. The optical-depth cell widths couple each
-    # cell to its neighbours' extinction, which in cool low-gravity helium
-    # (n_e ~ T^20) admits growing odd-even temperature modes that stall the
-    # solve. "optical-depth" restores the DB-production-v4 preset exactly.
-    # Both use the synthesis depth refinement above for the final spectrum.
-    transfer_discretization: Literal["column-mass", "optical-depth"] = "column-mass"
+    # "column-mass": mass control volumes for the structure transfer, local
+    # energy balance and final spectrum together; the cold-start grid top starts
+    # at Rosseland tau 1e-12; and whenever lower-boundary screening fails (also
+    # together with other failed checks) the mesh is deepened (x4 bottom
+    # pressure) and re-solved from the first phase (DB-production-v5). The
+    # optical-depth cell widths couple each cell to its neighbours' extinction;
+    # where He- free-free dominates (n_e ~ T^20) that admits growing odd-even
+    # temperature modes that stall the solve. "optical-depth" is the
+    # DB-production-v4 preset, which column mass cannot replace everywhere:
+    # hot DBs have a steep upper-atmosphere temperature front that the mass
+    # grid under-resolves. "auto" (default) uses column mass where He- free-free
+    # supplies more than half of the cold seed's Rosseland-mean continuum
+    # opacity somewhere in tau_R = 1e-6..1e-2, and optical depth elsewhere.
+    # All use the synthesis depth refinement above for the final spectrum.
+    transfer_discretization: Literal["auto", "column-mass", "optical-depth"] = "auto"
 
 
 @dataclass(frozen=True)
@@ -245,7 +263,20 @@ class DZConfig:
     unified_metal_helium_profiles: Literal[
         "production", "legacy", "off"
     ] = "production"
-    dense_helium_eos: Literal["reos3", "ideal"] = "ideal"
+    # The dense-fluid defaults below (REOS3, Rogers-Young He- ff, partial-wave
+    # He- ff, computed unified He tables) are the configuration validated on ten
+    # cool DZ/DZA spectra (4000-8700 K); the alternatives reproduce older releases.
+    dense_helium_eos: Literal["reos3", "ideal"] = "reos3"
+    # Dense-fluid He-minus free-free correction (Iglesias, Rogers & Saumon
+    # 2002 Born ratio with a Rogers-Young neutral-He S(k); no 1/|eps|^2).
+    # In cool DZ photospheres (rho ~ 0.1-0.6 g/cm^3) it removes 20-70% of the
+    # dominant continuum opacity.  "off" keeps the ideal John (1994) value.
+    dense_helium_free_free: Literal["off", "rogers-young"] = "rogers-young"
+    # He- free-free below John's (1994) 0.5063-micron edge: "automatic" keeps
+    # the Carbon et al. (1969) fit to John (1968), which jumps by 16-24% at
+    # the edge for 3000-5000 K; "partial-wave" uses John's edge value times
+    # a first-principles e-He partial-wave wavelength shape (continuous).
+    helium_minus_free_free: Literal["automatic", "partial-wave"] = "partial-wave"
     # "nist-asd" replaces exactly matched Stout transitions (UV included)
     # with evaluated NIST values; the default keeps the paper-figure data.
     strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
@@ -270,13 +301,36 @@ class DZConfig:
     # Lorentzian neutral-He broadening.  No stellar fitting.  False restores
     # the previous Unsold neutral-He Lorentzian for these lines.
     si_ii_he_unified_profile: bool = True
+    # Unified Mg I b (5169/5174/5185 A) + He profiles computed from the
+    # Allard et al. (2016) potentials (3000-12000 K, n_He 1e19-1e23; the blue
+    # satellites pile up and move blueward with density).  False keeps the
+    # Unsold Lorentzian; the satellite-dominated blue wing of cool DZs is then absent.
+    mg_i_b_he_unified_profile: bool = True
+    # Unified Mg II h&k and Ca II H&K + He profiles computed with the OpenWD
+    # unified-profile engine from ab initio ion-He potentials (Mg+-He: Allard
+    # et al. 2016 GG; Ca+-He: Alekseev, with R-dependent dipoles), 3000-12000 K
+    # and n_He 1e19-1e23 cm^-3.  Their far wings dominate the 3000-4500 A
+    # metal opacity of cool, dense DZ photospheres, where the impact
+    # Lorentzian is 3-20x too weak.
+    mg_ii_he_unified_profile: bool = True
+    ca_ii_he_unified_profile: bool = True
+    # Unified Na I D + He profiles computed from the Dell'Angelo et al. (2012)
+    # potentials (Allard et al. 2023 figures), same grid and dense-fluid
+    # treatment as the Mg II/Ca II tables.  False keeps the impact Lorentzian.
+    na_i_he_unified_profile: bool = True
     # Legacy import switch for bare/custom atoms. Independently corroborated
     # Si II additions are already in the default reader; this switch neither
     # removes them nor appends the former unfiltered supplement to that atom.
     si_ii_kurucz_transitions: bool = True
 
 
-_DA_ALI_GRIEM_TEMPERATURE_CUTOFF_K = 10_000.0
+# mean_3d_line_profiles: the Tremblay et al. (2013) differential exists only
+# at log g=8 (SPY validation spans log g=7.60-8.74) and for 5997-12999 K.  Its
+# upper-layer (tau_R<1e-2) overshoot cooling matches observed Balmer cores
+# below about 9 kK but over-deepens them above (SPY 8615 vs 9256 K), so only
+# the photospheric part is applied from this temperature upward.
+_MEAN_3D_MAXIMUM_LOGG_OFFSET = 0.75
+_MEAN_3D_UPPER_LAYER_MAXIMUM_TEFF_K = 9_000.0
 _ALLARD_MINIMUM_EFFECTIVE_TEMPERATURE_K = 9_000.0
 _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K = 13_000.0
 # DA cold-start seed span (the hydrogen solver's defaults) and the bottom
@@ -284,6 +338,17 @@ _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K = 13_000.0
 _DA_SEED_ROSSELAND_DEPTH_MINIMUM = 1.0e-10
 _DA_SEED_ROSSELAND_DEPTH_MAXIMUM = 1.0e2
 _DA_DEEPENING_FACTOR = 4.0
+# Failed radiative solves are re-solved on finer meshes up to this depth.
+# 200 layers resolve the steep cool-DA ionization transition (G 76-48); a
+# 100-layer attempt is the seed production uses for it.
+_DA_RADIATIVE_REFINEMENT_MAXIMUM_DEPTH = 200
+_DA_RADIATIVE_REFINEMENT_SEED_DEPTH = 100
+
+
+def _radiative_refinement_depth(n_depth: int) -> int:
+    """Next mesh for a failed radiative solve (40 -> 100 -> 200; 100 -> 200)."""
+
+    return _DA_RADIATIVE_REFINEMENT_SEED_DEPTH if n_depth < _DA_RADIATIVE_REFINEMENT_SEED_DEPTH else 2 * n_depth
 
 
 def _metal_structure_line_budget(
@@ -327,21 +392,18 @@ def _metal_structure_line_budget(
 def _da_self_broadening_prescription(
     effective_temperature: float, requested: str | None
 ) -> str:
-    """Resolve the public DA neutral-broadening policy.
+    """Resolve the public hydrogen neutral-broadening policy.
 
-    Observed cool-DA profiles favor Ali--Griem below 10,000 K.  The Balmer
-    lines become weak at the very cool end, while the neutral-H contribution
-    becomes negligible toward the warm regime.  Keep Barklem at and above the
-    boundary, and retain an explicit caller override for controlled tests.
+    Ali--Griem resonance broadening at every temperature, as in the Montreal
+    DA models (Tremblay et al. 2010).  Against SPY/UVES profiles it matches
+    or beats Barklem from 6.4 to 11.5 kK, and the two agree to <2e-6 in
+    normalized flux at 20--33 kK.  ``effective_temperature`` is retained so
+    the pre-2026-10-27 temperature-dependent policy can be restored for its
+    historical controls.  An explicit caller override is retained for
+    controlled tests.
     """
 
-    if requested is not None:
-        return requested
-    return (
-        "ali-griem"
-        if effective_temperature < _DA_ALI_GRIEM_TEMPERATURE_CUTOFF_K
-        else "barklem"
-    )
+    return "ali-griem" if requested is None else requested
 
 
 def _allard_lyman_profiles_for_effective_temperature(
@@ -473,6 +535,11 @@ def compute_da(
         or config.lower_boundary_extensions < 0
     ):
         raise ValueError("lower_boundary_extensions must be a nonnegative integer")
+    if config.use_cool_mean_3d_temperature_differential:
+        raise ValueError(
+            "use_cool_mean_3d_temperature_differential is retired; use "
+            "mean_3d_line_profiles=True"
+        )
     self_broadening_prescription = _da_self_broadening_prescription(
         config.effective_temperature, config.balmer_self_broadening_prescription
     )
@@ -522,7 +589,7 @@ def compute_da(
             else (1.0 if full_depth >= 100 else 3.0)
         )
         refine_radiative_grid = (
-            config.quality == "production"
+            config.quality in ("standard", "production")
             and config.mixing_length_alpha is None
             and config.atmosphere_solver == "adaptive-newton"
         )
@@ -662,22 +729,29 @@ def compute_da(
                     domain_iterations
                 ),
             })
-        if (
+        while (
             refine_radiative_grid
-            and full_depth == 100
+            and _radiative_refinement_depth(atmosphere.n_depth)
+            <= _DA_RADIATIVE_REFINEMENT_MAXIMUM_DEPTH
             and atmosphere_convergence_status(atmosphere) != "converged"
         ):
             # A radiative hydrogen ionization transition can be too steep for
-            # the initial mass mesh. Re-solve the SAME equations on 200 layers;
-            # the unfinished 100-layer state is only an interpolated seed.
-            # The fine solve must earn its own complete equilibrium certificate.
+            # the initial mass mesh. Re-solve the SAME equations on a finer
+            # mesh (production 100 -> 200; standard 40 -> 100 -> 200); the
+            # unfinished state is only an interpolated seed. Doubling from 40
+            # never yields a usable seed for G 76-48. Each fine solve must
+            # earn its own complete equilibrium certificate.
             coarse = atmosphere
-            iteration_offset = domain_iterations
-            depth_refinements = 1
+            iteration_offset = (
+                domain_iterations
+                if depth_refinements == 0
+                else iteration_offset + coarse.metadata["radiative_equilibrium_iterations"]
+            )
+            depth_refinements += 1
             atmosphere = radiative_equilibrium_hydrogen_atmosphere(
                 config.effective_temperature,
                 config.logg,
-                n_depth=2 * coarse.n_depth,
+                n_depth=_radiative_refinement_depth(coarse.n_depth),
                 tau_max=tau_max,
                 n_continuum_wavelength=resolution.n_continuum,
                 max_iterations=resolution.maximum_iterations,
@@ -687,14 +761,25 @@ def compute_da(
                 iteration_callback=full_callback,
                 **relaxation_kwargs,
             )
+            first = coarse.metadata.get("radiative_depth_refinement", {})
             atmosphere = replace(atmosphere, metadata={
                 **atmosphere.metadata,
                 "radiative_depth_refinement": {
-                    "initial_depth_points": coarse.n_depth,
+                    "initial_depth_points": first.get("initial_depth_points", coarse.n_depth),
                     "final_depth_points": atmosphere.n_depth,
-                    "initial_certificate_failures": coarse.metadata["equilibrium_certificate"]["failures"],
-                    "initial_maximum_flux_residual": coarse.metadata["maximum_all_depth_total_flux_residual"],
-                    "initial_maximum_local_energy_residual": coarse.metadata["maximum_relative_cell_energy_balance_residual"],
+                    "refinements": depth_refinements,
+                    "initial_certificate_failures": first.get(
+                        "initial_certificate_failures",
+                        coarse.metadata["equilibrium_certificate"]["failures"],
+                    ),
+                    "initial_maximum_flux_residual": first.get(
+                        "initial_maximum_flux_residual",
+                        coarse.metadata["maximum_all_depth_total_flux_residual"],
+                    ),
+                    "initial_maximum_local_energy_residual": first.get(
+                        "initial_maximum_local_energy_residual",
+                        coarse.metadata["maximum_relative_cell_energy_balance_residual"],
+                    ),
                     "initial_iterations": iteration_offset,
                     "stellar_parameters_changed": False,
                 },
@@ -703,13 +788,6 @@ def compute_da(
                 ),
             })
     assert atmosphere is not None
-    if config.use_cool_mean_3d_temperature_differential:
-        atmosphere = (
-            atmosphere_with_tremblay_2013_mean_3d_temperature_difference(
-                atmosphere,
-                neutral_radius_scale=0.5,
-            )
-        )
     if relax_atmosphere:
         atmosphere = atmosphere_with_model_request_fingerprint(
             atmosphere, request_fingerprint
@@ -717,8 +795,21 @@ def compute_da(
     else:
         atmosphere = fixed_synthesis_atmosphere(atmosphere, request_fingerprint)
     convergence_status = warn_if_atmosphere_not_converged(atmosphere, "DA")
+    # The returned atmosphere stays the 1D equilibrium structure, so it remains
+    # a valid checkpoint; only the synthesis sees the <3D> differential.
+    mean_3d_layers, mean_3d_note = _mean_3d_line_profile_layers(config)
+    synthesis_atmosphere = (
+        hydrostatic_atmosphere_with_tremblay_2013_mean_3d_temperature_difference(
+            atmosphere,
+            h2_h2_cia_table=cia,
+            maximum_logg_offset=_MEAN_3D_MAXIMUM_LOGG_OFFSET,
+            layers=mean_3d_layers,
+        )
+        if mean_3d_layers is not None
+        else atmosphere
+    )
     spectrum = synthesize_hydrogen_spectrum(
-        atmosphere,
+        synthesis_atmosphere,
         wave,
         h2_line_data=(
             read_h2_lyman_werner_data() if config.h2_lyman_werner_lines else None
@@ -755,7 +846,7 @@ def compute_da(
                 self_broadening_prescription
             ),
             "balmer_self_broadening_policy": (
-                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                "automatic: Ali-Griem at every temperature"
                 if config.balmer_self_broadening_prescription is None
                 else "explicit override"
             ),
@@ -808,18 +899,140 @@ def compute_da(
             "atmosphere_initialization": atmosphere_initialization,
             "atmosphere_convergence_status": convergence_status,
             "model_request_fingerprint": request_fingerprint,
-            "cool_mean_3d_temperature_differential": (
-                "Tremblay et al. 2013 Fig. 7 at fixed gas pressure; "
-                "Montreal HM neutral radius rB=0.5"
-                if config.use_cool_mean_3d_temperature_differential
-                else None
-            ),
+            "mean_3d_line_profiles": mean_3d_note,
+            "flux_conserving_spectrum": mean_3d_layers is None,
         },
+    )
+
+
+def _mean_3d_line_profile_layers(config: DAConfig) -> tuple[str | None, str | None]:
+    """Return the <3D> layers applied in line-profile mode and a provenance note."""
+
+    if not config.mean_3d_line_profiles:
+        return None, None
+    teff = config.effective_temperature
+    low, high = (
+        float(TREMBLAY_2013_EFFECTIVE_TEMPERATURE_K[0]),
+        float(TREMBLAY_2013_EFFECTIVE_TEMPERATURE_K[-1]),
+    )
+    if not low <= teff <= high:
+        return None, (
+            f"requested; not applied: Teff outside the {low:.0f}-{high:.0f} K "
+            "Tremblay et al. (2013) sequence; 1D spectrum"
+        )
+    if abs(config.logg - 8.0) > _MEAN_3D_MAXIMUM_LOGG_OFFSET:
+        return None, (
+            "requested; not applied: log g more than "
+            f"{_MEAN_3D_MAXIMUM_LOGG_OFFSET:g} dex from the log g=8 sequence; "
+            "1D spectrum"
+        )
+    layers = (
+        "all" if teff < _MEAN_3D_UPPER_LAYER_MAXIMUM_TEFF_K else "photospheric"
+    )
+    return layers, (
+        "Tremblay et al. 2013 Fig. 7 <3D>-1D temperature difference, "
+        f"layers={layers}, hydrostatic re-integration, synthesis only; "
+        "for line profiles, not flux-conserving"
     )
 
 
 _DB_COLUMN_MASS_TOP_ROSSELAND_DEPTH = 1.0e-12
 _DB_DEEPENING_PRESSURE_FACTOR = 4.0
+# Cool dense DZ: transparent windows reach far below the Rosseland-scaled seed
+# (LP 658-2 first-phase escape 0.30, WD 2251-070 0.11-0.15).  Deepen as soon as
+# the first phase shows such a leak, on any screening failure, and re-run the
+# full phase sequence on the deeper mesh: resuming the extrapolated cells in the
+# formal-flux phase diverged (residual 6e-5 -> 1.2e4) for LP 658-2 with a CI mix.
+_DZ_DEEPENING_PRESSURE_FACTOR = 4.0
+_DZ_EARLY_DEEPENING_ESCAPE_LIMIT = 0.05
+_DB_HELIUM_MINUS_SCREEN_DEPTHS = (1.0e-6, 1.0e-2)
+# On the optical-depth path, "auto" extends the top boundary like the lower
+# one: when a cold solve fails and its worst residual sits in the top layers,
+# the seed top (tau_R 1e-8) is moved up tenfold and the model re-solved cold, at
+# most twice. A top layer still opaque in He II Lyman alpha (32 kK, log g 6)
+# can otherwise hold a lone hot node whose temperature the equations barely fix.
+_DB_OPTICAL_DEPTH_TOP_ROSSELAND_DEPTH = 1.0e-8
+_DB_UPPER_BOUNDARY_EXTENSIONS = 2
+_DB_UPPER_BOUNDARY_FACTOR = 10.0
+_DB_UPPER_BOUNDARY_LAYERS = 3
+_DB_HELIUM_MINUS_SCREEN_WAVELENGTH = np.geomspace(300.0, 100_000.0, 600)
+
+
+def _db_helium_minus_share(config: DBConfig, n_depth: int) -> float:
+    """Largest He- free-free share of the cold seed's Rosseland-mean continuum.
+
+    Evaluated on the gray hydrostatic helium seed between Rosseland depths
+    1e-6 and 1e-2, the outer layers where the optical-depth discretization's
+    neighbour coupling becomes unstable when He- free-free dominates.
+    """
+    from ..atmosphere import helium_continuum_atmosphere
+    from ..constants import BOLTZMANN, LIGHT_SPEED, PLANCK
+    from ..helium import helium_continuum_mass_absorption_coefficient
+
+    seed = helium_continuum_atmosphere(
+        config.effective_temperature, config.logg, n_depth=n_depth,
+        depth_concentration=config.photospheric_depth_concentration,
+        correlated_microfields=True,
+    )
+    wave = _DB_HELIUM_MINUS_SCREEN_WAVELENGTH
+    full = helium_continuum_mass_absorption_coefficient(seed, wave)
+    # The He- factor must be positive; 1e-30 removes it to roundoff.
+    without = helium_continuum_mass_absorption_coefficient(
+        seed, wave, helium_minus_correction=np.full_like(full, 1.0e-30)
+    )
+    nu = LIGHT_SPEED / (wave * 1.0e-8)
+    x = PLANCK * nu[:, None] / (BOLTZMANN * seed.temperature[None, :])
+    weight = x**4 * np.exp(-x) / (-np.expm1(-x)) ** 2 * np.abs(np.gradient(nu))[:, None]
+    rosseland = lambda kappa: np.sum(weight, axis=0) / np.sum(weight / kappa, axis=0)
+    share = 1.0 - rosseland(without) / rosseland(full)
+    lo, hi = _DB_HELIUM_MINUS_SCREEN_DEPTHS
+    outer = (seed.rosseland_optical_depth >= lo) & (seed.rosseland_optical_depth <= hi)
+    return float(np.max(share[outer]))
+
+
+def _refuse_dense_helium_photosphere(config: DBConfig, data: ModelData) -> None:
+    """Raise when `select_physics` would route this DB to the dense-helium workflow.
+
+    `compute_db` keeps the dilute Hummer--Mihalas helium EOS and atomic opacities.
+    Below roughly 8500 K at log g = 8 (higher at higher gravity) the neutral
+    photosphere is dense enough that this physics no longer applies; there the
+    same material screen used by `run_model` selects the dense-helium workflow.
+    """
+    from .selection import _helium_probe, dense_helium_indicated
+
+    try:
+        probe = _helium_probe(config, data)
+    except FileNotFoundError as error:
+        warnings.warn(
+            f"compute_db could not run the dense-helium photosphere screen ({error}); "
+            "continuing with the dilute helium physics",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return
+    advice = (
+        "Use run_model(DBConfig(...), output_directory), which selects the "
+        "dense-helium workflow, or pass allow_dense_photosphere=True to "
+        "compute_db to force the dilute physics."
+    )
+    try:
+        dense = dense_helium_indicated(probe)
+    except ValueError as error:
+        if probe["reos_in_domain"]:
+            raise
+        raise DenseHeliumPhotosphereError(
+            f"compute_db: the neutral photosphere at Teff={config.effective_temperature:g} K, "
+            f"log g={config.logg:g} lies outside the He-REOS.3 table, so the dilute helium "
+            f"EOS cannot be checked there ({error}). {advice}"
+        ) from error
+    if dense:
+        raise DenseHeliumPhotosphereError(
+            f"compute_db uses the dilute (Hummer--Mihalas) helium EOS, but at "
+            f"Teff={config.effective_temperature:g} K, log g={config.logg:g} the gray-atmosphere "
+            f"photosphere (T={probe['temperature']:.0f} K, P={probe['gas_pressure']:.3g} dyn/cm^2) "
+            f"is neutral (electron fraction {probe['electron_fraction']:.1e}) and He-REOS.3 "
+            f"changes its density by {100*probe['density_fractional_change']:.0f}%. {advice}"
+        )
 
 
 def compute_db(
@@ -833,27 +1046,44 @@ def compute_db(
         [int, Atmosphere, Mapping[str, object]], None
     ]
     | None = None,
+    allow_dense_photosphere: bool = False,
 ) -> ModelResult:
-    """Calculate one DB atmosphere and spectrum with Beauchamp25-LD lines."""
+    """Calculate one DB atmosphere and spectrum with Beauchamp25-LD lines.
 
-    if config.transfer_discretization not in ("column-mass", "optical-depth"):
-        raise ValueError("DB transfer_discretization must be 'column-mass' or 'optical-depth'")
-    column_mass = config.transfer_discretization == "column-mass"
+    This is the dilute-helium preset. Cool DBs whose neutral photosphere is
+    dense need the dense-helium workflow selected by `run_model`; relaxing such
+    a star here raises `DenseHeliumPhotosphereError` unless
+    `allow_dense_photosphere=True`. Fixed-structure synthesis
+    (`relax_atmosphere=False`) is not screened.
+    """
+
+    if config.transfer_discretization not in ("auto", "column-mass", "optical-depth"):
+        raise ValueError(
+            "DB transfer_discretization must be 'auto', 'column-mass' or 'optical-depth'"
+        )
+    resolution = numerical_resolution(config.quality)
+    helium_minus_share = None
+    if config.transfer_discretization == "auto":
+        helium_minus_share = _db_helium_minus_share(config, resolution.n_depth)
+        column_mass = helium_minus_share > 0.5
+    else:
+        column_mass = config.transfer_discretization == "column-mass"
+    discretization = "column-mass" if column_mass else "optical-depth"
     data = ModelData.default() if data is None else data
+    if relax_atmosphere and not allow_dense_photosphere:
+        _refuse_dense_helium_photosphere(config, data)
     request_fingerprint = model_request_fingerprint("DB", config, data)
     checkpoint_matches_request = atmosphere_matches_model_request(
         initial_atmosphere, request_fingerprint
     )
-    resolution = numerical_resolution(config.quality)
     wave = validate_wavelength(wavelength)
     he_i, he_ii = _helium_tables(data)
     if not relax_atmosphere and initial_atmosphere is None:
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
     atmosphere = initial_atmosphere
     if relax_atmosphere:
-        atmosphere = solve_with_screened_boundary(radiative_equilibrium_helium_atmosphere,
-            config.effective_temperature,
-            config.logg,
+        solver_arguments = (config.effective_temperature, config.logg)
+        solver_options = dict(
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
             n_depth=resolution.n_depth,
@@ -884,19 +1114,59 @@ def compute_db(
             resume_supplied_structure_in_formal_flux_phase=(
                 checkpoint_matches_request
             ),
-            iteration_callback=iteration_callback,
-            **(
-                dict(
-                    transfer_discretization="column-mass",
-                    tau_min=_DB_COLUMN_MASS_TOP_ROSSELAND_DEPTH,
-                    deepen_on_any_screen_failure=True,
-                    restart_after_deepening=True,
-                    deepening_pressure_factor=_DB_DEEPENING_PRESSURE_FACTOR,
-                )
-                if column_mass
-                else {}
-            ),
         )
+        if column_mass:
+            discretization_options = dict(
+                transfer_discretization="column-mass",
+                tau_min=_DB_COLUMN_MASS_TOP_ROSSELAND_DEPTH,
+                deepen_on_any_screen_failure=True,
+                restart_after_deepening=True,
+                deepening_pressure_factor=_DB_DEEPENING_PRESSURE_FACTOR,
+            )
+        else:
+            discretization_options = {}
+        atmosphere = solve_with_screened_boundary(
+            radiative_equilibrium_helium_atmosphere,
+            *solver_arguments,
+            **solver_options,
+            iteration_callback=iteration_callback,
+            **discretization_options,
+        )
+        if (
+            not column_mass
+            and config.transfer_discretization == "auto"
+            and initial_atmosphere is None
+        ):
+            extensions = []
+            top = _DB_OPTICAL_DEPTH_TOP_ROSSELAND_DEPTH
+            for _ in range(_DB_UPPER_BOUNDARY_EXTENSIONS):
+                meta = atmosphere.metadata
+                worst = meta.get("nonlinear_solver_final_worst_residual_depth_index")
+                if (
+                    meta.get("equilibrium_certificate", {}).get("verified")
+                    or worst is None
+                    or worst >= _DB_UPPER_BOUNDARY_LAYERS
+                ):
+                    break
+                extensions.append(dict(
+                    seed_top_rosseland_optical_depth=top,
+                    failures=list(meta["equilibrium_certificate"]["failures"]),
+                    worst_residual_depth_index=int(worst),
+                ))
+                top /= _DB_UPPER_BOUNDARY_FACTOR
+                atmosphere = solve_with_screened_boundary(
+                    radiative_equilibrium_helium_atmosphere,
+                    *solver_arguments,
+                    **solver_options,
+                    iteration_callback=iteration_callback,
+                    tau_min=top,
+                )
+            if extensions:
+                atmosphere = replace(atmosphere, metadata={
+                    **atmosphere.metadata,
+                    "upper_boundary_extensions": extensions,
+                    "seed_top_rosseland_optical_depth": top,
+                })
     assert atmosphere is not None
     if relax_atmosphere:
         atmosphere = atmosphere_with_model_request_fingerprint(
@@ -922,11 +1192,17 @@ def compute_db(
         config,
         {
             "preset": "DB-production-v5" if column_mass else "DB-production-v4",
-            "transfer_discretization": config.transfer_discretization,
+            "transfer_discretization": discretization,
+            "transfer_discretization_request": config.transfer_discretization,
+            "helium_minus_rosseland_share": helium_minus_share,
             "helium_i_profiles": "Beauchamp25-LD semi-analytical",
             "helium_ii_profiles": "Schoning/SYNSPEC table",
             "neutral_broadening": config.neutral_broadening,
-            "convection": f"ML2/alpha={config.mixing_length_alpha:g}",
+            "convection": (
+                f"ML2/alpha={config.mixing_length_alpha:g}"
+                if config.mixing_length_alpha is not None
+                else "suppressed; radiative equilibrium"
+            ),
             "atmosphere_solver": config.atmosphere_solver,
             "atmosphere_mode": (
                 "relaxed" if relax_atmosphere else "checkpoint formal synthesis"
@@ -939,8 +1215,12 @@ def compute_db(
 
 
 def _mixed_molecular_data(h2_he_path: str, h2_h2_path: str):
+    from .._provenance import content_identity
+
     paths=tuple(Path(p).expanduser().resolve() for p in (h2_he_path,h2_h2_path))
-    identity=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in paths)
+    # Data replacements can preserve size and modification time. The cache
+    # must follow the bytes used by the request's physical-data fingerprint.
+    identity=content_identity(paths)
     return _cached_mixed_molecular_data(*map(str,paths),identity)
 
 
@@ -1129,8 +1409,7 @@ def compute_dab(
     else:
         raise ValueError("lyman_profile_source must be 'allard' or 'stark'")
     self_broadening_prescription = _da_self_broadening_prescription(
-        config.effective_temperature,
-        config.balmer_self_broadening_prescription,
+        config.effective_temperature, config.balmer_self_broadening_prescription
     )
     if not relax_atmosphere and initial_atmosphere is None:
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
@@ -1244,14 +1523,18 @@ def compute_dab(
             ),
             "balmer_self_broadening": self_broadening_prescription,
             "balmer_self_broadening_policy": (
-                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                "automatic: Ali-Griem at every temperature"
                 if config.balmer_self_broadening_prescription is None
                 else "explicit override"
             ),
             "balmer_self_broadening_truncation_closure": (
                 config.balmer_self_broadening_truncation_closure
             ),
-            "convection": f"ML2/alpha={config.mixing_length_alpha:g}",
+            "convection": (
+                f"ML2/alpha={config.mixing_length_alpha:g}"
+                if config.mixing_length_alpha is not None
+                else "suppressed; radiative equilibrium"
+            ),
             "neutral_broadening": config.neutral_broadening,
             "atmosphere_solver": config.atmosphere_solver,
             "atmosphere_mode": (
@@ -1431,6 +1714,18 @@ def compute_dz(
             fetch_command="python scripts/fetch_metal_data.py",
         )
         helium_reos3 = read_helium_reos3_table(data.helium_reos3)
+    if config.helium_minus_free_free not in ("automatic", "partial-wave"):
+        raise ValueError("helium_minus_free_free must be 'automatic' or 'partial-wave'")
+    if config.dense_helium_free_free not in ("off", "rogers-young"):
+        raise ValueError("dense_helium_free_free must be 'off' or 'rogers-young'")
+    helium_minus_table = None
+    if config.dense_helium_free_free == "rogers-young":
+        from ..dense_helium_continuum import DenseHeliumCorrectionTable
+
+        data.require(data.helium_minus_dense_free_free)
+        helium_minus_table = DenseHeliumCorrectionTable(
+            data.helium_minus_dense_free_free
+        )
     if config.maximum_metal_charge < 1:
         raise ValueError("maximum_metal_charge must be positive")
     elements = tuple(config.abundances)
@@ -1484,6 +1779,13 @@ def compute_dz(
         atomic = atomic_database_with_kurucz_electron_stark(atomic)
     if config.si_ii_he_unified_profile:
         atomic = atomic_database_with_si_ii_he_unified_profile(atomic)
+    if config.mg_i_b_he_unified_profile and "Mg" in elements:
+        from ..metals import atomic_database_with_mg_i_b_he_unified_profile
+
+        data.require(data.mg_i_b_he_unified_profiles)
+        atomic = atomic_database_with_mg_i_b_he_unified_profile(
+            atomic, data.mg_i_b_he_unified_profiles
+        )
     photo = read_verner_photoionization_database(
         data.verner_photoionization,
         elements=elements,
@@ -1540,6 +1842,24 @@ def compute_dz(
         )
     else:
         mg_he = None
+    ca_ii_he = None
+    mg_ii_he = None
+    if config.ca_ii_he_unified_profile and "Ca" in elements:
+        from ..metals import UnifiedIonicHeProfileGrid
+
+        data.require(data.ca_ii_he_unified_profiles)
+        ca_ii_he = UnifiedIonicHeProfileGrid(data.ca_ii_he_unified_profiles)
+    if config.mg_ii_he_unified_profile and "Mg" in elements:
+        from ..metals import UnifiedIonicHeProfileGrid
+
+        data.require(data.mg_ii_he_unified_profiles)
+        mg_ii_he = UnifiedIonicHeProfileGrid(data.mg_ii_he_unified_profiles)
+    na_i_he = None
+    if config.na_i_he_unified_profile and "Na" in elements:
+        from ..metals import UnifiedIonicHeProfileGrid
+
+        data.require(data.na_i_he_unified_profiles)
+        na_i_he = UnifiedIonicHeProfileGrid(data.na_i_he_unified_profiles)
     if config.unified_metal_helium_profiles == "production" and "Ca" in elements:
         data.require(
             data.ca_i_he_density_profiles,
@@ -1602,8 +1922,7 @@ def compute_dz(
     else:
         raise ValueError("lyman_profile_source must be 'allard' or 'stark'")
     self_broadening_prescription = _da_self_broadening_prescription(
-        config.effective_temperature,
-        config.balmer_self_broadening_prescription,
+        config.effective_temperature, config.balmer_self_broadening_prescription
     )
     if not relax_atmosphere and initial_atmosphere is None:
         raise ValueError("relax_atmosphere=False requires initial_atmosphere")
@@ -1628,8 +1947,13 @@ def compute_dz(
             metal_photoionization_database=photo,
             metal_topbase_photoionization_database=topbase_photoionization,
             mg_he_red_wing_table=mg_he,
+            mg_ii_he_profile_table=mg_ii_he,
+            na_i_he_profile_table=na_i_he,
+            ca_ii_he_profile_table=ca_ii_he,
             ca_i_he_profile_table=ca_i_he,
             helium_reos3_table=helium_reos3,
+            helium_minus_correction_table=helium_minus_table,
+            helium_minus_prescription=config.helium_minus_free_free,
             minimum_metal_oscillator_strength=(
                 structure_minimum_oscillator_strength
             ),
@@ -1671,6 +1995,10 @@ def compute_dz(
                 checkpoint_matches_request
             ),
             iteration_callback=iteration_callback,
+            deepen_on_any_screen_failure=True,
+            restart_after_deepening=True,
+            deepening_pressure_factor=_DZ_DEEPENING_PRESSURE_FACTOR,
+            early_deepening_escape_limit=_DZ_EARLY_DEEPENING_ESCAPE_LIMIT,
         )
     assert atmosphere is not None
     if relax_atmosphere:
@@ -1692,6 +2020,9 @@ def compute_dz(
         metal_photoionization_database=photo,
         metal_topbase_photoionization_database=topbase_photoionization,
         mg_he_red_wing_table=mg_he,
+        mg_ii_he_profile_table=mg_ii_he,
+        na_i_he_profile_table=na_i_he,
+        ca_ii_he_profile_table=ca_ii_he,
         ca_i_he_profile_table=ca_i_he,
         include_dense_helium_metal_ionization=True,
         metal_occupation_probability_partitions=(
@@ -1718,6 +2049,8 @@ def compute_dz(
         n_angle=resolution.n_angle,
         transfer_discretization=synthesis_transfer,
         transfer_depth_refinement=config.synthesis_transfer_depth_refinement,
+        helium_minus_correction_table=helium_minus_table,
+        helium_minus_prescription=config.helium_minus_free_free,
     )
     return ModelResult(
         "DZ",
@@ -1735,6 +2068,16 @@ def compute_dz(
             "strong_line_atomic_data": config.strong_line_atomic_data,
             "kurucz_electron_stark": config.kurucz_electron_stark,
             "si_ii_he_unified_profile": config.si_ii_he_unified_profile,
+            "mg_i_b_he_unified_profile": config.mg_i_b_he_unified_profile,
+            "mg_ii_he_unified_profile": (
+                mg_ii_he.source if mg_ii_he is not None else False
+            ),
+            "ca_ii_he_unified_profile": (
+                ca_ii_he.source if ca_ii_he is not None else False
+            ),
+            "na_i_he_unified_profile": (
+                na_i_he.source if na_i_he is not None else False
+            ),
             "si_ii_kurucz_transitions": config.si_ii_kurucz_transitions,
             "maximum_metal_charge": config.maximum_metal_charge,
             "photoionization": (
@@ -1748,6 +2091,10 @@ def compute_dz(
                 if topbase_photoionization is not None
                 else "disabled"
             ),
+            "photoionization_population_model": spectrum.metadata.get(
+                "metal_photoionization_population_model", "disabled"
+            ),
+            "metal_population_revision": "normalized-levels-rydberg-only-2026-10-24",
             "metal_electron_feedback": True,
             "structure_maximum_metal_lines": structure_lines,
             "structure_metal_line_budget_policy": structure_line_policy,
@@ -1775,6 +2122,13 @@ def compute_dz(
             "synthesis_flux_fraction": _synthesis_flux_fraction(
                 spectrum, config.effective_temperature
             ),
+            "helium_minus_free_free": config.helium_minus_free_free,
+            "dense_helium_free_free": (
+                {"mode": config.dense_helium_free_free,
+                 "table_sha256": helium_minus_table.sha256}
+                if helium_minus_table is not None
+                else "off"
+            ),
             "bulk_helium_eos": (
                 helium_reos3.source
                 if helium_reos3 is not None
@@ -1799,7 +2153,7 @@ def compute_dz(
             ),
             "balmer_self_broadening": self_broadening_prescription,
             "balmer_self_broadening_policy": (
-                "automatic: Ali-Griem below 10000 K; Barklem otherwise"
+                "automatic: Ali-Griem at every temperature"
                 if config.balmer_self_broadening_prescription is None
                 else "explicit override"
             ),

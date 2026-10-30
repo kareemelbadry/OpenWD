@@ -1,225 +1,202 @@
-# DA module
+# DA: hydrogen atmospheres
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
-`compute_da` solves a pure-hydrogen plane-parallel LTE atmosphere in
-hydrostatic and radiative/convective equilibrium. It includes Hummer--Mihalas
-occupation probabilities, correlated Q-MHD microfields, dissolved-series
-opacity, H-/H2/H2+/H3+ chemistry at low temperature, and ML2/alpha=0.7
-convection.
+`DAConfig` computes a homogeneous, pure-hydrogen, plane-parallel LTE
+atmosphere and its emergent spectrum. The structure is in hydrostatic and
+radiative/convective equilibrium, with ML2/α = 0.7 convection. Below
+12,000 K the chemistry adds H₂, H₂⁺, H⁻ and H₃⁺. An optional 3D line-profile
+mode corrects the Balmer profiles of cool DAs.
 
-Hydrogen bound-bound opacity spans Lyman through Brackett. Charged-particle
-profiles use the Tremblay--Bergeron tables. Neutral-H Balmer broadening uses
-Ali--Griem below 10,000 K and Barklem at higher temperatures. The validated
-Lyman policy uses the fixed TLUSTY/Allard Ly-alpha table at 9000--13,000 K,
-temperature-dependent supplied Allard profiles at higher temperature, and the
-independent cool neutral-H/H2 wing below 9000 K.
-
-```bash
-python examples/one_shot_da.py --teff 12000 --logg 8.0 \
-  --quality standard --output results/da-12000-8.0
-```
-
-Warm standard models normally take minutes; cool convective production models
-can take tens of minutes. `quick` verifies the interface but is not a science
-atmosphere. Wavelengths are vacuum Angstrom and output fluxes are surface
-`F_lambda`.
-
-Protected cold starts reach 3000 K at log g = 8, with additional checks at
-4000, 5000, and 20000 K. See [tested points](../tested-temperature-ranges.md)
-and [limitations](../limitations.md) for settings and the scope of that evidence.
-
-## Paper comparisons
-
-The paper tests both the predicted spectral-energy distribution and the
-resolved Balmer profiles. The grid comparison uses six fixed parameter pairs:
-5000, 10000, 20000 and 30000 K at log g = 8, plus log g = 7 and 9 at
-20000 K. Each OpenWD atmosphere is relaxed at its own temperature and gravity
-with the pure-H EOS, line profiles and ML2/alpha=0.7 convection described above.
-The blue curves are the public Koester DA grid distributed through SVO; they
-are comparison spectra, not input atmospheres for OpenWD.
-
-[![DA surface-flux spectra compared with the Koester grid](../assets/da-paper-grid.png)](../assets/da-paper-grid.pdf)
-
-[Download the grid comparison (PDF)](../assets/da-paper-grid.pdf).
-The left panels show the UV--IR distribution and the right panels the optical
-spectrum. Both curves are surface `F_lambda`, with no fitted flux scale or
-continuum normalization. This tests continuum and line agreement at the
-displayed points, rather than certifying every model between them.
-
-The observed comparison holds the parameters from
-[Koester et al. (2009)](https://doi.org/10.1051/0004-6361/200912531)
-fixed for six SPY/UVES stars, spanning 8615--32959 K. OpenWD calculates an
-atmosphere at each parameter pair; the Koester reference is bilinearly
-interpolated to the same values. Both predictions are convolved to
-`R = 18500` and normalized with the same local sideband procedure as the
-observations, since the echelle spectra are not spectrophotometric. Observed
-pixels are median-binned to 0.20 Å for display.
-
-[![Observed SPY Balmer profiles with Koester and OpenWD predictions](../assets/da-paper-spy.png)](../assets/da-paper-spy.pdf)
-
-[Download the SPY comparison (PDF)](../assets/da-paper-spy.pdf).
-G29-38 and PG 1015+161 contain trace metals, but the displayed broad Balmer
-profiles are tested with pure-H models. The close agreement between the two
-codes does not remove their shared cool-star line-core residuals: the
-one-dimensional LTE and local-convection approximations still matter.
-These are the archived paper curves; current synthesis defaults and their
-separate regression checks are described below.
-
-## Radiative atmospheres with convection disabled
-
-Set `DAConfig(mixing_length_alpha=None)` to solve a radiative atmosphere.
-The solver enforces local heating/cooling balance from its first iteration;
-it skips the ML2 gradient conditioner when there is no convective transport.
-Its energy solve uses a fresh temperature-response matrix with consistent
-equation weights on every step.
-
-For `quality="production"`, the initial 100-layer grid gets up to 40 Newton
-iterations. If it fails equilibrium, the code interpolates that numerical
-seed onto 200 layers and solves the same equations again. This resolves steep
-hydrogen-ionization transitions that can stall the coarser grid. A supplied
-finer radiative restart retains its depth resolution. Temperature, gravity,
-chemistry, opacity prescriptions, convection and convergence tolerances are
-unchanged. The finer atmosphere must pass its own complete equilibrium
-certificate; exhausting both attempts still returns an unconverged warning.
-The refinement and initial failure diagnostics are recorded in atmosphere
-metadata under `radiative_depth_refinement`.
-
-This path also serves the default DAH prescription on a nonmagnetic atmosphere
-when the field suppresses convection.
-The G 76−48 regression uses 6680 K and log g = 7.96, with molecular chemistry,
-zero magnetic field in the structure calculation and convection disabled.
-
-## Spectrum synthesis
-
-`compute_da` uses monotone cubic (PCHIP) source interpolation by default to
-reduce coarse-depth-grid flux bias:
+## Run it
 
 ```python
-import numpy as np
-from wd_spectra import DAConfig, compute_da
+from wd_spectra import DAConfig, run_model
 
-result = compute_da(
-    DAConfig(effective_temperature=12000, logg=8, quality="standard"),
-    np.geomspace(100, 1_000_000, 6000),
+run = run_model(
+    DAConfig(effective_temperature=12_000, logg=8.0, quality="production"),
+    "results/da-12000",  # must be a new directory
+    require_convergence=True,
 )
+spectrum = run.spectrum
+wavelength = spectrum.wavelength_angstrom   # vacuum Angstrom
+flux = spectrum.surface_flux_lambda         # erg s^-1 cm^-2 Angstrom^-1
+continuum = spectrum.continuum_flux_lambda  # same structure, no lines
 ```
 
-This is a cold start. Cubic interpolation changes only the final spectrum calculation:
-the atmosphere solver, depth grid, opacities and convection are unchanged.
-Scattering is solved consistently with the cubic interpolation, with a
-separate source-closure check. There is no fitted flux scaling or imposed
-bolometric normalization, and failure does not select another method.
-The selected method is recorded in `result.spectrum.metadata`.
+Each run is a cold start from a gray atmosphere. A production model takes
+about 5–30 minutes on a laptop; cool convective models are the slowest.
+The flux is at the stellar surface. The default wavelength grid spans
+900–30,000 Å; pass `wavelength=` to `run_model` to change it.
 
-On the checked 12000-K, log-g=8 standard model, this reduces the broad sampled
-flux deficit from about 2% to about 0.02%, adding roughly 1-2 seconds of
-transfer work. It can also change normalized Balmer profiles by about 1-2%
-on that 40-layer grid. Wavelength, depth and full-physics validation remain
-separate requirements. To explicitly reproduce the former interpolation
-method, pass `synthesis_transfer="formal-linear"`; this does not undo physics
-corrections in the EOS. Both methods are independently source-checked.
-Low-level synthesis routines retain their explicit legacy defaults, including
-the directional-intensity interface. Other public models' synthesis defaults
-are unchanged.
+| `quality` | Depth points | Use |
+| --- | --- | --- |
+| `"quick"` | 20 | Interface test only. Not a converged model. |
+| `"standard"` | 40 | Exploration. |
+| `"production"` | 100 | Science use. All paper figures use this level. |
 
-## Flux conservation (2026-10-01)
+The command-line equivalent is
+`python examples/one_shot_da.py --teff 12000 --logg 8.0 --quality production --output results/da-12000`.
+`compute_da(config, wavelength)` returns the same result in memory without
+saving files.
 
-Two numerics settings are on by default:
+## Options
 
-- `photospheric_depth_concentration` concentrates the structure depths
-  across 0.01 < tau < 10 at an unchanged point count. For DA the default is
-  3 on the 40-layer standard mesh and 1 for 100 layers. With 40 layers the
-  steep 10-12 kK hydrogen photosphere left 0.5% excess flux at 1 (0.2-0.3%
-  at 3). The 100-layer production mesh already resolves it.
-- `synthesis_transfer_depth_refinement=4` subdivides each depth interval for
-  the final formal solution.
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `effective_temperature` | `12000.0` | Teff in K. |
+| `logg` | `8.0` | log10 of surface gravity in cm s⁻². |
+| `quality` | `"standard"` | Numerical resolution (see above). |
+| `mixing_length_alpha` | `0.7` | ML2 mixing length. `None` gives a radiative atmosphere. |
+| `mean_3d_line_profiles` | `False` | Apply the 3D line-profile mode (see below). |
+| `include_molecules` | `None` | `None` includes H₂, H₂⁺, H⁻ and H₃⁺ at Teff ≤ 12,000 K. `True` or `False` forces the choice. |
+| `h2_lyman_werner_lines` | `False` | Add far-UV H₂ Lyman and Werner lines to the final spectrum (see below). |
+| `lyman_profile_source` | `"allard"` | `"allard"` uses the Lyα prescription below. `"stark"` uses charged-particle Stark profiles only. |
+| `allard_minimum_effective_temperature` | `9000.0` | Below this Teff, Lyα uses the cool neutral-H/H₂ wing instead of the Allard tables. |
+| `balmer_self_broadening_prescription` | `None` | `None` selects Ali–Griem resonance widths. `"barklem"` selects Barklem et al. (2000). |
 
-Before, the 40-point standard structures emitted up to 2-3% more than
-sigma Teff^4. The bare-grid formal solution partly cancelled this, so the
-totals looked right while the structure was not. Standard-quality totals
-are now within about 0.75% (see the [DZ guide](DZ.md) for the method). Setting
-both to 0 and 1 restores the previous numerics.
+Other fields control numerics (`photospheric_depth_concentration`,
+`synthesis_transfer_depth_refinement`, `lower_boundary_extensions`,
+`convective_seed`). Keep their defaults.
 
-## Cold-start seed and lower boundary (2026-10-14)
+## Physics
 
-Two defaults fix the 44 DA failures of the October 8 grid (PR 18), most of
-them between 4250 and 5000 K and in hot low-gravity models.
+- **Structure.** Adaptive trust-region Newton solver, conservative Feautrier
+  transfer, ML2/α = 0.7 convection. If a radiative model
+  (`mixing_length_alpha=None`) fails on its first grid, OpenWD solves it
+  again on a finer grid.
+- **Equation of state.** Hummer–Mihalas occupation probabilities through
+  n = 40 ([Hummer & Mihalas 1988](https://doi.org/10.1086/166600)) with
+  correlated Q-MHD microfields
+  ([Nayfonov et al. 1999](https://doi.org/10.1086/307972)). The neutral
+  hard-sphere radius is 0.5 n² a₀
+  ([Bergeron et al. 1991](https://doi.org/10.1086/169624)). There are no
+  dense-fluid corrections; DA photospheres stay below about 0.03 g cm⁻³.
+- **Continuum.** H I bound–free and free–free, H⁻, electron scattering and
+  Rayleigh scattering. Dissolved-level opacity uses the full
+  occupation-probability dissolved fraction. Below 12,000 K: H₂–H₂
+  collision-induced absorption and molecular Rayleigh scattering and bands.
+- **Lines.** Lyα–Ly21, Hα–H22, Paα–Pa22 and Brα–Br14. Charged-particle
+  profiles from [Tremblay & Bergeron (2009)](https://doi.org/10.1088/0004-637X/696/2/1755).
+  Neutral-H self broadening uses Ali–Griem resonance widths
+  ([Ali & Griem 1965](https://doi.org/10.1103/PhysRev.140.A1044)) at all
+  Teff.
+- **Lyman α.** Below 9000 K: quasi-static H–H and H–H₂ red wing
+  ([Rohrmann et al. 2011](https://doi.org/10.1111/j.1365-2966.2010.17716.x)),
+  with the temperature dependence of
+  [Sahu et al. (2025)](https://doi.org/10.1093/mnras/staf1907).
+  From 9000 to 13,000 K: the fixed TLUSTY/SYNSPEC Allard table
+  ([Hubeny & Lanz 2017](https://doi.org/10.48550/arXiv.1706.01859)).
+  Above 13,000 K: temperature-dependent Allard tables for Lyα–Lyγ
+  ([Allard et al. 1999](https://doi.org/10.1103/PhysRevA.60.1021)) plus half
+  the charged-particle Stark profile.
 
-- `convective_seed=True`. The gray Eddington seed sets the column-mass grid
-  that the solver keeps. In cool, dense hydrogen its steep Rosseland opacity
-  packs Rosseland depths 1-100 into a few per cent of the column mass at up
-  to three times the convective temperature (13,265 K at the bottom of the
-  4500 K, log g = 7 seed, where the converged model has 5,225 K). From there
-  the solver stalled at about 0.75 sigma Teff^4. Where the gray seed is
-  convectively unstable at Rosseland depth one (gray gradient above the
-  adiabatic one; 3000-14,000 K at log g = 8), the seed now follows the
-  Schwarzschild-limited gradient min(gray, adiabatic) below that depth, on
-  layers spaced in pressure, down to the seed's own `tau_max`. Radiative
-  seeds (20,000 K and hotter) are unchanged. `convective_seed=False` restores
-  the gray seed.
-- `lower_boundary_extensions=4`. The seed bottom was fixed at Rosseland
-  depth 100, which lets hot low-gravity models leak radiation (escape bound
-  0.002-0.005 against the 0.002 screen). A cold solve that fails the
-  lower-boundary screen, alone or with other checks, is re-solved cold with a
-  4x deeper bottom and proportionally more layers. 0 disables it.
+### Spectrum synthesis
 
-Production cold starts on the new defaults pass all five certificate gates at
-4250/6.0, 4500/7.0, 4750/7.75, 5000/7.25, 6500/6.0 and 3000/9.5 (Teff/log g;
-former failures), at the canary points 3000, 4000 and 5000 K (log g = 8), and
-at 6000, 8000, 10,000, 12,000 and 14,000 K (log g = 8), in 8-31 minutes. The
-former hot failures 30,000/5.0, 32,000/6.0, 34,000/6.25 and 38,000/6.0 pass
-after one extension, in 7-8 minutes. The canary spectra change by less than
-3e-5 of the peak; their column-mass grids change below depth one, and the
-cold references were recaptured. 2500 K, log g = 9 still misses the
-all-depth flux gate (0.0039) in its deep convection zone. LTE DA models above
-about 40,000 K are not a substitute for NLTE.
+The final spectrum uses monotone cubic (PCHIP) source interpolation on a
+4× refined depth grid. There is no flux rescaling. The output also contains
+`continuum_flux_lambda`: the emergent flux of the same structure with all
+bound–bound opacity removed. Dissolved-level opacity stays in the continuum,
+as in TLUSTY. `spectrum.txt` stores it as the third column.
 
-## H2 Lyman and Werner lines (opt-in)
+## Validation
 
-Cool hydrogen white dwarfs show far-UV H2 Lyman (B-X) and Werner (C-X) lines
-from vibrationally excited ground-state levels (Xu et al. 2013). Set
-`DAConfig(h2_lyman_werner_lines=True)` to add them to the final spectrum.
-The H2 lines enter only the final spectrum, but they require molecular
-chemistry. The option therefore enables molecules above 12,000 K, where they
-are otherwise off by default, and raises an error if `include_molecules=False`.
-At or below 12,000 K the atmosphere is unchanged. Above it, the molecular EOS
-changes the structure: by up to about 2% in temperature for the 12,300-12,800 K
-stars below.
+[![DA spectra: OpenWD compared with Koester 2010](../assets/da-paper-grid.png)](../assets/da-paper-grid.pdf)
 
-- Line data: Kurucz's `h2bx`/`h2cx` lists, bundled and checksum-verified (see
-  `src/wd_spectra/data/molecular/README.md`). Only transitions between
-  measured levels contribute opacity; every transition sets the upper-level
-  branching ratios. Bound and dissociative decay rates of the levels
-  tabulated by Abgrall, Roueff & Drira (2000) are theirs.
-- Lower levels: LTE, from the EOS H2 density and the same Barklem & Collet
-  partition function. Collisional dissociation and formation keep the
-  molecule close to LTE where the lines form; photodissociation is negligible
-  there.
-- Source functions: not LTE. The B and C upper levels decay in about 1 ns, so
-  each line has the fluorescent source function from upper-level statistical
-  equilibrium:
-  `S/B = [sum A_branch (J/B)_branch + A_c + C_u] / [A_u + A_c + C_u]`.
-  Radiative dissociation `A_c` comes from Abgrall, Roueff & Drira (2000) and
-  electron de-excitation `C_u` from van Regemorter. The mean-intensity ratio
-  `J/B` comes from a separate metal-free transfer solution on a 1 Å grid over
-  845-1850 Å. The branch lines are treated as optically thin.
-- Profiles: Voigt, with thermal Doppler width and damping from the bound plus
-  dissociative decay rates.
+**OpenWD and the Koester (2010) grid.** Six models: 5000, 10,000, 20,000
+and 30,000 K at log g = 8, and log g = 7 and 9 at 20,000 K. Left: UV–IR
+surface F_λ. Right: optical spectrum. No flux scaling. The two codes agree
+well. [PDF](../assets/da-paper-grid.pdf).
 
-With LTE source functions the predicted lines are much too strong. With the
-fluorescent source function, the line strengths fitted to HST/COS G130M spectra
-at fixed published parameters are as follows. `k` scales the model H2
-absorption depth; `k = 1` means the predicted depth matches.
+[![Observed SPY Balmer profiles with Koester 2010 and OpenWD](../assets/da-paper-spy.png)](../assets/da-paper-spy.pdf)
 
-| Star | Type | chi^2 off -> on | fitted `k` |
-|---|---|---|---|
-| WD 2341+322 | DA, 12,787 K | 1.15 -> 0.99 | 0.94 +- 0.03 |
-| GD 31 | DA, 12,265 K | 0.67 -> 0.68 | 0.43 +- 0.03 |
-| GD 133 | DAZ | 2.37 -> 1.47 | 1.14 +- 0.01 |
-| G29-38 | DAZ | 3.26 -> 2.71 | 0.78 +- 0.01 |
+**Seven SPY/UVES DAs, 7229–32,959 K.** Parameters are fixed at the values
+of [Koester et al. (2009)](https://doi.org/10.1051/0004-6361/200912531).
+OpenWD uses the 3D line-profile mode. Both models are convolved to
+R = 18,500 and normalized like the data. Above about 10,000 K the codes agree
+and match the data; below, OpenWD fits Hα better.
+[PDF](../assets/da-paper-spy.pdf).
 
-These chi^2 values are over 1153-1437 Å, with ISM and airglow masked. GD 31's
-published temperatures disagree, which may explain its weak observed lines.
-Runtime increases by up to about 15% in these models. The option is off by
-default, so all existing regression controls are unchanged.
+**Cool DAs (3000–5000 K).** OpenWD agrees with the models of
+[Tremblay et al. (2011)](https://doi.org/10.1088/0004-637X/730/2/128) and the
+photometry of [Blouin et al. (2018)](https://doi.org/10.3847/1538-4357/aad4a9).
+At 3000 K, OpenWD is a factor of two fainter in GALEX NUV, where all models
+predict very little flux. The likely cause is a different Lyα red wing.
+
+## 3D line-profile mode (opt-in)
+
+One-dimensional mixing-length models give Hα and Hβ cores that are too
+shallow in DAs cooler than about 9000 K. Set
+`DAConfig(mean_3d_line_profiles=True)` to correct this:
+
+1. OpenWD converges the 1D atmosphere as usual.
+2. It adds the mean-3D minus 1D temperature difference of
+   [Tremblay et al. (2013a, Fig. 7)](https://doi.org/10.1051/0004-6361/201220813)
+   on the Rosseland optical-depth scale.
+3. It integrates the pressure again in hydrostatic equilibrium and computes
+   the spectrum on this corrected structure.
+
+| Condition | Correction |
+| --- | --- |
+| Teff < 9000 K | All depths. |
+| 9000 K ≤ Teff ≤ 12,999 K | Only τ_R ≥ 10⁻² (smooth switch). |
+| Teff outside 5997–12,999 K, or \|log g − 8\| > 0.75 | None. The 1D spectrum is returned. |
+
+The switch at 9000 K is empirical. Above it, the full correction makes the
+Hα and Hβ cores deeper than observed, as
+[Tremblay et al. (2013b)](https://doi.org/10.1051/0004-6361/201322318) also
+found. `result.atmosphere` stays the converged 1D structure.
+`metadata["mean_3d_line_profiles"]` records what was applied.
+
+**Use this mode for normalized line profiles only.** The corrected structure
+is not in radiative equilibrium. The bolometric flux is 1.5–2.5% below
+σTeff⁴, and the far UV is strongly suppressed at 6000–8000 K. Use the default
+1D mode for spectral-energy distributions and photometry. The metadata
+records `flux_conserving_spectrum = False` when the correction is applied.
+
+[![Seven cool SPY DAs: Koester 2010, OpenWD 1D and Tremblay+2013 (mean 3D)](../assets/da-paper-3d.png)](../assets/da-paper-3d.pdf)
+
+**Why the mode exists.** Seven SPY DAs, 6445–11,485 K, compared with the
+Koester (2010) grid, OpenWD 1D and the Tremblay et al. (2013b) mean-3D
+spectra. The three coolest stars use Gaia-based Montreal White Dwarf Database
+parameters; the others use Koester et al. (2009). Below 9000 K the 1D Hα and
+Hβ cores are too shallow. Above 9000 K the mean-3D cores are too deep.
+[PDF](../assets/da-paper-3d.pdf).
+
+[![OpenWD 1D and 3D mode, with and without the 9000 K switch](../assets/da-paper-3d-switch.png)](../assets/da-paper-3d-switch.pdf)
+
+**Effect of the 9000 K switch.** The same stars with OpenWD 1D, the 3D mode
+as adopted, and the 3D mode with the correction at all depths. Below 9000 K
+the two 3D versions are identical. Above 9000 K the restricted correction
+keeps the wing improvement without too-deep cores.
+[PDF](../assets/da-paper-3d-switch.pdf).
+
+On 13 SPY parameter sets (6445–11,485 K), the 3D mode gives the lowest mean
+rms residual of the four models compared.
+
+## H₂ Lyman and Werner lines (opt-in)
+
+Set `h2_lyman_werner_lines=True` to add the far-UV H₂ B–X and C–X lines seen
+in cool DAs. The lines use Kurucz line lists, LTE lower levels and
+fluorescent (non-LTE) source functions. They affect only the final spectrum.
+The option turns on molecular chemistry at all Teff. Above 12,000 K this
+changes the structure slightly. It raises an error with
+`include_molecules=False`. Line data are described in
+[the molecular data README](../../src/wd_spectra/data/molecular/README.md).
+
+## Limitations
+
+- LTE and 1D mixing-length convection. NLTE line cores of cool DAs are not
+  modeled.
+- The 3D mode uses the log g = 8 temperature differences only. It omits NLTE
+  and 3D turbulent pressure, and it is not flux-conserving.
+- Below about 4500 K, the Lyα red wing is the main uncertainty in the UV and
+  blue optical.
+- A high Teff does not switch to NLTE. Above about 40,000 K use
+  [DAOConfig](DO-DAO.md).
+
+See also the general [limitations](../limitations.md).
+
+## Tested range
+
+See [tested points](../tested-temperature-ranges.md).

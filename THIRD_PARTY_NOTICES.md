@@ -132,7 +132,7 @@ the [Keck Observatory Archive](https://koa.ipac.caltech.edu/), analyzed by
 [Xu et al. (2019)](https://doi.org/10.3847/1538-3881/ab4cee). Credit the
 W. M. Keck Observatory, KOA and the original observers when using these
 observations. They are newly generated comparisons, with data processing and
-model provenance described in the [DZ guide](docs/models/DZ.md#xu-et-al-2019-hires-comparisons).
+model provenance described in the [DZ observational comparisons](docs/validation/dz-observational-comparisons.md#xu-et-al-2019-hires-comparisons).
 
 ## Hot-star NLTE atomic inputs
 
@@ -185,6 +185,15 @@ and are not covered by OpenWD's BSD source-code license:
 Credit the Opacity Project (Cunto et al. 1993) and the TLUSTY and SIROCCO
 distributions.
 
+## O I excited-core multiplet strengths (D6)
+
+`_O_I_EXCITED_CORE_3D_TRANSITIONS` in `src/wd_spectra/metals.py` contains
+oscillator strengths derived (spectator-core LS algebra) from four Opacity
+Project LS multiplet gf-values retrieved from TOPbase at CDS on 2026-10-25,
+with NIST ASD O I level energies. No TOPbase or NIST file is redistributed;
+`research/o_i_excited_core_ls_strengths.py` lists the inputs. Credit the
+Opacity Project (Cunto et al. 1993) and the NIST Atomic Spectra Database.
+
 ## Hollands et al. (2025) J1637 digitization
 
 `src/wd_spectra/data/validation/hollands2025_j1637_figure1.npz` records the
@@ -226,12 +235,42 @@ the SDSS data policy), the Gianninas GH Leo spectrum from the Montreal White
 Dwarf Database, and model curves of Hardy, Dufour & Jordan (2023, MNRAS 520,
 6111) digitized from their CDS figures (regression targets derived from the
 published figures, not the authors' numerical models). Survey spectra of the
-Hardy targets are de-reddened with MWDD E(B-V). Cite the original surveys and
+Hardy targets are de-reddened with MWDD E(B-V); their survey inverse variances
+are carried as 1σ flux errors. Cite the original surveys and
 papers when using them. The weak-field GD 9 and G 76−48 controls come from
 public ESO SPY/UVES spectra. The documentation's eight-panel figures also
 include SDSS/BOSS J1007+1237 (plate 5328, MJD 55982, fiber 66). The unscaled
 and smoothly rescaled figure variants are labelled separately in the guide;
 the smooth correction is a model-derived comparison operation.
+
+`re-j0317-853-vi.npz` in the same directory is a V/I spectrum of RE J0317-853
+derived from public ESO VLT FORS2 data of programme 114.27BU.001. The data
+remain copyright ESO under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see the
+[ESO data policy](https://archive.eso.org/cms/eso-data-access-policy.html).
+`re-j0317-853-vi.json` records its source, processing and sign convention.
+Based on observations collected at the European Organisation for Astronomical
+Research in the Southern Hemisphere under ESO programme 114.27BU.001.
+
+## Cool-DZ unified metal–helium profiles
+
+The Mg I b, Mg II h/k, Ca II H/K and Na I D NPZ grids under
+`src/wd_spectra/data/runtime/cache/metal-opacity/unified-metal-he/` are
+OpenWD calculations using published potentials and dipoles. They are not the
+original authors' numerical opacity tables. Their embedded source/provenance
+records identify the recovered curves, input hashes, model tails and
+dense-fluid corrections. Scientific uses should credit the sources recorded
+there: Allard et al. (2016, A&A 588, A142) for Mg I b; Allard et al. (2016,
+A&A 593, A13) for Mg II; Allard & Alekseev (2014) and the Hollands et al.
+(2017) figure curves for Ca II; and Dell'Angelo et al. (2012), as presented
+in Allard et al. (2023), for Na I.
+
+The companion `mgi-b-he-6000K-density.dat`,
+`mgii-hk-he-6000K-density.dat` and `caii-hk-he-5e21-temperature.dat` contain
+figure-resolution cross sections recovered from the cited papers, with
+sources recorded in their headers. The Mg extraction scripts are included
+under `scripts/`. Credit the original authors when using these derived
+scientific data.
 
 ## Other scientific tables
 

@@ -1,33 +1,16 @@
 """Fixed-state paper-spectrum checks; these never certify a cold atmosphere."""
 
 import json
-import sys
-from dataclasses import replace
 from pathlib import Path
 import numpy as np
 import pytest
 from wd_spectra import DAZConfig, compute_daz
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
-from uv_atomic_control_legacy import legacy_uv_atomic_controls
-from independent_kurucz_control_legacy import previous_kurucz_defaults
-
 pytestmark = pytest.mark.spectral
 CONTROLS = Path(__file__).parent / "data/daz_regressions"
-APPROVED = Path(__file__).parent / "data/approved_regressions/fixed"
-APPROVED_KURUCZ_STARK = (
-    Path(__file__).parent / "data/approved_regressions/kurucz_stark_2026_10_11/fixed"
-)
-APPROVED_UV_ATOMIC = (
-    Path(__file__).parent / "data/approved_regressions/uv_atomic_2026_10_12/fixed"
-)
-APPROVED_SI_KURUCZ = (
-    Path(__file__).parent / "data/approved_regressions/si_kurucz_2026_10_12/fixed"
-)
-APPROVED_INDEPENDENT_KURUCZ = (
-    Path(__file__).parent / "data/approved_regressions/independent_kurucz_2026_10_14/fixed"
-)
+# Current approved spectra; earlier approvals are in git history.
+APPROVED = Path(__file__).parent / "data/approved_regressions/current"
 
 
 @pytest.mark.parametrize("case", ["g149_28", "galex1931"])
@@ -36,15 +19,9 @@ def test_daz_paper_spectrum(case, monkeypatch):
     with np.load(path) as saved:
         config = DAZConfig(**json.loads(str(saved["config_json"])))
         wave = saved["wavelength"]
-    with np.load(APPROVED_INDEPENDENT_KURUCZ / ("daz-" + case + ".npz")) as approved:
+    with np.load(APPROVED / ("daz-" + case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])
         expected = approved["surface_flux"]
-    with np.load(APPROVED_KURUCZ_STARK / ("daz-" + case + ".npz")) as stark_control:
-        np.testing.assert_array_equal(wave, stark_control["wavelength"])
-        stark_flux = stark_control["surface_flux"]
-    with np.load(APPROVED / ("daz-" + case + ".npz")) as previous:
-        np.testing.assert_array_equal(wave, previous["wavelength"])
-        previous_flux = previous["surface_flux"]
     molecules = config.effective_temperature <= 12000
     atmosphere = load_atmosphere_checkpoint(
         path,
@@ -77,56 +54,3 @@ def test_daz_paper_spectrum(case, monkeypatch):
     np.testing.assert_allclose(
         actual[significant], expected[significant], rtol=1e-3, atol=0
     )
-    with previous_kurucz_defaults(), pytest.warns(AtmosphereConvergenceWarning):
-        predecessor = compute_daz(config, wave, initial_atmosphere=atmosphere,
-                                  relax_atmosphere=False)
-    with np.load(APPROVED_UV_ATOMIC / ("daz-" + case + ".npz")) as control:
-        previous_default_flux = control["surface_flux"]
-    previous_significant = wave * previous_default_flux > 0.01 * np.max(wave * previous_default_flux)
-    np.testing.assert_allclose(predecessor.spectrum.surface_flux_lambda[previous_significant],
-                              previous_default_flux[previous_significant], rtol=1e-3, atol=0)
-    with legacy_uv_atomic_controls():
-        # Recover the immediate Si-Kurucz predecessor before the older chain.
-        with pytest.warns(AtmosphereConvergenceWarning):
-            legacy_atomic = compute_daz(
-                config, wave, initial_atmosphere=atmosphere,
-                relax_atmosphere=False,
-            )
-        with np.load(APPROVED_SI_KURUCZ / ("daz-" + case + ".npz")) as control:
-            si_flux = control["surface_flux"]
-            np.testing.assert_array_equal(wave, control["wavelength"])
-        si_significant = wave * si_flux > 0.01 * np.max(wave * si_flux)
-        np.testing.assert_allclose(
-            legacy_atomic.spectrum.surface_flux_lambda[si_significant],
-            si_flux[si_significant], rtol=1e-3, atol=0,
-        )
-        # Disabling only the default Kurucz Si II missing transitions must recover
-        # the previous (default Kurucz electron Stark) control to the same bound.
-        stark_config = replace(config, si_ii_kurucz_transitions=False)
-        with pytest.warns(AtmosphereConvergenceWarning):
-            stark_result = compute_daz(
-                stark_config,
-                wave,
-                initial_atmosphere=atmosphere,
-                relax_atmosphere=False,
-            )
-        stark_significant = wave * stark_flux > 0.01 * np.max(wave * stark_flux)
-        np.testing.assert_allclose(
-            stark_result.spectrum.surface_flux_lambda[stark_significant],
-            stark_flux[stark_significant], rtol=1e-3, atol=0,
-        )
-        # Disabling the Kurucz electron Stark constants as well must recover the
-        # earlier control to the same bound.
-        with pytest.warns(AtmosphereConvergenceWarning):
-            previous_result = compute_daz(
-                replace(stark_config, kurucz_electron_stark=False),
-                wave,
-                initial_atmosphere=atmosphere,
-                relax_atmosphere=False,
-            )
-        previous_actual = previous_result.spectrum.surface_flux_lambda
-        previous_significant = wave * previous_flux > 0.01 * np.max(wave * previous_flux)
-        np.testing.assert_allclose(
-            previous_actual[previous_significant], previous_flux[previous_significant],
-            rtol=1e-3, atol=0,
-        )

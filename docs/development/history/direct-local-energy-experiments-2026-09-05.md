@@ -369,4 +369,4 @@ replacement atmosphere has been adopted.
 An isolated He2+ charge/enthalpy/opacity prototype now tests the molecular-ion
 part of this proposal. Its initial fresh 5000 K atmosphere still fails; it
 is not enabled in production or counted among the numerical successes above.
-See [the separate experiment record](helium-dimer-experiment-2026-09-05.md).
+The separate He2+ experiment record was removed; [dense DB v6](dense-db-v6-2026-10-22.md) describes the current He2+ treatment.

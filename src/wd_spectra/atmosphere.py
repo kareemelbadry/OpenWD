@@ -1575,10 +1575,11 @@ def radiative_equilibrium_hydrogen_atmosphere(
     if metal_topbase_photoionization_database is not None:
         topbase_edge_grid = np.asarray([
             PLANCK * LIGHT_SPEED
-            / (section.threshold_energy_ev * 1.602_176_634e-12)
+            / (edge * 1.602_176_634e-12)
             * 1.0e8
             for section in metal_topbase_photoionization_database.sections
             if metal_abundances is not None and section.element in metal_abundances
+            for edge in section.structure_edge_energies_ev
         ])
         if topbase_edge_grid.size:
             wavelength = np.unique(np.concatenate((
@@ -2087,9 +2088,12 @@ def radiative_equilibrium_helium_atmosphere(
     depth_concentration: float = 0.0,
     mg_he_red_wing_table: MgHeRedWingTable | None = None,
     mg_ii_he_profile_table: MgIIHeProfileTable | None = None,
+    na_i_he_profile_table: "UnifiedIonicHeProfileGrid | None" = None,
     ca_i_he_profile_table: CaIHeProfileTable | None = None,
     ca_ii_he_profile_table: CaIIHeProfileTable | None = None,
     helium_reos3_table: HeliumREOS3Table | None = None,
+    helium_minus_correction_table=None,
+    helium_minus_prescription: str = "automatic",
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
     metal_topbase_photoionization_database: (
         TOPbasePhotoionizationDatabase | None
@@ -2620,10 +2624,11 @@ def radiative_equilibrium_helium_atmosphere(
     if metal_topbase_photoionization_database is not None:
         topbase_edge_grid = np.asarray([
             PLANCK * LIGHT_SPEED
-            / (section.threshold_energy_ev * 1.602_176_634e-12)
+            / (edge * 1.602_176_634e-12)
             * 1.0e8
             for section in metal_topbase_photoionization_database.sections
             if section.element in metal_abundances
+            for edge in section.structure_edge_energies_ev
         ])
         if topbase_edge_grid.size:
             topbase_edge_samples = (
@@ -2653,6 +2658,9 @@ def radiative_equilibrium_helium_atmosphere(
     if mg_ii_he_profile_table is not None:
         step = max(1, mg_ii_he_profile_table.wavelength_angstrom.size // 400)
         unified_profile_grids.append(mg_ii_he_profile_table.wavelength_angstrom[::step])
+    if na_i_he_profile_table is not None:
+        step = max(1, na_i_he_profile_table.wavelength_angstrom.size // 400)
+        unified_profile_grids.append(na_i_he_profile_table.wavelength_angstrom[::step])
     if ca_i_he_profile_table is not None:
         for local_wavelength in ca_i_he_profile_table.wavelength_by_density.values():
             step = max(1, local_wavelength.size // 100)
@@ -2746,12 +2754,22 @@ def radiative_equilibrium_helium_atmosphere(
     structure_absorption_cache: dict[str, object] = {}
 
     def true_absorption(current: Atmosphere) -> FloatArray:
+        dense_helium_minus = None
+        if helium_minus_correction_table is not None:
+            from .dense_helium_continuum import bounded_helium_minus_correction
+
+            dense_helium_minus = bounded_helium_minus_correction(
+                helium_minus_correction_table, wavelength, current.temperature,
+                current.helium_lte_state.neutral_he_density,
+            )
         result = helium_continuum_mass_absorption_coefficient(
             current, wavelength, include_electron_scattering=False,
             include_rayleigh_scattering=False,
             include_helium_dimer_ion=include_helium_dimer_ion,
             include_helium_three_body_cia=include_helium_three_body_cia,
             include_rydberg_bound_free=include_rydberg_bound_free,
+            helium_minus_correction=dense_helium_minus,
+            helium_minus_prescription=helium_minus_prescription,
         )
         if include_lines:
             result += helium_i_line_mass_absorption_coefficient(
@@ -2828,6 +2846,7 @@ def radiative_equilibrium_helium_atmosphere(
                     metal_state,
                     mg_he_red_wing_table=mg_he_red_wing_table,
                     mg_ii_he_profile_table=mg_ii_he_profile_table,
+                    na_i_he_profile_table=na_i_he_profile_table,
                     ca_i_he_profile_table=ca_i_he_profile_table,
                     ca_ii_he_profile_table=ca_ii_he_profile_table,
                     minimum_oscillator_strength=minimum_metal_oscillator_strength,
@@ -3058,6 +3077,16 @@ def radiative_equilibrium_helium_atmosphere(
             "helium_minus_free_free": (
                 "John-1994 inside tabulated T/lambda domain; "
                 "Carbon-1969 fit to John-1968 elsewhere"
+            ),
+            "helium_minus_free_free_prescription": helium_minus_prescription,
+            "dense_helium_minus_free_free": (
+                {
+                    "table_sha256": helium_minus_correction_table.sha256,
+                    "metadata": helium_minus_correction_table.metadata,
+                    "policy": "hold table T/lambda edges; no density extrapolation",
+                }
+                if helium_minus_correction_table is not None
+                else None
             ),
             "radiative_equilibrium_hydrogen_abundance": (
                 float(log_hydrogen_abundance)

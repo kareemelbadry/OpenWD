@@ -96,13 +96,9 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--from-frozen-reference", action="store_true",
         help="Reuse a checksum-verified versioned seed and its historical cold certificate")
-    parser.add_argument("--verify-legacy-uv-controls", action="store_true",
-        help="First reproduce the frozen pre-Fe-supplement trajectory at unchanged tolerances")
     parser.add_argument("--spectrum-first", action="store_true",
         help="Save the current fixed spectrum and its changes before the slower warm trajectory")
     args = parser.parse_args()
-    if args.verify_legacy_uv_controls and not args.from_frozen_reference:
-        parser.error("legacy verification requires --from-frozen-reference")
     if args.spectrum_first and not args.from_frozen_reference:
         parser.error("spectrum-first requires --from-frozen-reference")
     seed_path = args.output.with_name(args.output.name + "-seed.npz")
@@ -118,7 +114,7 @@ def main():
                                          ModelData, model_request_fingerprint)
     from wd_spectra.models.d6 import default_d6_wavelength_grid
     from d6_regression_support import (ARRAYS, METRICS, STEPS, atomic_input_scope,
-        assert_trajectory_matches, fixed_spectrum, trajectory)
+        fixed_spectrum, trajectory)
 
     config = D6Config()
     archived_reference = None
@@ -157,22 +153,6 @@ def main():
     perturbation = 0.015 * np.exp(-((np.log10(optical_depth) + 2.0) / 1.0)**2)
     initial_temperature = (arrays["initial_temperature"].copy()
         if args.from_frozen_reference else temperature * np.exp(perturbation))
-    legacy_recovery = None
-    if args.verify_legacy_uv_controls:
-        print("Verifying the immutable pre-Fe-supplement warm trajectory", flush=True)
-        started = time.monotonic()
-        with atomic_input_scope(legacy=True):
-            legacy_records = trajectory(column_mass, optical_depth, initial_temperature)
-        with np.load(args.source / "j1637.npz", allow_pickle=False) as previous:
-            assert_trajectory_matches(legacy_records, previous)
-            legacy_recovery = trajectory_difference(legacy_records, previous)
-        legacy_recovery.update(passed=True, tolerances_changed=False,
-            reference_output_sha256=archived_reference["output_sha256"],
-            elapsed_seconds=time.monotonic() - started)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.with_name(args.output.name + "-legacy-recovery.json").write_text(
-            json.dumps(legacy_recovery, indent=2) + "\n")
-        print(json.dumps(dict(legacy_recovery=legacy_recovery)), flush=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(seed_path, column_mass=column_mass, optical_depth=optical_depth,
         base_temperature=temperature, initial_temperature=initial_temperature)
@@ -262,8 +242,6 @@ def main():
             np.testing.assert_array_equal([r["iteration"] for r in records], previous["iterations"])
             np.testing.assert_array_equal([r["phase"] for r in records], previous["phases"])
             manifest["difference_from_previous"] = trajectory_difference(records, previous)
-    if legacy_recovery is not None:
-        manifest["legacy_recovery"] = legacy_recovery
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     partial.unlink()
     spectrum_partial = args.output / "spectrum.partial.npz"

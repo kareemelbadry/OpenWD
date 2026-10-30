@@ -27,7 +27,7 @@ from ..eos import (
     hummer_mihalas_hydrogen_helium_lte,
     hummer_mihalas_hydrogen_lte,
 )
-from ..spectrum import Spectrum
+from ..spectrum import Spectrum, StokesSpectrum
 FloatArray = NDArray[np.float64]
 Quality = Literal["quick", "standard", "production"]
 AtmosphereComposition = Literal["hydrogen", "helium", "mixed"]
@@ -38,21 +38,27 @@ ConvergenceStatus = Literal[
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 2
 _MODEL_PHYSICS_REVISION = "openwd-0.1.3-qmhd-undoubled-v5-flux-conserving"
 _MODEL_FAMILY_PHYSICS_REVISIONS = {
-    "DA": "hydrogen-stark-density-floor-2026-10-05",
-    "DAB": "hydrogen-stark-density-floor-2026-10-05:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12",
-    "DAO": "hydrogen-stark-density-floor-2026-10-05",
-    "DAH": "dah-kurucz-griem-v4:hydrogen-stark-density-floor-2026-10-05",
+    "DA": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DB": "helium-reos3-c1-2026-10-23",
+    "DAB": "hydrogen-stark-density-floor-2026-10-05:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:helium-reos3-c1-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DQ": "helium-reos3-c1-2026-10-23",
+    "DAO": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DAH": "dah-rwa-magnetic-eos-v5:hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
     # Shared metal physics revised by the 2026-09-30 DZ audit: ground-term
     # bound-free populations, 1/Z^2 Unsold radii, frequency Voigt profiles,
     # structure line identity and continuous dense-He ionization.
-    "DZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12",
-    "DAZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:barklem-neutral-h-2026-10-12:si-ii-kurucz-transitions-2026-10-12:default-feii-kurucz-uv-2026-10-12",
-    "D6": "metal-audit-2026-09-30:default-feii-kurucz-uv-2026-10-12",
+    "DZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:cool-dz-release-2026-10-23:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DAZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:barklem-neutral-h-2026-10-12:si-ii-kurucz-transitions-2026-10-12:default-feii-kurucz-uv-2026-10-12:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "D6": "metal-audit-2026-09-30:default-feii-kurucz-uv-2026-10-12:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:excited-parent-series-o-i-2026-10-25",
 }
 
 
 class AtmosphereConvergenceWarning(RuntimeWarning):
     """A spectrum is being returned from an unverified atmosphere."""
+
+
+class DenseHeliumPhotosphereError(ValueError):
+    """The dilute-helium `compute_db` physics was requested for a dense neutral photosphere."""
 
 
 @dataclass(frozen=True)
@@ -176,6 +182,51 @@ class ModelData:
         )
 
     @property
+    def ca_ii_he_unified_profiles(self) -> Path:
+        """Computed Ca II H&K--He unified-profile table (T, n_He grid)."""
+
+        return (
+            self.cache
+            / "metal-opacity/unified-metal-he/caii-hk-he-unified-profiles.npz"
+        )
+
+    @property
+    def na_i_he_unified_profiles(self) -> Path:
+        """Computed Na I D--He unified-profile table (T, n_He grid)."""
+
+        return (
+            self.cache
+            / "metal-opacity/unified-metal-he/nai-d-he-unified-profiles.npz"
+        )
+
+    @property
+    def mg_ii_he_unified_profiles(self) -> Path:
+        """Computed Mg II h&k--He unified-profile table (T, n_He grid)."""
+
+        return (
+            self.cache
+            / "metal-opacity/unified-metal-he/mgii-hk-he-unified-profiles.npz"
+        )
+
+    @property
+    def mg_i_b_he_unified_profiles(self) -> Path:
+        """Computed Mg I b--He unified-profile table (T, n_He grid)."""
+
+        return (
+            self.cache
+            / "metal-opacity/unified-metal-he/mgi-b-he-unified-profiles.npz"
+        )
+
+    @property
+    def mg_i_b_he_density_profiles(self) -> Path:
+        """Allard et al. (2016) Mg b--He figure-vector profiles, 6000 K."""
+
+        return (
+            self.cache
+            / "metal-opacity/unified-metal-he/mgi-b-he-6000K-density.dat"
+        )
+
+    @property
     def ca_i_he_temperature_profiles(self) -> Path:
         return (
             self.cache
@@ -193,6 +244,12 @@ class ModelData:
         """Becker et al. (2014) ab-initio helium EOS table."""
 
         return self.cache / "dense-eos/he-reos3-table3.dat"
+
+    @property
+    def helium_minus_dense_free_free(self) -> Path:
+        """Dense-He He-minus free-free factor, Rogers-Young S(k) (no 1/|eps|^2)."""
+
+        return self.cache / "dense-eos/he-minus-ff-rogers-young.npz"
 
     @property
     def nist_asd_strong(self) -> Path:
@@ -694,6 +751,7 @@ def _jsonable(value: object) -> object:
         return {
             item.name: _jsonable(getattr(value, item.name))
             for item in fields(value)
+            if item.metadata.get("serialize", True)
         }
     if isinstance(value, Path):
         return str(value)
@@ -715,11 +773,22 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     spectrum = result.spectrum
     atmosphere = result.atmosphere
-    np.savetxt(
-        directory / "spectrum.txt",
-        np.column_stack((spectrum.wavelength_angstrom, spectrum.surface_flux_lambda)),
-        header="vacuum_wavelength_angstrom surface_flux_erg_s-1_cm-2_A-1",
-    )
+    columns = [spectrum.wavelength_angstrom, spectrum.surface_flux_lambda]
+    header = "vacuum_wavelength_angstrom surface_flux_erg_s-1_cm-2_A-1"
+    if spectrum.continuum_flux_lambda is not None:
+        columns.append(spectrum.continuum_flux_lambda)
+        header += " continuum_flux_erg_s-1_cm-2_A-1"
+    np.savetxt(directory / "spectrum.txt", np.column_stack(columns), header=header)
+    if isinstance(spectrum, StokesSpectrum):
+        np.savetxt(
+            directory / "stokes.txt",
+            np.column_stack((spectrum.wavelength_angstrom, spectrum.surface_flux_lambda,
+                             spectrum.surface_flux_q_lambda, spectrum.surface_flux_u_lambda,
+                             spectrum.surface_flux_v_lambda)),
+            header=("vacuum_wavelength_angstrom I Q U V\n"
+                    "surface_flux_erg_s-1_cm-2_A-1; "
+                    + str(spectrum.metadata["stokes_convention"])),
+        )
     np.savez_compressed(
         directory / "atmosphere.npz",
         effective_temperature=atmosphere.effective_temperature,
@@ -740,13 +809,15 @@ def save_model_result(result: ModelResult, output: str | Path) -> Path:
         ),
     )
     if result.population_state is not None:
-        # Keep nested atom states without pickle; this is diagnostic output,
-        # not an implicit restart input to the public cold-start API.
+        # Keep nested population states without pickle; this is diagnostic
+        # output, not an implicit restart input to the public cold-start API.
+        # Runtime-only fields (such as the population atom and its caches)
+        # opt out through dataclass metadata; physical arrays remain intact.
         arrays = {}
         def collect_population(value, prefix=""):
             if is_dataclass(value):
                 return {item.name: collect_population(getattr(value, item.name), prefix + item.name + ".")
-                        for item in fields(value)}
+                        for item in fields(value) if item.metadata.get("serialize", True)}
             if isinstance(value, Mapping):
                 return {str(key): collect_population(item, prefix + str(key) + ".")
                         for key, item in value.items()}

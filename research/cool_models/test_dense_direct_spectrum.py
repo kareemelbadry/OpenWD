@@ -26,7 +26,7 @@ def test_direct_synthesis_uses_coupled_field_without_changing_structure(monkeypa
     a=Atmosphere(m,t,{'experimental_dense_helium':'test','radiative_equilibrium_converged':False})
     wave=np.geomspace(1000,1e6,100)
     absorption=np.ones((100,40))*.1;scattering=np.ones((100,40))*10.
-    monkeypatch.setattr(module,'pure_helium_opacities',lambda a,w:(absorption,scattering))
+    monkeypatch.setattr(module,'pure_helium_opacities',lambda a,w,**options:(absorption,scattering))
     original=Result(a,Spectrum(wave,np.ones(100),{'original':True}),{})
     result=module.direct_result(original,8)
     depths=optical_depth_from_mass_opacity(m,absorption+scattering)
@@ -50,7 +50,7 @@ def test_mass_synthesis_matches_structure_and_rejects_wrong_transfer(monkeypatch
     m=np.geomspace(1e-8,100.,25);t=5000*(1+m)**.1;wave=np.geomspace(1000,1e6,100)
     atmosphere=Atmosphere(m,t,{'experimental_dense_helium':'test','experimental_mass_conservative_transfer':True})
     absorption=np.broadcast_to(np.exp(np.sin(np.arange(25))),(100,25));scattering=absorption*.2
-    monkeypatch.setattr(module,'pure_helium_opacities',lambda a,w:(absorption,scattering))
+    monkeypatch.setattr(module,'pure_helium_opacities',lambda a,w,**options:(absorption,scattering))
     original=Result(atmosphere,Spectrum(wave,np.ones(100),{}),{})
     with pytest.raises(ValueError,match='same declared'):
         module.direct_result(original,8)

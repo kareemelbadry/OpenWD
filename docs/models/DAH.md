@@ -1,19 +1,17 @@
-# DAH module
+# DAH: magnetic hydrogen atmospheres
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
-`DAHConfig` predicts disk-integrated optical spectra of magnetic,
-pure-hydrogen white dwarfs. The default is the **normalized Kurucz/Griem
-prescription used in the paper**: a nonmagnetic DA atmosphere, scalar
-Stokes-I magnetic transfer, and the ordinary hydrogen EOS and continuum.
-Convection is suppressed above a projected-area mean field of 0.05 MG.
-The output covers vacuum wavelengths from 3400 to 8000 Å and is surface
-`F_lambda` in erg s⁻¹ cm⁻² Å⁻¹.
+`DAHConfig` predicts the disk-integrated optical spectrum of a magnetic,
+pure-hydrogen white dwarf. The field is uniform or an offset dipole. OpenWD
+computes the spectrum on a nonmagnetic DA atmosphere at the same Teff and
+log g. Each surface element has its own field strength and direction, and
+the emergent intensities are summed over the visible disk.
 
-## Quick start
+## Run it
 
-This example uses the fixed published geometry of J1007+1237, whose mean
-visible field is about 5.20 MG (the dipole polar parameter is 6.13 MG):
+This example uses the published parameters of J1007+1237
+([Hardy et al. 2023](https://doi.org/10.1093/mnras/stad196)):
 
 ```python
 import numpy as np
@@ -21,27 +19,29 @@ from wd_spectra import DAHConfig, run_model
 
 config = DAHConfig(
     effective_temperature=18_687, logg=8.04,
-    magnetic_field_megagauss=6.13,
+    magnetic_field_megagauss=6.13,       # polar field of the undisplaced dipole
     field_geometry="dipole", dipole_inclination_deg=71,
     dipole_offset_radius=(0.0, 0.0, 0.30),
     quality="production",
 )
 run = run_model(
-    config, "results/j1007",  # choose a new directory
+    config, "results/j1007",  # must be a new directory
     wavelength=np.arange(3600.0, 7100.01, 0.5),
     require_convergence=True,
 )
-print(run.convergence_verified)
+spectrum = run.spectrum  # surface F_lambda, vacuum Angstrom
 ```
 
-The atmosphere is computed from scratch. No downloaded model grid, research
-patch, observed spectrum or previous atmosphere is required. To return a
-`ModelResult` in memory, use `compute_dah(config, wavelength)`; inspect
-`result.atmosphere.metadata["equilibrium_certificate"]` before using it.
-`run_model` saves the configuration, spectrum, atmosphere and diagnostics
-and can require a successful certificate.
+A model takes a few minutes on a laptop. Wavelengths must lie in
+3400–8000 Å. The output is surface F_λ in erg s⁻¹ cm⁻² Å⁻¹.
 
-The equivalent one-shot command is:
+| `quality` | Depth points | Use |
+| --- | --- | --- |
+| `"quick"` | 20 | Interface test only. Not a converged model. |
+| `"standard"` | 40 | Exploration. |
+| `"production"` | 100 | Science use. Used for the paper figure. |
+
+The command-line equivalent is:
 
 ```sh
 python examples/one_shot_dah.py --teff 18687 --logg 8.04 \
@@ -49,130 +49,66 @@ python examples/one_shot_dah.py --teff 18687 --logg 8.04 \
     --quality production --require-convergence --output results/j1007-cli
 ```
 
-`examples/dah_paper.py` accepts any of the eight paper object keys and holds
-its temperature, gravity and geometry fixed. `quality="production"` is the
-paper resolution (initially 100 depth points and four synthesis angles).
-`standard` uses the ordinary smaller structure grid; `quick` is only a smoke
-test and is not a convergence guarantee.
+`examples/dah_paper.py` runs any of the eight paper objects at fixed
+parameters. Add `--prescription default` to reproduce the paper figure.
+Without it, the script uses `paper_dah_config` (see
+[Other physics options](#other-physics-options)).
 
-## Field geometry
+## Options
 
-| Input | Meaning |
-| --- | --- |
-| `field_geometry="uniform"` | One modulus over the disk; the default geometry. |
-| `field_angle_deg=None` | Isotropic field directions for the uniform model; a number fixes the angle to the line of sight. |
-| `field_geometry="dipole"` | Centered or displaced dipole integrated over the visible surface. |
-| `magnetic_field_megagauss` | Uniform modulus, or polar field of the **undisplaced** dipole. |
-| `field_strength_definition="visible-mean"` | Instead normalize a dipole to the projected-area mean modulus. |
-| `dipole_inclination_deg` | Angle between the dipole axis and the line of sight. |
-| `dipole_offset_radius=(ax, ay, az)` | Displacement in stellar radii in the magnetic-axis frame: z along the dipole axis, line of sight in the x–z plane. |
-| `disk_field_bins=21` | Compress the resolved surface quadrature into field bins; `None` retains all cells. |
-| `disk_component_drift_angstrom=None` | Opt-in dipole binning by estimated component drift; takes precedence over `disk_field_bins` (see below). |
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `effective_temperature` | `16700.0` | Teff in K; accepted range 5000–40,000 K. |
+| `logg` | `8.07` | log10 of surface gravity in cm s⁻²; accepted range 7.0–9.5. |
+| `magnetic_field_megagauss` | `0.325` | Uniform field strength, or the polar field of the undisplaced dipole. |
+| `field_geometry` | `"uniform"` | `"uniform"` or `"dipole"`. |
+| `field_angle_deg` | `None` | Uniform field only. `None` averages over isotropic directions; a number fixes the angle to the line of sight. |
+| `field_strength_definition` | `"dipole-polar"` | `"visible-mean"` normalizes a dipole to its projected-area mean field instead. |
+| `dipole_inclination_deg` | `60.0` | Angle between the dipole axis and the line of sight. |
+| `dipole_offset_radius` | `(0, 0, 0)` | Dipole displacement (a_x, a_y, a_z) in stellar radii; z along the dipole axis, line of sight in the x–z plane. |
+| `quality` | `"standard"` | Numerical resolution (see above). |
+| `disk_field_bins` | `21` | Number of field bins for the disk sum. `None` keeps every surface cell. |
+| `disk_component_drift_angstrom` | `None` | Builds dipole field bins from a limit on component wavelength drift. Use about 16 Å at high fields. Slower. See the [quadrature note](../development/history/dah-disk-quadrature-2026-10-08.md). |
+| `polarized_transfer` | `"scalar-stokes-i"` | `"full-stokes-iquv"` solves full polarized transfer. |
+| `return_stokes` | `False` | Return Q, U and V (see [Polarized output](#polarized-output)). |
+| `mixing_length_alpha` | `None` | `None`: ML2/α = 0.7 below a mean visible field of 0.05 MG, radiative above. A number forces ML2 with that α. |
 
-The atomic regime is selected from a bound on the **continuous visible
-surface maximum**, not a compressed bin mean or the polar input parameter.
-Bounds are exact for axial offsets and conservative for transverse offsets;
-the result records `visible_field_bounds_exact` and the field interval.
-An offset dipole with a polar field below 100 MG can have local fields above
-100 MG. The 100-MG scale is not a universal accuracy cutoff.
+## Physics
 
-Each compressed bin is synthesized at one mean field. In the tested
-high-field examples, components move rapidly between the default bins,
-leaving discrete copies rather than a resolved field-spread profile.
-Larger `disk_field_bins` values and `None` remain supported. They change
-compression, not raw surface resolution; the new option also uses a denser
-surface grid. Explicit dense grids are available at the lower level through
-`dipole_surface_cells`.
-`disk_component_drift_angstrom` builds bins from a 192 × 384 (or denser)
-visible-surface grid. The bin edges lie at equal steps of the accumulated
-drift ∫ max|dλ/dB| dB on a 4001-point field grid. The screen uses Balmer
-components inside the output window (±100 Å) with at least 1% of their
-parent line's strongest `energy × dipole-strength` proxy, not their
-temperature-dependent LTE opacity. This is an estimated drift budget
-within each interval, not a bound on adjacent bin means or spectral error.
-Components outside the screen, broad wings, angular compression and finite
-raw-surface resolution still require convergence checks. Requests needing
-more than 4096 drift intervals fail rather than silently coarsen.
-
-Each field interval also retains up to eight limb-cosine subgroups. Their
-projected weights and mean limb cosines preserve disk integration when
-component drift is negligible, including at zero field. The subgroups
-share the interval's mean field, so they reuse its opacity and radiation
-source calculation; their field–ray angles are averaged separately. The
-result reports distinct field bins and limb rays separately.
-
-With 16 Å, the archived J1018+0111 and J1351+5419 calculations use 130 and
-267 field bins. These archived runs preceded the independent limb sampling;
-their spectra and timings describe the earlier one-ray-per-field version.
-The option is slower than the 21-bin default because every field bin needs
-an opacity/source calculation and each limb subgroup needs an emergent ray.
-See the
-[disk-quadrature benchmark](../development/history/dah-disk-quadrature-2026-10-08.md)
-for measured accuracy and cost. Start with 16 Å for these cases and tighten
-it for your target and instrumental resolution; it is not a universal
-accuracy setting. The option is off by default and does not change the
-frozen paper predictions. `result.metadata["domain_notes"]` records the
-scope of this numerical estimate and the unchanged physics approximations.
-
-## Default physics
-
-1. **Structure.** The shared adaptive Newton solver converges an ordinary
-   nonmagnetic DA atmosphere. The zero-field DA opacities, including its
-   usual unified Balmer profiles, determine the structure. The magnetic
-   Kurucz/Griem spectrum is then computed on that temperature–pressure
-   structure. The certificate establishes equilibrium of the **nonmagnetic
-   structure**, not radiative equilibrium with magnetic opacities in every
-   surface cell. This scope is explicit in the model metadata.
-2. **Line shapes.** `balmer_profile="kurucz-griem"` implements the historical
-   Kurucz (1970) / Griem Stark approximation (SAO Report 309, section 5.14;
-   `STARK`, printed p. 243). Each parent-line shape is divided by its own
-   infinite-frequency-detuning integral, independently of the output mesh,
-   and multiplied by the ordinary LTE oscillator strength and HM/Q-MHD
-   population and occupation factors. No width or opacity multiplier is
-   fitted. The historical profile has no separate Doppler convolution,
-   neutral self broadening or unbroadened central component.
-3. **Magnetic components.** If every visible field is at most 1 MG, Hα–H22
-   use normal Zeeman triplets, with Δν = eB/(4πm_e c). Otherwise Hα–H12 use
-   H2db wavelengths and relative strengths, including Boltzmann populations
-   of the split n=2 substates. H13 and higher are omitted in this regime.
-   The reader restores the archived mirror components with the physical
-   sign of m. Cells below the complete table's 0.0470103-MG floor use an
-   analytic normal-triplet continuation.
-4. **Line strength.** `normalize_balmer_strength=True` divides each H2db
-   parent line's complete component weights by their depth-dependent sum,
-   **including stimulated emission at each component frequency**, before
-   angular weighting. The isotropic integrated strength equals that of the
-   zero-field parent. The ray-specific integral need not be field independent.
-   Components translate the parent profile in frequency; finite templates
-   span 900–25000 Å and are never renormalized to the requested output window.
-5. **Transfer.** `polarized_transfer="scalar-stokes-i"` integrates rays with
-   their local π/σ angular weights and limb cosines. The coherent-scattering
-   source is solved for each cell's angle-averaged opacity. Dipole quadrature
-   starts at 8 limb × 16 azimuth nodes and refines to resolve displaced polar
-   caps. Field-bin compression splits bins crossing 1 MG.
-6. **Continuum and chemistry.** The defaults keep the nonmagnetic EOS,
-   bound-free/free-free absorption and scattering. Molecular chemistry,
-   H⁻ and H₃⁺ are included for weak-field models at or below 12000 K;
-   the strong-field comparison prescription omits molecular chemistry.
-   Magnetic EOS, RWA photoionization, centered-motion corrections and
-   cyclotron absorption are disabled by default.
-
-The normal convection policy uses ML2/α=0.7 below 0.05 MG and no convection
-above it. An explicit positive `mixing_length_alpha` overrides this policy.
-For a strictly radiative DA control at any field, use
-`DAConfig(mixing_length_alpha=None)`. Cool radiative production atmospheres
-can refine a failed 100-layer attempt to 200 layers with unchanged physics
-and fresh convergence checks; see the [DA guide](DA.md#radiative-atmospheres-with-convection-disabled).
-G 76−48 (6680 K, log g=7.96) motivated this repair. It does not establish
-an entire cool radiative grid or remove its observed line-core discrepancies.
+- **Structure.** A nonmagnetic DA atmosphere from the shared Newton solver,
+  with the DA opacities. Convection is off when the mean visible field
+  exceeds 0.05 MG ([Tremblay et al. 2015](https://doi.org/10.1088/0004-637X/812/1/19);
+  [Gentile Fusillo et al. 2018](https://doi.org/10.1093/mnras/stx2584)).
+  The convergence certificate applies to this nonmagnetic structure.
+- **Line components.** Below 1 MG, Hα–H22 split into normal Zeeman triplets.
+  Above 1 MG, Hα–H12 use the wavelengths and strengths of the H2db database
+  ([Schimeczek & Wunner 2014](https://doi.org/10.1016/j.cpc.2013.09.023);
+  [H2db data](https://doi.org/10.18419/DARUS-2118)). π components absorb in
+  proportion to sin²ψ and σ± components to (1 + cos²ψ)/2, where ψ is the
+  angle between the field and the ray.
+- **Line profiles.** Each component has the Kurucz/Griem Stark profile
+  ([Kurucz 1970](https://articles.adsabs.harvard.edu/pdf/1970SAOSR.309.....K)),
+  as in [Moss et al. (2024)](https://doi.org/10.1093/mnras/stad3825). The
+  component strengths are normalized so that their sum equals the zero-field
+  line strength.
+- **Continuum and EOS above 1 MG.** Each surface element solves a magnetic
+  Saha/Hummer–Mihalas equilibrium on the fixed temperature–pressure
+  structure. It includes Landau-quantized free charges, field-dependent bound
+  energies and centred-motion transverse masses. H I bound–free opacity for
+  n = 1–8 uses rigid-wavefunction (RWA) photoionization cross sections
+  ([Rohrmann 2026](https://doi.org/10.1051/0004-6361/202658917)). At or below
+  1 MG the zero-field EOS and continuum apply. Cyclotron absorption is off.
+- **Transfer.** Scalar Stokes I by default, with the angle-weighted π and σ±
+  opacities. Full IQUV transfer is optional.
 
 ## Results at published parameters
 
-The paper comparison uses these fixed values, ordered by dipole polar field.
-The first four have continuous visible maxima below 100 MG; the remaining
-objects test the prescription at higher fields.
+The eight objects below have fixed published parameters, ordered by polar
+field. J1018+0111 and J2247+1456 are from
+[Vera-Rueda & Rohrmann (2024)](https://doi.org/10.1051/0004-6361/202449627);
+the others are from [Hardy et al. (2023)](https://doi.org/10.1093/mnras/stad196).
 
-| Object | Teff (K) | log g | Bp (MG) | i (deg) | (ax, ay, az) |
+| Object | Teff (K) | log g | B_p (MG) | i (deg) | (a_x, a_y, a_z) |
 | --- | ---: | ---: | ---: | ---: | --- |
 | J1007+1237 | 18687 | 8.04 | 6.13 | 71 | (0, 0, 0.30) |
 | J1034+0327 | 15756 | 8.80 | 11.17 | 77 | (0, 0, 0.09) |
@@ -183,112 +119,105 @@ objects test the prescription at higher fields.
 | J1351+5419 | 13937 | 8.43 | 368.52 | 34 | (0, 0, 0.07) |
 | J2247+1456 | 19000 | 8.00 | 437.10 | 10 | (0, 0, −0.15) |
 
-[![Observed and predicted spectra with a single flux scale](../assets/dah-paper-unscaled.png)](../assets/dah-paper-unscaled.pdf)
+[![Observed and OpenWD spectra of eight DAHs, with a smooth correction](../assets/dah-paper-rescaled.png)](../assets/dah-paper-rescaled.pdf)
 
-[Download the single-scale comparison (PDF)](../assets/dah-paper-unscaled.pdf)
-or the [paper's smoothly rescaled comparison (PDF)](../assets/dah-paper-rescaled.pdf).
+**Eight DAHs, paper version.** Observed SDSS spectra and OpenWD predictions
+(default physics), in relative f_ν. Models are convolved to the instrumental
+resolution and scaled to the data over 5200–6100 Å. A low-order polynomial
+fitted to the observed/model ratio absorbs flux-calibration and reddening
+errors. The J1034+0327 spectrum is first recalibrated to SDSS and Pan-STARRS
+photometry. Agreement is good below about 100 MG and worse above.
+[PDF](../assets/dah-paper-rescaled.pdf).
 
-The figure above uses one flux scale per object. The
-[smoothly rescaled version](../assets/dah-paper-rescaled.png) used in the
-paper additionally applies the disclosed continuum correction; neither
-version changes the stellar parameters. Observations are SDSS/BOSS spectra
-and the Hardy et al. comparison data. J1007 uses SDSS plate 5328, MJD 55982,
-fiber 66; its spectrum is not velocity shifted or dereddened. J1034 uses
-the previously photometrically recalibrated observation.
+[![Observed and OpenWD spectra of eight DAHs, single flux scale](../assets/dah-paper-unscaled.png)](../assets/dah-paper-unscaled.pdf)
 
-The archived spectra underlying the figure are immutable controls in
-[tests/data/dah_paper](../../tests/data/dah_paper/README.md), with original
-source and spectrum hashes. Fixed-state tests exercise the public defaults
-with atmosphere iteration forbidden. Separate cold-start canaries for
-J1007 and J1254 create new structures and require all five equilibrium
-gates as well as absolute-flux agreement with the paper controls.
+**The same comparison with one flux scale per object** and no polynomial
+correction. Use this version to judge the continuum.
+[PDF](../assets/dah-paper-unscaled.pdf).
 
-```sh
-python tools/validate.py spectra --case dah-j1007+1237
-python tools/validate.py cold --case dah-j1007+1237 --case dah-j1254+5612
-python tools/validate.py cold --case da-radiative-g76-48
-```
-
-Bundled observational controls are available through
-`wd_spectra.validation.magnetic_da`; `research/validate_dah_observed.py`
-runs their public models and saves comparisons. Its fitted velocity and
-single 5200–6100 Å scale belong to the comparison, never the atmosphere or
-spectrum calculation. Smooth rescaling used in one paper-figure variant is
-also a plotting operation: a positive quadratic correction in log flux.
-It can absorb flux-calibration error **or** a physical continuum error.
-The unscaled variant is necessary for assessing continuum agreement.
+Fixed-state checks compare the public default on all eight stars and the
+paper prescription on three representative stars with the
+[current regression controls](../../tests/data/approved_regressions/README.md).
+Separate J1007 and J1254 cold canaries calculate new atmospheres and require
+the equilibrium checks and absolute-flux agreement.
 
 ## Other physics options
 
-The previous coupled magnetic treatment remains explicitly selectable:
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `include_rwa_photoionization` | `True` | RWA bound–free opacity above 1 MG. |
+| `include_magnetic_eos` | `True` | Magnetic Saha/HM equilibrium above 1 MG. |
+| `include_centered_motion` | `True` | Transverse-mass weighting in the EOS and RWA populations. |
+| `include_cyclotron_absorption` | `False` | Magneto-ionic free–free and Thomson opacity with a cyclotron resonance. |
+| `balmer_profile` | `"kurucz-griem"` | `"unified"` uses the zero-field DA Stark and neutral-broadening profiles. |
+| `normalize_balmer_strength` | `True` | `False` keeps the field-dependent H2db total line strength. |
+| `atmosphere_structure` | `"nonmagnetic"` | `"mean-field"` solves one structure at the mean visible field with magnetic opacities above 1 MG. |
+
+`paper_dah_config(**parameters)` returns a `DAHConfig` with the zero-field
+EOS and H I bound–free opacity at all fields (`include_rwa_photoionization`,
+`include_magnetic_eos` and `include_centered_motion` all `False`). It
+accepts stellar, geometry, transfer and numerical inputs and refuses
+changes to these physics switches. `DAH_PAPER_PRESCRIPTION` lists them.
+
+## Polarized output
+
+Set `polarized_transfer="full-stokes-iquv"` and `return_stokes=True`. A
+dipole also needs `disk_field_bins=None`.
 
 ```python
-from dataclasses import replace
+from wd_spectra import DAHConfig, run_model
 
-coupled = replace(
-    config,
-    atmosphere_structure="mean-field",
-    balmer_profile="unified", normalize_balmer_strength=False,
-    polarized_transfer="full-stokes-iquv",
-    include_magnetic_eos=True, include_rwa_photoionization=True,
-    include_centered_motion=True,
+config = DAHConfig(
+    effective_temperature=15_000, logg=8.0, magnetic_field_megagauss=0.5,
+    field_geometry="dipole", dipole_inclination_deg=60, disk_field_bins=None,
+    polarized_transfer="full-stokes-iquv", return_stokes=True,
+    sky_position_angle_deg=30,
 )
+run = run_model(config, "results/dah-stokes", require_convergence=True)
+s = run.spectrum  # StokesSpectrum
+i, q, u, v = (s.surface_flux_lambda, s.surface_flux_q_lambda,
+              s.surface_flux_u_lambda, s.surface_flux_v_lambda)
 ```
 
-Above 1 MG this solves one structure at the projected-area mean field with
-angle-averaged H2db Balmer opacity, the selected continuum and optional
-magnetic Saha/HM chemistry. Below 1 MG it retains the DA-structure
-approximation. `balmer_profile="unified"` selects the ordinary zero-field
-Stark and neutral-broadening templates; `normalize_balmer_strength=False`
-retains the field-dependent H2db total oscillator strength.
+- All four arrays are disk-integrated surface fluxes. Form Q/I, U/I and V/I
+  from these sums. `run_model` also saves `stokes.txt`.
+- The output uses the optical convention of
+  [Landi Degl'Innocenti, Bagnulo & Fossati (2007)](https://arxiv.org/abs/astro-ph/0610262).
+  For the IAU convention with the same sky axes, use `v_iau = -v`.
+- `sky_position_angle_deg` rotates the field map counterclockwise from the
+  sky x-axis. Rotation phases and Doppler shifts are not modeled.
+- `wd_spectra.validation.magnetic_da.score_dah_circular_polarization`
+  compares an observed V/I with a returned spectrum.
+- Q, U and V are not validated against polarimetry. The metadata records
+  `polarimetry_validated=False`.
 
-`include_rwa_photoionization=True` selects stationary-state rigid-wavefunction
-H I photoionization through n=8 with shifted dissolved-level edges.
-`include_magnetic_eos=True` selects Landau-quantized charged particles and
-H2db stationary energies in the Saha/HM closure. `include_centered_motion`
-controls the transverse-mass weighting in both the EOS and RWA populations.
-These are separate diagnostic options, not ingredients of the paper default.
+### Custom surface maps
 
-Full IQUV transfer includes dichroism and magneto-optical dispersion at each
-cell, but only disk-integrated Stokes I is returned. Full IQUV transfer works with both
-line prescriptions: each magneto-optical profile is the Kramers–Kronig partner of
-its absorption profile, and template nodes that round to the same frequency
-are merged before the transform. The compressed geometry
-does not retain the azimuths needed for Q/U, and V has not been validated
-against polarimetry. `include_cyclotron_absorption=True` additionally uses
-magneto-ionic free-free and Thomson coefficients with a Doppler-broadened
-cyclotron resonance. Its broad optical absorption at hundreds of MG is not
-supported by all comparison objects and remains off by default.
+Pass `surface_cells=` to `compute_dah` to use your own field map (for
+example a multipole at one rotation phase). Build it with
+`wd_spectra.magnetic.SurfaceCells`, or with `dipole_surface_cells` and
+`uniform_field_surface_cells`. The map replaces the built-in geometry. Its
+maximum field selects the atomic data, and its mean field controls
+convection. Temperature, gravity, quality and physics options still come
+from `DAHConfig`.
 
-## Limitations and references
+## Limitations
 
-This is an approximate LTE spectral prescription, not a simultaneous
-Stark–Zeeman calculation or a reproduction of unpublished Jordan/Moss code.
-H2db substitutes for their component data. The accepted input range
-(5000–40000 K, log g 7–9.5 and fields within the atomic tables) is wider
-than the tested sample; table coverage does not establish physical accuracy.
-At high fields, stationary components can have widths quite unlike a
-translated zero-field profile. Magnetic Lyman/Paschen/Brackett data,
-thermally decentered atoms and polarimetric output are absent. Strong-field
-molecular chemistry is absent, which limits cool-star applications.
-Agreement with eight objects does not guarantee an unbiased parameter fit.
-At zero field the default still uses Kurucz/Griem profiles; select unified
-profiles to recover the ordinary DA line-profile limit.
+- Accuracy degrades above about 100 MG. At high fields, stationary
+  components dominate, and their shapes need a joint Stark–Zeeman treatment
+  that the per-component Kurucz/Griem profiles do not provide.
+- The RWA bound–free opacity is tested against quantum cross sections only
+  up to about 200 MG. Above 200 MG of visible field, the continuum is
+  uncertain; the metadata records a `domain_notes` entry.
+- The atmosphere structure is nonmagnetic. Magnetic Lyman, Paschen and
+  Brackett lines, H13 and higher above 1 MG, and strong-field molecules are
+  absent.
+- The accepted range (5000–40,000 K, log g 7–9.5) is wider than the tested
+  sample.
 
-The full-IQUV dispersion transform treats each sampled absorption profile as
-piecewise linear in frequency and zero outside its mesh. Kurucz/Griem wing
-values can be nonzero at the mesh ends; the exact transform then diverges at
-those endpoints. Returned endpoint values retain the existing finite convention.
+See also the general [limitations](../limitations.md). Data attribution is in
+the [third-party notices](../../THIRD_PARTY_NOTICES.md).
 
-Scientific use should cite the relevant ingredients and observational sources:
+## Tested range
 
-- [Kurucz (1970), SAO Special Report 309](https://articles.adsabs.harvard.edu/pdf/1970SAOSR.309.....K), section 5.14 and `STARK` on p. 243: historical Griem-based shape.
-- [Moss et al. (2024)](https://doi.org/10.1093/mnras/stad3825), section 4.2: scalar, nonmagnetic-atmosphere, normalized-component prescription.
-- [Schimeczek & Wunner (2014)](https://doi.org/10.1016/j.cpc.2013.09.023) and [H2db data](https://doi.org/10.18419/DARUS-2118): component wavelengths, dipole strengths and energies.
-- [Hardy, Dufour & Jordan (2023)](https://doi.org/10.1093/mnras/stad196): offset-dipole parameters and comparison spectra.
-- [Vera-Rueda & Rohrmann (2024)](https://doi.org/10.1051/0004-6361/202449627): field geometry and the J1018/J2247 comparisons.
-
-[Release notes and regression controls](../development/history/dah-release-2026-09-29.md)
-describe the integration and radiative convergence repair.
-Data attribution and redistribution details are in
-[third-party notices](../../THIRD_PARTY_NOTICES.md).
+See [tested points](../tested-temperature-ranges.md).

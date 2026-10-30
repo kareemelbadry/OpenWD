@@ -128,6 +128,15 @@ class ConsistentDQMaterial(dq.DQMaterial):
             opacity+=non_swan*(c2/a.mass_density)[None,:]
         return opacity
 
+    def continuum_absorption(self,current,wavelength):
+        """He continuum (with pseudo-continuum) and carbon bound-free: no lines or C2."""
+        a,carbon,_=self.chemistry(current)
+        dense=self.dense_continuum.correction(wavelength,a.temperature,a.helium_lte_state.neutral_he_density)\
+            if self.dense_continuum is not None else None
+        opacity=helium_continuum_absorption(a,wavelength,dense)
+        opacity+=dq.metal_bound_free_mass_absorption_coefficient(a,wavelength,self.atomic,carbon,self.photo)
+        return opacity
+
     def structure_grid(self,seed,n_continuum):
         original=super().structure_grid(seed,n_continuum)
         optical=sampling_grid(3800.,6800.,self.sampling_r,self.sampling_phase)

@@ -42,6 +42,7 @@ from .hot import DOConfig, DAOConfig, compute_do, compute_dao
 from .pg1159 import PG1159Config, compute_pg1159
 from .d6 import D6Config, compute_d6
 from .dah import DAHConfig, compute_dah
+from .sdb import SdBConfig, compute_sdb
 from ..spectrum import Spectrum
 
 
@@ -56,19 +57,34 @@ class ModelRun:
 
     @property
     def spectrum(self):
+        from ..spectrum import StokesSpectrum
+
         values = np.loadtxt(self.spectrum_path)
-        return Spectrum(
-            values[:, 0],
-            values[:, 1],
-            dict(
-                flux_convention="surface F_lambda",
-                wavelength_medium="vacuum",
-                flux_unit="erg s^-1 cm^-2 Angstrom^-1",
-                source_path=str(self.spectrum_path),
-                convergence_verified=self.convergence_verified,
-                selected_physics=self.selection.workflow,
-            ),
+        # The optional third column is the line-free continuum flux.
+        continuum = values[:, 2] if values.shape[1] == 3 else None
+        metadata = dict(
+            flux_convention="surface F_lambda",
+            wavelength_medium="vacuum",
+            flux_unit="erg s^-1 cm^-2 Angstrom^-1",
+            source_path=str(self.spectrum_path),
+            convergence_verified=self.convergence_verified,
+            selected_physics=self.selection.workflow,
         )
+        saved_metadata = self.output_directory / "metadata.json"
+        if self.selection.workflow == "dah" and saved_metadata.is_file():
+            record = json.loads(saved_metadata.read_text())
+            if record["config"].get("return_stokes", False):
+                path = self.output_directory / "stokes.txt"
+                stokes = np.loadtxt(path)
+                if (stokes.shape != (values.shape[0], 5) or not np.all(np.isfinite(stokes))
+                        or not np.array_equal(stokes[:, :2], values[:, :2])):
+                    raise ValueError("stokes.txt must match the saved intensity grid and flux")
+                metadata.update(record["spectrum_metadata"])
+                metadata["stokes_source_path"] = str(path)
+                return StokesSpectrum(values[:, 0], values[:, 1], metadata,
+                                      stokes[:, 2], stokes[:, 3], stokes[:, 4],
+                                      continuum)
+        return Spectrum(values[:, 0], values[:, 1], metadata, continuum)
 
 
 def _cool_commands(config, selection, directory):
@@ -230,6 +246,7 @@ def run_model(
                 PG1159Config: compute_pg1159,
                 D6Config: compute_d6,
                 DAHConfig: compute_dah,
+                SdBConfig: compute_sdb,
                 DAConfig: compute_da,
                 DAZConfig: compute_daz,
                 DQConfig: compute_dq,
@@ -273,6 +290,9 @@ def run_model(
                 )
                 if not isinstance(config, PG1159Config):
                     options["initial_atmosphere"] = None
+                if isinstance(config, DBConfig):
+                    # select_physics already ran the same dense-helium screen.
+                    options["allow_dense_photosphere"] = True
                 if wave is not None:
                     options["wavelength"] = wave
                 result = compute(
@@ -301,14 +321,15 @@ def run_model(
         if (
             spectrum_values.ndim != 2
             or spectrum_values.shape[0] < 2
-            or spectrum_values.shape[1] != 2
+            or spectrum_values.shape[1] not in (2, 3)
             or not np.all(np.isfinite(spectrum_values))
             or np.any(spectrum_values[:, 0] <= 0)
             or np.any(np.diff(spectrum_values[:, 0]) <= 0)
-            or np.any(spectrum_values[:, 1] < 0)
+            or np.any(spectrum_values[:, 1:] < 0)
         ):
             raise ValueError(
-                "Worker did not produce a finite, ordered, nonnegative two-column spectrum"
+                "Worker did not produce a finite, ordered, nonnegative spectrum "
+                "(wavelength, flux and optional continuum columns)"
             )
         manifest.update(
             status="completed",

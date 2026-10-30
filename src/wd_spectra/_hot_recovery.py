@@ -20,6 +20,13 @@ from .nlte_core import NonphysicalPopulationError
 
 LOGGER = logging.getLogger(__name__)
 
+# Chord iterations for population restoration at a bracketed temperature.
+# The stale tangent contracts linearly (about 0.44 per iteration at the DO
+# 55 kK/logg 8 fold, from 6e-2); twelve iterations stopped at 3.5e-7, just
+# short of the 1e-7 acceptance, and discarded a valid thermal root. Each loop
+# still ends early once settled or when no damping lowers the residual.
+_RESTORATION_ITERATIONS = 50
+
 
 class ThermalPopulationCorrection:
     def __init__(self,evaluate,step_builder,step_tolerance):
@@ -156,6 +163,10 @@ class BracketedThermalPopulationCorrection(ProjectedThermalPopulationCorrection)
         super().__init__(evaluate, step_builder, step_tolerance)
         self.equations = equations
         self.thermal_probes = 0
+        # (anchor, depth, state) of a full-transfer thermal root whose
+        # correction has not been accepted. Acceptance clears it, so a value
+        # left at the next correction marks a rejected branch switch.
+        self.branch_candidate = None
 
     def refine_neighbors(self, candidate, anchor, evaluation, jacobian, depth):
         return candidate
@@ -233,7 +244,7 @@ class BracketedThermalPopulationCorrection(ProjectedThermalPopulationCorrection)
             # This is a separate bracketed material correction, not a Newton
             # trust step. Its explicit temperature bound is 0.35 in log T;
             # the original Newton trust radius and stationary test stay intact.
-            for _ in range(12):
+            for _ in range(_RESTORATION_ITERATIONS):
                 current = checked(z)
                 if np.max(abs(current.residual[nt:]), initial=0.) < 1e-8:
                     break
@@ -281,7 +292,117 @@ class BracketedThermalPopulationCorrection(ProjectedThermalPopulationCorrection)
             temperature = float(t0[depth] + fraction * (coupled_root-t0[depth]))
             full(temperature)
             candidate = full_cache[temperature][0].copy()
-            return self.refine_neighbors(candidate, x, e, j, depth)
+            candidate = self.refine_neighbors(candidate, x, e, j, depth)
+            if fraction == 1.:
+                self.branch_candidate = (x.copy(), depth, candidate.copy())
+            return candidate
+
+        def accepted(trial):
+            # Called only for a merit-reducing trial; it imposes no further
+            # condition and records that this correction was accepted.
+            self.branch_candidate = None
+            return True
+
+        return NonlinearCorrection(trial_state, acceptance_test=accepted)
+
+
+class PlanckBracketedThermalCorrection(ProjectedThermalPopulationCorrection):
+    """Bracket an optically thin thermal root in the Planck (0% NLTE) stage.
+
+    With LTE populations the temperatures are the only unknowns. A thin
+    cell's relative energy residual can be non-monotonic in its own
+    temperature, and the least-squares Newton driver can settle on a local
+    extremum that is not a root (DAO 40 kK, log H/He = 0: a 31 kK layer
+    between 27 kK neighbours, whose root lies at 26.4 kK). Take the layer
+    whose unrestricted Newton correction is largest and bracket the root of
+    its own full-transfer energy equation nearest its current temperature,
+    with all other temperatures held. A node-local frozen-radiation balance
+    is not used: it differs from the cell equation the driver solves and can
+    place a spurious root at the extremum itself. At this stage one full
+    residual costs about one radiative transfer solve.
+    """
+
+    def __init__(self, evaluate, step_builder, step_tolerance, equations):
+        super().__init__(evaluate, step_builder, step_tolerance)
+        self.equations = equations
+        self.thermal_probes = 0
+        self.neighbor_adjustments = 0
+
+    def correction(self, x, e):
+        eq = self.equations
+        if not eq.planck_temperature_only:
+            return None
+        a = e.payload[0]
+        nt = a.n_depth
+        anchor, _, _, _, proposal = self.anchor
+        if not np.array_equal(x, anchor):
+            raise ValueError('Thermal bracketing requires the current Newton anchor')
+        if np.max(abs(proposal.direction[:nt]), initial=0.) < .05:
+            return None
+        depth = int(np.argmax(abs(proposal.direction[:nt])))
+        if depth == nt - 1 or a.rosseland_optical_depth[depth] > .1:
+            return None
+        t0 = float(x[depth])
+        cache = {t0: e}
+
+        def full(log_temperature):
+            key = float(log_temperature)
+            if key not in cache:
+                z = x.copy()
+                z[depth] = key
+                self.thermal_probes += 1
+                self.extra_residual_evaluations += 1
+                cache[key] = self.evaluate(z, False)
+            return float(cache[key].residual[depth])
+
+        grid = t0 + np.array([-.35, -.2, -.1, 0., .1, .2, .35])
+        values = []
+        for point in grid:
+            try:
+                values.append(full(point))
+            except RecoverableEvaluationError:
+                values.append(np.nan)
+        # Thermal residual = (heating - emission)/emission falls with T at a root.
+        brackets = [i for i in range(len(grid) - 1) if values[i] > 0. and values[i + 1] < 0.]
+        if not brackets:
+            return None
+        i = min(brackets, key=lambda k: abs(.5 * (grid[k] + grid[k + 1]) - t0))
+        root = _bracket_root(full, grid[i], grid[i + 1], xtol=1e-6, rtol=1e-12, maxiter=30)
+        LOGGER.info('Planck-stage thermal root at depth %d: %.2f -> %.2f K',
+                    depth, np.exp(t0), np.exp(root))
+
+        _, _, j, _, _ = self.anchor
+        # Moving one layer to its root disturbs its neighbours' balances.
+        # Relax the other temperatures with Gauss-Newton steps on the current
+        # Jacobian, holding the bracketed layer, before the driver measures
+        # merit. Each step is bounded like the bracket itself (0.35 in ln T).
+        held = j.copy()
+        held[:, depth] = 0.
+        rows = np.maximum(abs(held).max(axis=1), np.finfo(float).tiny)
+
+        def relaxed(z):
+            current = self.evaluate(z, False)
+            self.extra_residual_evaluations += 1
+            for _ in range(4):
+                dt, *_ = np.linalg.lstsq(held / rows[:, None], -current.residual / rows, rcond=1e-10)
+                dt[depth] = 0.
+                if np.any(~np.isfinite(dt)) or np.max(abs(dt)) > .35:
+                    break
+                try:
+                    trial = self.evaluate(z + dt, False)
+                except RecoverableEvaluationError:
+                    break
+                self.extra_residual_evaluations += 1
+                if np.linalg.norm(trial.residual) >= np.linalg.norm(current.residual):
+                    break
+                z, current = z + dt, trial
+                self.neighbor_adjustments += 1
+            return z
+
+        def trial_state(fraction):
+            z = x.copy()
+            z[depth] = t0 + fraction * (root - t0)
+            return relaxed(z)
 
         return NonlinearCorrection(trial_state)
 
@@ -325,7 +446,7 @@ class CoupledBracketedThermalPopulationCorrection(BracketedThermalPopulationCorr
                 or max(abs(trial[nt:]-anchor[nt:])) > .5):
             return candidate
         try:
-            for _ in range(12):
+            for _ in range(_RESTORATION_ITERATIONS):
                 current = checked(trial)
                 if max(abs(current.residual[nt:])) < 1e-8:
                     break
@@ -356,17 +477,52 @@ class CoupledBracketedThermalPopulationCorrection(BracketedThermalPopulationCorr
         return candidate
 
 
+class ThermalBranchRestart(Exception):
+    """Request a fresh solve from a rejected full-transfer thermal-branch root.
+
+    Deliberately not a RecoverableEvaluationError: it ends the current
+    driver call, and the caller restarts from ``state`` as a new initial
+    state, never as an accepted step.
+    """
+
+    def __init__(self, depth, anchor, state):
+        super().__init__(f'thermal branch restart at depth {depth}')
+        self.depth = depth
+        self.anchor = anchor
+        self.state = state
+
+
 class RejectedDirectionFallback:
-    def __init__(self, proposals):
+    def __init__(self, proposals, *, branch_restart=False):
         self.proposals = proposals
         self.rejected_directions = 0
         self.active = False
+        self.branch_restart_allowed = branch_restart
 
     def direction(self, *args):
         return self.proposals.direction(*args)
 
     def correction(self, *args):
-        return self.proposals.correction(*args) if self.active else None
+        if not self.active:
+            return None
+        # A thin layer whose local thermal balance has two branches can sit
+        # where its warm root has merged into a turning point (fold): the
+        # residual there is a small local minimum, not a root, the Jacobian
+        # is nearly singular and the temperature never becomes stationary.
+        # The bracketed full-transfer root on the other branch is a genuine
+        # root of that layer, but reaching it first raises the neighbours'
+        # residuals, so merit acceptance rejects it while Newton creeps along
+        # the fold (DO 55 kK/logg 8 boundary layer: 23.6 kK fold, 20.6 kK
+        # root, every iteration). After one rejected switch, end this solve
+        # and restart from the switched state. Certification is unchanged.
+        candidate = getattr(self.proposals, 'branch_candidate', None)
+        if self.branch_restart_allowed and candidate is not None:
+            anchor, depth, state = candidate
+            self.proposals.branch_candidate = None
+            LOGGER.info('Thermal branch switch at depth %d was rejected by merit; '
+                        'restarting from the switched state', depth)
+            raise ThermalBranchRestart(depth, anchor, state)
+        return self.proposals.correction(*args)
 
     def project(self, old, trial):
         return self.proposals.project(old, trial) if self.active else trial
