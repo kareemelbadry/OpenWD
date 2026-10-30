@@ -21,7 +21,6 @@ def planck_state(model, atmosphere, wavelength):
         maximum_helium_ii_level=h.maximum_helium_ii_level,
         helium_i_collision_data=h.helium_i_collision_data,
         hydrogenic_collision_model=h.hydrogenic_collision_model,
-        neutral_collision_strength_scale=h.neutral_collision_strength_scale,
     )
     mean = planck_lambda_angstrom(wavelength[:, None], a.temperature[None, :])
     light = solve_light_metal_ionization_nlte(

@@ -2,100 +2,9 @@ import numpy as np
 import pytest
 
 from wd_spectra._energy_balance import (
-    cell_conservation_rows, discrete_cell_energy_balance, transport_conditioned_rows,
-    locally_scaled_energy_rows,
     discrete_radiative_cell_energy_balance,
     integrated_radiative_cell_energy_state_response,
 )
-from wd_spectra.nonlinear import NonlinearEvaluation, solve_trust_region_newton
-
-
-def test_cell_energy_rows_are_invertible_and_preserve_all_fluxes():
-    rng = np.random.default_rng(918)
-    defect = rng.normal(size=40)
-    local = cell_conservation_rows(defect)
-    recovered = np.empty_like(defect)
-    recovered[-1] = local[-1]
-    for i in range(defect.size - 2, -1, -1):
-        recovered[i] = recovered[i + 1] - local[i]
-    np.testing.assert_allclose(recovered, defect, atol=2e-15)
-    np.testing.assert_array_equal(cell_conservation_rows(np.ones(4)), [0, 0, 0, 1])
-
-
-def test_cell_energy_jacobian_differentiates_the_same_equations():
-    state = np.array([0.7, 1.1, 1.4, 1.8])
-    coupling = np.tril(np.ones((4, 4)))
-    physical = coupling @ state**3 - np.arange(4)
-    jacobian = coupling @ np.diag(3 * state**2)
-    local_jacobian = cell_conservation_rows(jacobian)
-    for j in range(4):
-        delta = np.eye(4)[j] * 1e-5
-        plus = cell_conservation_rows(coupling @ (state + delta)**3 - np.arange(4))
-        minus = cell_conservation_rows(coupling @ (state - delta)**3 - np.arange(4))
-        np.testing.assert_allclose((plus - minus) / 2e-5, local_jacobian[:, j], atol=3e-9)
-    np.testing.assert_array_equal(physical, coupling @ state**3 - np.arange(4))
-
-
-def test_local_rows_cannot_hide_a_wrong_boundary_flux():
-    def evaluate(state, need_jacobian):
-        flux_defect = np.full(4, 0.1)
-        return NonlinearEvaluation(
-            cell_conservation_rows(flux_defect),
-            np.zeros((4, 4)) if need_jacobian else None, flux_defect,
-        )
-    result = solve_trust_region_newton(np.ones(4), evaluate, maximum_iterations=2,
-                                      finite_difference_fallback_step=None)
-    assert not result.converged
-    assert result.evaluation.residual[-1] == 0.1
-
-
-@pytest.mark.parametrize("values", [np.ones(1), np.ones((2, 2, 2))])
-def test_cell_rows_reject_invalid_shapes(values):
-    with pytest.raises(ValueError, match="vector or matrix"):
-        cell_conservation_rows(values)
-
-
-def test_cell_rows_resolve_nearly_duplicate_transport_equations():
-    n = 12
-    matrix = np.ones((n, n)) / n + np.diag(np.geomspace(1e-7, 0.01, n))
-    target = np.linspace(0.8, 1.2, n)
-    def evaluate(state, need_jacobian):
-        return NonlinearEvaluation(
-            cell_conservation_rows(matrix @ (state - target)),
-            cell_conservation_rows(matrix) if need_jacobian else None, None,
-        )
-    result = solve_trust_region_newton(
-        np.zeros(n), evaluate, maximum_iterations=20,
-        residual_tolerance=1e-11, step_tolerance=1e-8,
-        finite_difference_fallback_step=None,
-    )
-    assert result.converged
-    np.testing.assert_allclose(result.state, target, atol=2e-12)
-
-
-def test_transport_conditioning_preserves_the_root_and_thin_thick_limits():
-    rng = np.random.default_rng(20)
-    n = 30
-    width = np.geomspace(1e-9, 1e4, n - 1)
-    transform = transport_conditioned_rows(np.eye(n), width)
-    np.testing.assert_array_equal(np.diag(transform), np.ones(n))
-    defect = rng.normal(size=n)
-    local = transport_conditioned_rows(defect, width)
-    np.testing.assert_allclose(np.linalg.solve(transform, local), defect, atol=3e-15)
-    np.testing.assert_allclose(local[0], defect[0] - defect[1], atol=2e-9)
-    np.testing.assert_allclose(local[-2], defect[-2], atol=2e-4)
-    assert local[-1] == defect[-1]
-
-
-def test_local_scaling_is_invertible_and_measures_thin_cell_heating():
-    scale = np.array([1e-9, .01, 1., 1e4])
-    matrix = locally_scaled_energy_rows(np.eye(5), scale)
-    assert np.all(np.diag(matrix) > 0)
-    defect = np.array([.1, .2, .3, .4, .5])
-    np.testing.assert_allclose(np.linalg.solve(matrix, matrix @ defect), defect, atol=1e-15)
-    np.testing.assert_allclose(locally_scaled_energy_rows(np.ones(5), scale), np.ones(5))
-    thin = np.array([0., 1e-10, 1e-10, 1e-10, 1e-10])
-    assert locally_scaled_energy_rows(thin, scale)[0] == pytest.approx(-.1)
 
 
 @pytest.mark.parametrize("epsilon", [1.0, 0.01])
@@ -110,12 +19,12 @@ def test_local_energy_exchange_matches_feautrier_flux_divergence(epsilon):
         tau, planck, np.full_like(tau, epsilon), np.full_like(tau, 1 - epsilon), n_angle=3
     )
     convective = np.linspace(0, 500, depth.size)**2
-    defect, scale = discrete_cell_energy_balance(
-        wave, tau, planck, field.mean_intensity, np.full_like(tau, epsilon), convective
+    exchange, emission = discrete_radiative_cell_energy_balance(
+        wave, tau, planck, field.mean_intensity, np.full_like(tau, epsilon)
     )
     expected = np.diff(trapezoid(field.interface_flux, wave, axis=0) + convective)
-    np.testing.assert_allclose(defect, expected, rtol=1e-5, atol=1e-5)
-    assert np.all(scale > 0)
+    np.testing.assert_allclose(exchange + np.diff(convective), expected, rtol=1e-5, atol=1e-5)
+    assert np.all(emission > 0)
 
 
 @pytest.mark.parametrize("scattering_fraction", [0., .98, .999999])

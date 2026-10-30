@@ -9,7 +9,7 @@ from wd_spectra.metals import (
     read_si_ii_he_unified_profile,
     read_stout_atomic_database,
 )
-from wd_spectra.models import DZConfig, ModelData
+from wd_spectra.models import ModelData
 
 C = 2.99792458e10
 
@@ -40,7 +40,3 @@ def test_only_the_3p_3d_triplet_is_attached(databases):
         assert new.absorption_oscillator_strength == old.absorption_oscillator_strength
         assert new.electron_stark_rate_coefficient_cm3_s == old.electron_stark_rate_coefficient_cm3_s
     assert unified.ions["Si", 2] is base.ions["Si", 2]
-
-
-def test_option_defaults_on():
-    assert DZConfig().si_ii_he_unified_profile is True

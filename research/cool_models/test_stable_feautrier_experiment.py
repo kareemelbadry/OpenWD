@@ -3,7 +3,7 @@ import pytest
 from wd_spectra._compat import trapezoid
 from wd_spectra.opacity import optical_depth_from_mass_opacity
 from wd_spectra.radiative_transfer import coherent_scattering_feautrier_field
-from stable_feautrier_experiment import stable_field, stable_response
+from wd_spectra._cool.stable_transfer import stable_field, stable_response
 
 
 @pytest.mark.parametrize('fraction', [0., .8, .999])

@@ -150,8 +150,7 @@ def test_frozen_formal_lines_survive_window_changes_and_record_provenance(j1637_
     wave = np.arange(5300.0, 5500.0, 0.2)
     inside = (wave >= 5380.0) & (wave <= 5420.0)
     options = dict(maximum_metal_lines=0, n_angle=2, include_linear_stark_quasistatic=True,
-                   linear_stark_profile="manifold", microturbulent_velocity_kms=3.0,
-                   include_nonideal_partitions=nonideal)
+                   microturbulent_velocity_kms=3.0, include_nonideal_partitions=nonideal)
     full = synthesize_d6_spectrum(
         atmosphere, wave, database, photo, SDSS_J1637_LOG_NUMBER_ABUNDANCE,
         line_transition_keys=iter(keys), **options,

@@ -18,7 +18,7 @@ import numpy as np
 from wd_spectra import DAConfig, DAZConfig, DBConfig, DABConfig, DZConfig
 from wd_spectra import compute_da, compute_daz, compute_db, compute_dab, compute_dz
 from wd_spectra.models import load_atmosphere_checkpoint, AtmosphereConvergenceWarning
-from wd_spectra.models.common import _MODEL_PHYSICS_REVISION
+from wd_spectra.models.common import _MODEL_PHYSICS_REVISION, config_from_stored
 from wd_spectra._compat import trapezoid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +54,7 @@ def capture(case, mode, output, cold_sources):
         "daz_regressions" if kind == "DAZ" else "spectral_regressions"
     ) / ((case[4:] if kind == "DAZ" else case) + ".npz")
     with np.load(historical) as saved:
-        config = cls(**json.loads(str(saved["config_json"])))
+        config = config_from_stored(cls, json.loads(str(saved["config_json"])))
         wavelength = saved["wavelength"].copy()
         old_flux = saved["original_surface_flux"].copy()
     source = Path(cold_sources[case]) if mode == "cold" else historical

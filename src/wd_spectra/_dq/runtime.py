@@ -26,7 +26,7 @@ from .c2_ca import load_ca_table
 from .continuum_batches import CONTINUUM_BATCH_SIZE
 from .data import data_root, validate_data
 from .dq_refractive_material import RefractiveDQMaterial
-from .dq_uv_sampling_experiment import refined_material
+from .dq_structure_sampling import refined_material
 from . import dq_swan_impact_broadening as swan_broadening
 from .provenance import digest, source_hashes
 from .swan_strength_cache import CachedSwan

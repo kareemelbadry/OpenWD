@@ -93,16 +93,10 @@ def _cool_commands(config, selection, directory):
         raise ValueError(f"no isolated cool worker for workflow {selection.workflow!r}")
     if config.quality != "production":
         raise ValueError('The automatic cool workflow currently requires quality="production"; no different resolution is substituted')
-    defaults = type(config)()
-    for key in (
-        "mixing_length_alpha",
-        "atmosphere_solver",
-        "neutral_broadening",
-    ):
-        if getattr(config, key) != getattr(defaults, key):
-            raise ValueError(
-                f"Automatic cool workflow does not implement an override of {key}; use an explicit preset for controlled experiments"
-            )
+    if config.mixing_length_alpha != type(config)().mixing_length_alpha:
+        raise ValueError(
+            "Automatic cool workflow does not implement an override of mixing_length_alpha; use an explicit preset for controlled experiments"
+        )
     temperature = str(int(config.effective_temperature))
     if float(temperature) != config.effective_temperature:
         raise ValueError(

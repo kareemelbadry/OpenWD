@@ -16,10 +16,9 @@ def test_damped_real_atom_update_cannot_claim_rate_convergence():
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},
         structure_only=True, population_iterations=1,
         oxygen_atom_preset='extended54-complete')
-    model = replace(model, population_transfer='mass', population_nlte_fraction=.1,
+    model = replace(model, population_nlte_fraction=.1,
         metal_population_damping=1e-8, metal_population_minimum_damping=1e-8,
-        helium_population_damping=1e-8, metal_population_acceleration_depth=0,
-        coupled_population_acceleration_depth=0, use_population_ali=False,
+        helium_population_damping=1e-8, coupled_population_acceleration_depth=0,
         metal_population_relative_tolerance=1e-4)
     atmosphere = helium_continuum_atmosphere(110000., 7., n_depth=8,
         rosseland_frequency_points=120, tau_max=1000.)
@@ -46,10 +45,10 @@ def test_measured_state_is_returned_before_extrapolation(monkeypatch, handoff):
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},
         structure_only=True, population_iterations=3,
         oxygen_atom_preset='extended54-complete')
-    model = replace(model, population_transfer='mass', population_nlte_fraction=.1 if handoff else 0.,
+    model = replace(model, population_nlte_fraction=.1 if handoff else 0.,
         metal_population_minimum_iterations=1,
-        coupled_population_acceleration_depth=20, metal_population_acceleration_depth=0,
-        metal_population_relative_tolerance=1e-4, use_population_ali=False)
+        coupled_population_acceleration_depth=20,
+        metal_population_relative_tolerance=1e-4)
     atmosphere = helium_continuum_atmosphere(110000., 7., n_depth=8,
         rosseland_frequency_points=120, tau_max=1000.)
     atmosphere, initial = planck_state(model, atmosphere, structure_wavelength(model, 120))
@@ -86,10 +85,10 @@ def test_iteration_limit_returns_last_measured_input(monkeypatch):
     model, _ = build_model(data, {'He': .52, 'C': .45, 'O': .03},
         structure_only=True, population_iterations=2,
         oxygen_atom_preset='extended54-complete')
-    model = replace(model, population_transfer='mass', population_nlte_fraction=.1,
+    model = replace(model, population_nlte_fraction=.1,
         metal_population_minimum_iterations=1,
-        coupled_population_acceleration_depth=20, metal_population_acceleration_depth=0,
-        metal_population_relative_tolerance=1e-30, use_population_ali=False)
+        coupled_population_acceleration_depth=20,
+        metal_population_relative_tolerance=1e-30)
     atmosphere = helium_continuum_atmosphere(110000., 7., n_depth=8,
         rosseland_frequency_points=120, tau_max=1000.)
     atmosphere, initial = planck_state(model, atmosphere, structure_wavelength(model, 120))

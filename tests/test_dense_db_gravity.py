@@ -1,10 +1,10 @@
 """Requested gravity must survive hydrostatics, synthesis and native audits."""
 import numpy as np
 import pytest
-from wd_spectra._cool.check_cool_db_transport_seed import atmosphere_at
+from wd_spectra._cool.dense_db_runner import atmosphere_at
 from wd_spectra._cool.run_cool_db import commands
 from wd_spectra._cool.audit_dense_spectrum import saved_parameters
-from wd_spectra._cool.dense_helium_molecular_experiment import run_coordinates
+from wd_spectra._cool.dense_helium_eos import run_coordinates
 
 
 def test_gravity_changes_hydrostatic_mass_not_material_state():

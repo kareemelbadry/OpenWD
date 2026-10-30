@@ -1,6 +1,6 @@
 import pytest
 from wd_spectra import adaptive_structure as adaptive
-from mass_transfer_experiment import mass_transfer_experiment
+from wd_spectra._cool.mass_transfer import mass_transfer_experiment
 
 
 def test_scope_sets_only_entry_option_and_restores_after_error(monkeypatch):

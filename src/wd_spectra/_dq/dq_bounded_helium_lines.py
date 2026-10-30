@@ -56,6 +56,6 @@ def bounded_helium_lines(a,wavelength,table,background,*,relative_tolerance=1e-1
         if lines:
             aa=subset(a,indices,a.n_depth)
             out[:,indices]=he.helium_i_line_mass_absorption_coefficient(aa,w,table,
-                lines=tuple(he.HELIUM_I_LINES[i] for i in lines),neutral_broadening='unsold')
+                lines=tuple(he.HELIUM_I_LINES[i] for i in lines))
     return out,dict(omitted_bound=omitted,relative_bound=float(np.max(omitted/floor)),
         retained_line_layers=int(np.count_nonzero(~skip)),total_line_layers=int(skip.size))

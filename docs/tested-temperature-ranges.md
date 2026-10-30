@@ -117,7 +117,6 @@ Paper range: 10,500–29,316 K, dipole polar fields 6.13–437.1 MG. See the
 | --- | --- | --- |
 | J1007+1237: 18687/8.04, 6.13 MG | production | Canary `dah-j1007+1237` |
 | J1254+5612: 12870/8.58, 60.43 MG | production | Canary `dah-j1254+5612` |
-| J1018+0111: 10500/8.00, 108.12 MG | standard, opt-in mean-field structure | Canary `dah-mean-field-j1018` |
 
 The certificate applies to the nonmagnetic structure. The RWA
 photoionization is tested to about 200 MG.

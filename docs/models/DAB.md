@@ -49,7 +49,6 @@ The command-line equivalent is
 | `mixing_length_alpha` | `1.25` | ML2 mixing length. |
 | `include_molecules` | `False` | Molecular chemistry in `compute_dab`. `run_model` sets it to `True` for metal-free models. |
 | `h2_he_cia_path` | `None` | Path to `H2-He_2011.cia`. `None` looks in the data cache. |
-| `neutral_broadening` | `"unsold"` | Neutral-He broadening of He I lines (as for [DB](DB.md#options)). |
 | `allard_minimum_effective_temperature` | `None` | `None` uses the Allard Lyα tables at all Teff. A number sets a Teff below which the cool neutral-H wing is used. |
 | `abundances` | `None` | Trace metals (see [Trace metals](#trace-metals)). |
 

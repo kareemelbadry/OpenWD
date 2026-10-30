@@ -42,7 +42,6 @@ The command-line equivalent is
 | `logg` | `8.0` | log10 of surface gravity in cm s⁻². |
 | `quality` | `"standard"` | Numerical resolution (see above). |
 | `mixing_length_alpha` | `1.25` | ML2 mixing length. |
-| `neutral_broadening` | `"unsold"` | Neutral-He broadening of He I lines: `"unsold"`, `"montreal"` (larger of Unsöld, Deridder–van Rensbergen and Ali–Griem widths) or `"none"`. |
 | `transfer_discretization` | `"auto"` | `"auto"` uses column-mass cells where He⁻ free–free dominates the outer-layer opacity, and optical-depth cells elsewhere. `"column-mass"` and `"optical-depth"` force one. |
 | `photospheric_depth_concentration` | `1.0` | Concentrates depth points across 0.01 < τ < 10. |
 

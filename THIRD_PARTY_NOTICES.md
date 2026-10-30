@@ -14,13 +14,13 @@ source-product identities and processing information. See the
 [data notes](examples/data/README.md) and the
 [ESO data policy](https://archive.eso.org/cms/eso-data-access-policy.html).
 
-The checkout-only cool-model research workflows additionally use external
-HITRAN H2-He CIA and ExoMol RACPPK H2 state data. Those files are not
-redistributed in this checkpoint. Follow the source attribution and data
-terms linked in [the research data instructions](research/cool_models/README.md).
-The small bundled HNC cache and DAB checkpoints there are OpenWD-generated
-research outputs, not published reference spectra; their source models,
-provenance and limitations are documented alongside them.
+The checkout-only cool-model research workflows additionally use the
+external HITRAN H2-He CIA table, which is not redistributed in this
+checkpoint. Follow the source attribution and data terms linked in
+[the research data instructions](research/cool_models/README.md). The bundled
+HNC cache (`src/wd_spectra/data/runtime/cool-models/`) is an OpenWD-generated
+research output, not a published reference table; its source models,
+provenance and limitations are documented alongside it.
 
 ## Allard neutral-hydrogen/proton Lyman profiles
 

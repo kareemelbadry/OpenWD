@@ -235,12 +235,13 @@ def test_da_mean_3d_line_profile_mode_changes_synthesis_but_not_the_returned_str
         AtmosphereConvergenceWarning,
         load_atmosphere_checkpoint,
     )
+    from wd_spectra.models.common import config_from_stored
 
     path = Path(__file__).parent / "data/da_cubic_regressions/da-12000-public.npz"
     with np.load(path) as saved:
         stored = json.loads(str(saved["config_json"]))
         wave = saved["wavelength"]
-    config = DAConfig(**stored)
+    config = config_from_stored(DAConfig, stored)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", AtmosphereConvergenceWarning)
         state = load_atmosphere_checkpoint(
@@ -256,7 +257,7 @@ def test_da_mean_3d_line_profile_mode_changes_synthesis_but_not_the_returned_str
             config, wave, initial_atmosphere=state, relax_atmosphere=False
         )
         result = compute_da(
-            DAConfig(**{**stored, "mean_3d_line_profiles": True}),
+            config_from_stored(DAConfig, {**stored, "mean_3d_line_profiles": True}),
             wave,
             initial_atmosphere=state,
             relax_atmosphere=False,
@@ -272,10 +273,3 @@ def test_da_mean_3d_line_profile_mode_changes_synthesis_but_not_the_returned_str
         - 1.0
     )
     assert np.max(relative) > 5.0e-3
-    with pytest.raises(ValueError, match="retired"):
-        compute_da(
-            DAConfig(use_cool_mean_3d_temperature_differential=True),
-            wave,
-            initial_atmosphere=state,
-            relax_atmosphere=False,
-        )

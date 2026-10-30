@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 import numpy as np
 import pytest
-from inverse_ml2_proposal import inverse_model,constrained_inverse_step
-from solver_step_experiments import nonlinear_convection_model
+from wd_spectra._cool.inverse_ml2_step import inverse_model
+from wd_spectra._cool.nonlinear_convection_reference import nonlinear_convection_model
 from test_solver_step_experiments import trial_evaluation
 from wd_spectra.constants import STEFAN_BOLTZMANN
 
@@ -31,11 +31,10 @@ def energy_evaluation(exact=False):
 
 
 @pytest.mark.parametrize('exact',[False,True])
-@pytest.mark.parametrize('cell_only',[False,True])
-def test_inverse_eliminates_compatibility_without_changing_energy_equations(exact,cell_only):
+def test_inverse_eliminates_compatibility_without_changing_energy_equations(exact):
     ev=energy_evaluation(exact)
-    inverse=inverse_model(ev,cell_only=cell_only)
-    direct=nonlinear_convection_model(ev,np.ones(3),direct_energy=True,current_energy=True,cell_only=cell_only)
+    inverse=inverse_model(ev)
+    direct=nonlinear_convection_model(ev,np.ones(3),direct_energy=True,current_energy=True)
     z=np.array([.01,-.02,.01,-.01])
     r,j,dt,dtj=inverse(z)
     np.testing.assert_allclose(r,direct(dt)[0],rtol=1e-11,atol=1e-12)
@@ -43,12 +42,3 @@ def test_inverse_eliminates_compatibility_without_changing_energy_equations(exac
     h=1e-6
     fd=np.column_stack([(inverse(z+h*d)[0]-inverse(z-h*d)[0])/(2*h) for d in np.eye(4)])
     np.testing.assert_allclose(j,fd,rtol=1e-7,atol=1e-9)
-
-
-def test_constrained_inverse_satisfies_true_temperature_box_without_rescaling():
-    ev=energy_evaluation(True)
-    step=constrained_inverse_step(np.zeros(4),ev,.04,200)
-    delta=ev.payload['log_temperature_from_state']@step
-    assert np.max(abs(delta)) <= .04*(1+1e-8)
-    direct=nonlinear_convection_model(ev,np.ones(3),direct_energy=True,current_energy=True)
-    assert np.linalg.norm(direct(delta)[0]) < np.linalg.norm(direct(np.zeros(4))[0])

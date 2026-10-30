@@ -224,10 +224,8 @@ H3_PLUS_DISSOCIATION_ENERGY = 4.377 * 1.602176634e-12
 # Electron affinity for H + e <-> H-.
 H_MINUS_DETACHMENT_ENERGY = 0.754195 * 1.602176634e-12
 
-# Characteristic temperatures for a rigid rotor and harmonic oscillator.
-# The molecular-ion values follow the X 2Sigma_g+ ground state.
-H2_ROTATIONAL_TEMPERATURE = 85.4
-H2_VIBRATIONAL_TEMPERATURE = 6338.0
+# Characteristic rigid-rotor and harmonic-oscillator temperatures of the
+# H2+ X 2Sigma_g+ ground state.
 H2_PLUS_ROTATIONAL_TEMPERATURE = 43.1
 H2_PLUS_VIBRATIONAL_TEMPERATURE = 3340.0
 

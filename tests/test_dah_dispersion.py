@@ -15,7 +15,6 @@ from wd_spectra.atmosphere import gray_hydrogen_atmosphere
 from wd_spectra.constants import LIGHT_SPEED
 from wd_spectra.kurucz_griem import kurucz_griem_templates
 from wd_spectra.magnetic import (
-    BalmerBroadening,
     MagneticPhysics,
     PolarizedOpacity,
     frequency_hilbert_dispersion,
@@ -133,8 +132,6 @@ def _default_physics(field):
     return MagneticPhysics(
         read_h2db_transition_database(H2DB) if strong else None,
         read_h2db_energy_database(H2DB) if strong else None,
-        broadening=BalmerBroadening(include_self_broadening=False),
-        balmer_profile="kurucz-griem", normalize_balmer_strength=True,
         line_regime="h2db" if strong else "linear-zeeman",
     )
 

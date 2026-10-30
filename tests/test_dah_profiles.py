@@ -91,33 +91,27 @@ def test_complete_component_opacity_conserves_parent_line_area(field):
     grid = np.linspace(centers.min() - 2e13, centers.max() + 2e13, 50001)
     wave = LIGHT_SPEED / grid[::-1] / 1e-8
     arguments = dict(templates={3: template}, maximum_upper_level=3)
-    ordinary = h2db_balmer_manifolds(atm, wave, field, db, **arguments).isotropic()
-    normalized = h2db_balmer_manifolds(atm, wave, field, db,
-                                      normalize_line_strength=True, **arguments).isotropic()
+    normalized = h2db_balmer_manifolds(atm, wave, field, db, **arguments).isotropic()
     np.testing.assert_allclose(trapezoid(normalized[::-1], grid, axis=0), 1., rtol=2e-5)
-    # An explicit option must not change subsequent calls or the database.
+    # Normalization must not change subsequent calls or the database.
     again = h2db_balmer_manifolds(atm, wave, field, db, **arguments).isotropic()
-    np.testing.assert_array_equal(ordinary, again)
+    np.testing.assert_array_equal(normalized, again)
 
 
-def test_public_default_and_legacy_low_level_defaults_are_explicit():
+def test_public_default_and_paper_prescription_are_explicit():
     from wd_spectra import DAHConfig
-    from wd_spectra.magnetic import MagneticPhysics
 
     config = DAHConfig()
-    assert config.atmosphere_structure == "nonmagnetic"
-    assert config.balmer_profile == "kurucz-griem"
-    assert config.normalize_balmer_strength
     assert config.polarized_transfer == "scalar-stokes-i"
-    # Since 2026-10-25: RWA bound-free with magnetic EOS populations, no cyclotron.
+    # Since 2026-10-25: RWA bound-free with magnetic EOS populations.
     assert config.include_magnetic_eos and config.include_rwa_photoionization
-    assert config.include_centered_motion and not config.include_cyclotron_absorption
+    assert config.include_centered_motion
     from wd_spectra import DAH_PAPER_PRESCRIPTION, paper_dah_config
 
     paper = paper_dah_config(effective_temperature=12_000.0)
     assert paper.effective_temperature == 12_000.0
     assert not any((paper.include_magnetic_eos, paper.include_rwa_photoionization,
-                    paper.include_centered_motion, paper.include_cyclotron_absorption))
+                    paper.include_centered_motion))
     assert all(getattr(paper, name) == value for name, value in DAH_PAPER_PRESCRIPTION.items())
     assert paper.polarized_transfer == "scalar-stokes-i"
     with pytest.raises(ValueError, match="fixes"):
@@ -129,9 +123,6 @@ def test_public_default_and_legacy_low_level_defaults_are_explicit():
     assert full.polarized_transfer == "full-stokes-iquv"
     assert all(getattr(full, name) == value for name, value in DAH_PAPER_PRESCRIPTION.items())
     assert replace(full, polarized_transfer="scalar-stokes-i") == paper
-    legacy = MagneticPhysics(None, None)
-    assert legacy.balmer_profile == "unified"
-    assert not legacy.normalize_balmer_strength
 
 
 def test_kurucz_mesh_keeps_no_coincident_frequency_nodes():

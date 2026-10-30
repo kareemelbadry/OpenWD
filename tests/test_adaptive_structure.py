@@ -146,7 +146,7 @@ def test_thermal_boundary_escape_distinguishes_transparent_and_deep_domains():
 
 
 @pytest.mark.parametrize("scattering_fraction", [0.0, 0.98])
-@pytest.mark.parametrize("formulation", ["flux", "auxiliary", "auxiliary-local", "direct-local", "current-local"])
+@pytest.mark.parametrize("formulation", ["flux", "direct-local", "current-local"])
 def test_full_flux_jacobian_includes_local_material_response(
     monkeypatch, scattering_fraction, formulation
 ):
@@ -233,11 +233,6 @@ def test_full_flux_jacobian_includes_local_material_response(
                             / target / normalization[:, None])
                 return NonlinearEvaluation(values, jacobian, ev.payload)
             return check(initial, local_evaluate, **options)
-        from wd_spectra._ml2_auxiliary import solve_auxiliary_ml2_experiment
-        from wd_spectra.constants import STEFAN_BOLTZMANN
-        return solve_auxiliary_ml2_experiment(
-            initial, evaluate, check, STEFAN_BOLTZMANN*seed.effective_temperature**4,
-            local_energy_scaling=formulation == "auxiliary-local", **options)
     monkeypatch.setattr(adaptive, "solve_trust_region_newton", checked_solve)
     with pytest.raises(Checked):
         solve_adaptive_lte_structure(

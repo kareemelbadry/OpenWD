@@ -30,9 +30,7 @@ from typing import Callable, Iterable, Literal, Mapping
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from scipy.ndimage import gaussian_filter1d
 
-from ._compat import trapezoid
 from ._rosseland import rosseland_mean_from_opacity_grid
 from ._spectrum_source import solve_spectrum_source
 from .atmosphere import Atmosphere
@@ -64,7 +62,6 @@ from .metals import (
     _canonical_element,
     _ion_fractions,
     _level_term_label,
-    cool_metal_negative_ion_mass_absorption_coefficient,
     hydrogenic_metal_shell_mean_radius_cm,
     metal_ionic_microfield_perturber_density,
     metal_bound_free_mass_absorption_coefficient,
@@ -425,89 +422,6 @@ class TOPbasePhotoionizationDatabase:
         return frozenset(
             (section.element, section.charge) for section in self.sections
         )
-
-
-def resonance_average_topbase_photoionization(
-    database: TOPbasePhotoionizationDatabase,
-    fractional_width: float,
-) -> TOPbasePhotoionizationDatabase:
-    """Average uncertain resonances without opening forbidden channels.
-
-    A constant Gaussian width in log photon energy approximates the resonance-
-    averaged photoionization prescription of Bautista, Romano & Pradhan
-    (1998).  Leading zero samples are retained exactly: in TOPbase they can
-    mark a continuum channel whose first allowed final state opens above the
-    lower level's nominal, spin-forbidden threshold.
-    """
-
-    if not 0.0 < fractional_width < 0.25:
-        raise ValueError("resonance-average fraction must lie between 0 and 0.25")
-    averaged = []
-    for section in database.sections:
-        energy = np.asarray(section.photon_energy_ev, dtype=float)
-        cross_section = np.asarray(section.cross_section_cm2, dtype=float)
-        positive = np.flatnonzero(cross_section > 0.0)
-        if positive.size == 0:
-            averaged.append(section)
-            continue
-        first = int(positive[0])
-        active_energy = energy[first:]
-        active_cross_section = cross_section[first:]
-        if (
-            active_energy.size < 4
-            or active_energy[-1] <= active_energy[0] * (1.0 + 1.0e-8)
-        ):
-            averaged.append(section)
-            continue
-        log_energy = np.log(active_energy)
-        minimum_count = int(
-            np.ceil((log_energy[-1] - log_energy[0]) / (fractional_width / 10.0))
-        ) + 1
-        point_count = min(50_000, max(256, active_energy.size, minimum_count))
-        uniform_log_energy = np.linspace(log_energy[0], log_energy[-1], point_count)
-        uniform_energy = np.exp(uniform_log_energy)
-        sampled = np.interp(
-            uniform_log_energy,
-            log_energy,
-            active_cross_section,
-        )
-        sigma_pixels = fractional_width / (
-            uniform_log_energy[1] - uniform_log_energy[0]
-        )
-        smoothed = gaussian_filter1d(
-            sampled,
-            sigma=sigma_pixels,
-            mode="nearest",
-            truncate=4.0,
-        )
-        original_area = float(trapezoid(active_cross_section, active_energy))
-        smoothed_area = float(trapezoid(smoothed, uniform_energy))
-        if original_area > 0.0 and smoothed_area > 0.0:
-            smoothed *= original_area / smoothed_area
-        if first > 0:
-            # Keeping an explicit zero immediately below the active interval
-            # is essential: TOPbaseLevelPhotoionization.cross_section uses it
-            # to distinguish a delayed channel from a rounded edge sample.
-            averaged_energy = np.concatenate((energy[:first], uniform_energy))
-            averaged_cross_section = np.concatenate(
-                (np.zeros(first, dtype=float), np.maximum(smoothed, 0.0))
-            )
-        else:
-            averaged_energy = uniform_energy
-            averaged_cross_section = np.maximum(smoothed, 0.0)
-        averaged.append(
-            replace(
-                section,
-                photon_energy_ev=averaged_energy,
-                cross_section_cm2=averaged_cross_section,
-            )
-        )
-    return TOPbasePhotoionizationDatabase(
-        tuple(averaged),
-        database.source
-        + f"; Gaussian resonance average sigma(E)/E={fractional_width:.3f}",
-        unmapped_population_policy=database.unmapped_population_policy,
-    )
 
 
 @dataclass(frozen=True)
@@ -2351,7 +2265,6 @@ def _metal_opacity(
     oxygen_i_series_stark_minimum_effective_n: float | None = None,
     include_oxygen_i_quasistatic_microfields: bool = False,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_rydberg_dissolution: bool = False,
     rydberg_dissolution_cutoff_probability: float | None = None,
     include_metal_series_pseudocontinuum: bool = False,
@@ -2359,7 +2272,6 @@ def _metal_opacity(
     metal_series_pseudocontinuum_elements: Iterable[str] = ("O", "Mg"),
     rydberg_correlated_microfields: bool = True,
     rydberg_neutral_perturbers: bool = False,
-    include_negative_ion_continuum: bool = False,
     topbase_photoionization_database: TOPbasePhotoionizationDatabase | None = None,
     profile_edge_optical_depth: float | None = None,
     profile_edge_optical_depth_elements: Iterable[str] | None = None,
@@ -2424,10 +2336,6 @@ def _metal_opacity(
     absorption += light_metal_free_free_mass_absorption_coefficient(
         atmosphere, wavelength, state
     )
-    if include_negative_ion_continuum:
-        absorption += cool_metal_negative_ion_mass_absorption_coefficient(
-            atmosphere, wavelength, state
-        )
     if include_lines:
         absorption += metal_line_mass_absorption_coefficient(
             atmosphere,
@@ -2450,7 +2358,6 @@ def _metal_opacity(
                 include_oxygen_i_quasistatic_microfields
             ),
             include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-            linear_stark_profile=linear_stark_profile,
             mg_ii_kurucz_series_widths=True,
             include_rydberg_dissolution=include_rydberg_dissolution,
             rydberg_dissolution_cutoff_probability=(
@@ -2740,7 +2647,6 @@ def d6_structure_opacity_function(
     metal_series_pseudocontinuum_elements: Iterable[str] = ("O", "Mg"),
     rydberg_correlated_microfields: bool = True,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_oxygen_i_series_stark: bool = False,
     profile_edge_optical_depth: float | None = None,
 ) -> Callable[[Atmosphere, MetalLTEState], tuple[FloatArray, FloatArray]]:
@@ -2768,7 +2674,6 @@ def d6_structure_opacity_function(
             rydberg_correlated_microfields=rydberg_correlated_microfields,
             topbase_photoionization_database=topbase_photoionization_database,
             include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-            linear_stark_profile=linear_stark_profile,
             include_oxygen_i_series_stark=include_oxygen_i_series_stark,
             profile_edge_optical_depth=profile_edge_optical_depth,
         )
@@ -2802,7 +2707,6 @@ def radiative_equilibrium_d6_atmosphere(
     rydberg_correlated_microfields: bool = True,
     topbase_photoionization_database: TOPbasePhotoionizationDatabase | None = None,
     include_linear_stark_quasistatic: bool = False,
-    linear_stark_profile: str = "manifold",
     include_oxygen_i_series_stark: bool = False,
     profile_edge_optical_depth: float | None = None,
     n_angle: int = 3,
@@ -2943,7 +2847,6 @@ def radiative_equilibrium_d6_atmosphere(
         metal_series_pseudocontinuum_elements=metal_series_pseudocontinuum_elements,
         rydberg_correlated_microfields=rydberg_correlated_microfields,
         include_linear_stark_quasistatic=include_linear_stark_quasistatic,
-        linear_stark_profile=linear_stark_profile,
         include_oxygen_i_series_stark=include_oxygen_i_series_stark,
         profile_edge_optical_depth=profile_edge_optical_depth,
     )

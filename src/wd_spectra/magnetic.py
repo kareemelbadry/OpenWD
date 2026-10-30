@@ -12,9 +12,9 @@ angle ``psi`` to the field sees
 
 with the magneto-optical ``rho_Q, rho_V`` built identically from the
 Kramers--Kronig (Hilbert) partners of the manifolds.  ``Delta m = +1`` is the
-blue (``q = +1``) component throughout, for lines, the RWA continuum and the
-cyclotron resonance, and every dispersion profile is positive on the
-low-frequency side, as in Landi Degl'Innocenti & Landolfi (2004).
+blue (``q = +1``) component throughout, for lines and the RWA continuum,
+and every dispersion profile is positive on the low-frequency side, as in
+Landi Degl'Innocenti & Landolfi (2004).
 
 Two atomic regimes share this representation.
 
@@ -24,12 +24,10 @@ Two atomic regimes share this representation.
   strengths come from the public Schimeczek--Wunner H2db calculation. H13+
   are omitted because the database has no matching transitions.
 
-The low-level default retains the unified zero-field DA profiles and H2db
-field-dependent total strengths; its zero-field limit is the DA opacity.
-The public DAH default explicitly selects frequency-normalized Kurucz/Griem
-profiles and normalizes the complete component opacity (including stimulated
-emission) to the parent-line strength before ray-angle weighting. Both
-choices translate zero-field profiles rather than solving a simultaneous
+Every component carries a frequency-normalized Kurucz/Griem profile, and
+the complete component opacity (including stimulated emission) is
+normalized to the parent-line strength before ray-angle weighting. The
+zero-field profiles are translated rather than solving a simultaneous
 Stark--Zeeman problem.
 
 The emergent flux is a projected-area sum of specific intensities over
@@ -49,14 +47,9 @@ from numpy.typing import ArrayLike, NDArray
 from .atmosphere import Atmosphere
 from .constants import BOLTZMANN, ELECTRON_MASS, ELEMENTARY_CHARGE_ESU, LIGHT_SPEED, PI, PLANCK
 from .magnetic_atomic import H2dbEnergyDatabase, H2dbTransitionDatabase
-from .magnetic_continuum import (
-    explicit_rwa_hydrogen_bound_free_mass_absorption_coefficient,
-    hydrogen_free_free_mass_absorption_coefficient,
-    isotropic_free_electron_opacity,
-    magnetized_free_electron_manifolds,
-)
+from .magnetic_continuum import explicit_rwa_hydrogen_bound_free_mass_absorption_coefficient
 from .molecules import H2H2CollisionInducedAbsorptionTable
-from .opacity import BALMER_LINES, balmer_mass_absorption_coefficient
+from .opacity import BALMER_LINES
 from .spectrum import Spectrum, StokesSpectrum
 
 
@@ -75,9 +68,6 @@ DAH_WAVELENGTH_RANGE_ANGSTROM = (3_400.0, 8_000.0)
 # on this range and continuum manifolds on the wider one before transforming.
 _CONTINUUM_DISPERSION_RANGE_ANGSTROM = (100.0, 500_000.0)
 RWA_MAXIMUM_LEVEL = 8
-# The isotropic cyclotron profile is a superposition of Gaussians whose widths
-# scale with |cos(field, ray)|; enough nodes make that average smooth.
-CYCLOTRON_ANGULAR_NODES = 12
 
 PolarizedTransfer = Literal["full-stokes-iquv", "scalar-stokes-i"]
 
@@ -293,65 +283,6 @@ class BalmerLineTemplate:
     dispersion: FloatArray | None = None
 
 
-@dataclass(frozen=True)
-class BalmerBroadening:
-    """Zero-field Balmer profile options shared by every magnetic branch."""
-
-    include_self_broadening: bool = True
-    self_broadening_prescription: str = "barklem"
-    self_broadening_truncation_closure: str = "stark-core"
-
-    def kwargs(self) -> dict[str, object]:
-        return {
-            "include_self_broadening": self.include_self_broadening,
-            "self_broadening_prescription": self.self_broadening_prescription,
-            "self_broadening_truncation_closure": (
-                self.self_broadening_truncation_closure
-            ),
-        }
-
-
-def balmer_line_templates(
-    atmosphere: Atmosphere,
-    *,
-    broadening: BalmerBroadening = BalmerBroadening(),
-    maximum_upper_level: int = MAXIMUM_H2DB_BALMER_UPPER_LEVEL,
-    include_dispersion: bool = False,
-) -> dict[int, BalmerLineTemplate]:
-    """Return zero-field single-line opacities over 900--25000 A.
-
-    The mesh is independent of the requested output grid: 0.02 A within
-    20 A of the line and geometric in detuning beyond, over the whole range
-    in which the synthesis evaluates Balmer wings.  H2db components displaced
-    by thousands of Angstroms therefore still sample a complete profile
-    instead of stopping at a template edge.
-    """
-
-    templates: dict[int, BalmerLineTemplate] = {}
-    for line in BALMER_LINES:
-        if line.upper_level > maximum_upper_level:
-            continue
-        center = line.wavelength_vacuum_angstrom
-        mesh = np.unique(
-            np.concatenate(
-                (
-                    center + np.arange(-20.0, 20.0001, 0.02),
-                    center - np.geomspace(20.0, center - 900.0, 300),
-                    center + np.geomspace(20.0, 25_000.0 - center, 400),
-                )
-            )
-        )
-        opacity = balmer_mass_absorption_coefficient(
-            atmosphere, mesh, lines=(line,), **broadening.kwargs()
-        )
-        templates[line.upper_level] = BalmerLineTemplate(
-            mesh,
-            opacity,
-            frequency_hilbert_dispersion(mesh, opacity) if include_dispersion else None,
-        )
-    return templates
-
-
 def _translated_profile(
     template: BalmerLineTemplate,
     wavelength: FloatArray,
@@ -377,12 +308,22 @@ def _translated_profile(
     return result
 
 
+def _kurucz_griem_templates(
+    atmosphere: Atmosphere, maximum_upper_level: int, include_dispersion: bool
+) -> dict[int, BalmerLineTemplate]:
+    from .kurucz_griem import kurucz_griem_templates
+
+    return kurucz_griem_templates(
+        atmosphere, maximum_upper_level=maximum_upper_level,
+        include_dispersion=include_dispersion,
+    )
+
+
 def weak_field_balmer_manifolds(
     atmosphere: Atmosphere,
     wavelength_angstrom: ArrayLike,
     field_strength_megagauss: float,
     *,
-    broadening: BalmerBroadening = BalmerBroadening(),
     templates: dict[int, BalmerLineTemplate] | None = None,
     dispersion: bool = False,
 ) -> PolarizedOpacity | tuple[PolarizedOpacity, PolarizedOpacity]:
@@ -398,10 +339,7 @@ def weak_field_balmer_manifolds(
     if field > WEAK_FIELD_MAXIMUM_MEGAGAUSS:
         raise ValueError("the linear-Zeeman branch is limited to B <= 1 MG")
     if templates is None:
-        templates = balmer_line_templates(
-            atmosphere, broadening=broadening, maximum_upper_level=22,
-            include_dispersion=dispersion,
-        )
+        templates = _kurucz_griem_templates(atmosphere, 22, dispersion)
     shift = LINEAR_ZEEMAN_FREQUENCY_HZ_PER_GAUSS * field * 1.0e6
     shape = (wavelength.size, atmosphere.n_depth)
     opacity = {q: np.zeros(shape) for q in (-1, 0, 1)}
@@ -443,22 +381,18 @@ def h2db_balmer_manifolds(
     database: H2dbTransitionDatabase,
     *,
     templates: dict[int, BalmerLineTemplate] | None = None,
-    broadening: BalmerBroadening = BalmerBroadening(),
     maximum_upper_level: int = MAXIMUM_H2DB_BALMER_UPPER_LEVEL,
     dispersion: bool = False,
-    normalize_line_strength: bool = False,
 ) -> PolarizedOpacity | tuple[PolarizedOpacity, PolarizedOpacity]:
     """Return H2db Halpha--H12 manifolds at one local field.
 
-    Component ``i`` of line ``n`` contributes ``3 s_i S_n(B) phi_n`` to its
+    Component ``i`` of line ``n`` contributes ``3 s_i S_n phi_n`` to its
     manifold, where ``s_i`` are the normalized Boltzmann-weighted H2db
-    strengths, ``S_n`` the field-dependent total strength relative to zero
-    field, and ``phi_n`` the zero-field line opacity translated in frequency
-    with stimulated emission evaluated at the component frequency.
-    The isotropic mean is therefore the zero-field line opacity as
-    ``B -> 0``. With ``normalize_line_strength=True``, the complete component
-    weights (including stimulated emission) sum to the zero-field line
-    strength at each depth before ray-angle factors are applied.
+    strengths and ``phi_n`` the zero-field line opacity translated in
+    frequency with stimulated emission evaluated at the component frequency.
+    ``S_n`` normalizes the complete component weights (including stimulated
+    emission) to the zero-field line strength at each depth before ray-angle
+    factors are applied.
     """
 
     wavelength = _validate_grid(wavelength_angstrom)
@@ -466,10 +400,7 @@ def h2db_balmer_manifolds(
     if not 3 <= maximum_upper_level <= MAXIMUM_H2DB_BALMER_UPPER_LEVEL:
         raise ValueError("maximum_upper_level must lie in 3..12")
     if templates is None:
-        templates = balmer_line_templates(
-            atmosphere, broadening=broadening, maximum_upper_level=maximum_upper_level,
-            include_dispersion=dispersion,
-        )
+        templates = _kurucz_griem_templates(atmosphere, maximum_upper_level, dispersion)
     shape = (wavelength.size, atmosphere.n_depth)
     manifolds = {-1: np.zeros(shape), 0: np.zeros(shape), 1: np.zeros(shape)}
     phases = {-1: np.zeros(shape), 0: np.zeros(shape), 1: np.zeros(shape)}
@@ -482,15 +413,13 @@ def h2db_balmer_manifolds(
         )
         rest_frequency = LIGHT_SPEED / (line.wavelength_vacuum_angstrom * 1.0e-8)
         template = templates[level]
-        strength_scale = components.line_strength_scale
-        if normalize_line_strength:
-            stimulated = _stimulated_emission_ratio(
-                atmosphere.temperature[np.newaxis, :], rest_frequency,
-                LIGHT_SPEED / (components.wavelength_angstrom[:, np.newaxis] * 1.0e-8),
-            )
-            strength_scale = 1.0 / np.sum(
-                components.normalized_strength * stimulated, axis=0
-            )
+        stimulated = _stimulated_emission_ratio(
+            atmosphere.temperature[np.newaxis, :], rest_frequency,
+            LIGHT_SPEED / (components.wavelength_angstrom[:, np.newaxis] * 1.0e-8),
+        )
+        strength_scale = 1.0 / np.sum(
+            components.normalized_strength * stimulated, axis=0
+        )
         for index, (component_wavelength, delta_m) in enumerate(
             zip(components.wavelength_angstrom, components.delta_m)
         ):
@@ -514,31 +443,6 @@ def h2db_balmer_manifolds(
     return result
 
 
-def h2db_component_wavelengths(
-    field_strength_megagauss: float,
-    database: H2dbTransitionDatabase,
-    temperature: float,
-    *,
-    maximum_upper_level: int = 6,
-    minimum_strength: float = 0.01,
-) -> FloatArray:
-    """Return the H2db component centers carrying >= ``minimum_strength``."""
-
-    centers: list[float] = []
-    for line in BALMER_LINES:
-        if line.upper_level > maximum_upper_level:
-            continue
-        components = database.balmer_components(
-            line.upper_level,
-            line.wavelength_vacuum_angstrom,
-            field_strength_megagauss,
-            np.asarray([float(temperature)]),
-        )
-        strength = components.normalized_strength[:, 0]
-        centers.extend(components.wavelength_angstrom[strength >= minimum_strength])
-    return np.asarray(sorted(centers), dtype=np.float64)
-
-
 # ---------------------------------------------------------------------------
 # Continuum
 
@@ -552,7 +456,6 @@ def magnetic_continuum(
     include_rwa_photoionization: bool,
     include_molecular_absorption: bool = False,
     h2_h2_cia_table: H2H2CollisionInducedAbsorptionTable | None = None,
-    include_series_pseudocontinuum: bool = True,
     include_centered_motion: bool = True,
 ) -> tuple[FloatArray, PolarizedOpacity]:
     """Return the unpolarized true-absorption continuum and the RWA manifolds.
@@ -583,12 +486,11 @@ def magnetic_continuum(
     )
     shape = (wavelength.size, atmosphere.n_depth)
     if not include_rwa_photoionization or field == 0.0:
-        if include_series_pseudocontinuum:
-            continuum = continuum + (
-                hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
-                    atmosphere, wavelength
-                )
+        continuum = continuum + (
+            hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
+                atmosphere, wavelength
             )
+        )
         return continuum, PolarizedOpacity.zeros(shape)
     if energy_database is None:
         raise ValueError("RWA photoionization requires the H2db energy database")
@@ -604,7 +506,6 @@ def magnetic_continuum(
                 polarization,
                 energy_database,
                 maximum_level=RWA_MAXIMUM_LEVEL,
-                include_dissolved_levels=include_series_pseudocontinuum,
                 include_centered_motion=include_centered_motion,
             )
             for polarization in (-1, 0, 1)
@@ -1128,17 +1029,12 @@ class MagneticPhysics:
 
     transitions: H2dbTransitionDatabase | None
     energies: H2dbEnergyDatabase | None
-    broadening: BalmerBroadening = BalmerBroadening()
-    balmer_profile: Literal["unified", "kurucz-griem"] = "unified"
-    normalize_balmer_strength: bool = False
     include_rwa_photoionization: bool = True
-    include_cyclotron_absorption: bool = False
     include_magnetic_eos: bool = True
     include_centered_motion: bool = True
     include_molecular_absorption: bool = False
     h2_h2_cia_table: H2H2CollisionInducedAbsorptionTable | None = None
-    # A disk model selects this once from its maximum visible field.  The
-    # mean-field structure must not independently fall back to weak physics.
+    # A disk model selects this once from its maximum visible field.
     line_regime: Literal["linear-zeeman", "h2db"] | None = None
 
     def regime(self, maximum_field_megagauss: float) -> str:
@@ -1162,34 +1058,17 @@ def _line_manifolds(
 ) -> tuple[PolarizedOpacity, PolarizedOpacity | None]:
     """Line manifolds (and optional dispersion) from cached line templates."""
 
-    key = (regime, dispersion, physics.balmer_profile)
+    key = (regime, dispersion)
     templates = cache.get(key)
     if templates is None:
-        templates = _balmer_templates(atmosphere, physics, regime, dispersion)
+        templates = _kurucz_griem_templates(
+            atmosphere,
+            22 if regime == "linear-zeeman" else MAXIMUM_H2DB_BALMER_UPPER_LEVEL,
+            dispersion,
+        )
         cache[key] = templates
     result = _balmer_manifolds(atmosphere, wavelength, field, physics, regime, templates, dispersion)
     return result if dispersion else (result, None)  # type: ignore[return-value]
-
-
-def _balmer_templates(
-    atmosphere: Atmosphere, physics: MagneticPhysics, regime: str, dispersion: bool
-) -> dict[int, BalmerLineTemplate]:
-    """Zero-field single-line templates of the configured Balmer profile."""
-
-    if physics.balmer_profile == "kurucz-griem":
-        from .kurucz_griem import kurucz_griem_templates
-
-        template_factory = kurucz_griem_templates
-    elif physics.balmer_profile == "unified":
-        template_factory = balmer_line_templates
-    else:
-        raise ValueError("balmer_profile must be 'unified' or 'kurucz-griem'")
-    return template_factory(
-        atmosphere,
-        broadening=physics.broadening,
-        maximum_upper_level=22 if regime == "linear-zeeman" else MAXIMUM_H2DB_BALMER_UPPER_LEVEL,
-        include_dispersion=dispersion,
-    )
 
 
 def _balmer_manifolds(
@@ -1201,7 +1080,7 @@ def _balmer_manifolds(
     templates: dict[int, BalmerLineTemplate],
     dispersion: bool,
 ) -> PolarizedOpacity | tuple[PolarizedOpacity, PolarizedOpacity]:
-    """Balmer manifolds of one field from templates; shared by structure and synthesis."""
+    """Balmer manifolds of one field from templates."""
 
     # A B = 0 cell (a null point of a caller's map in the H2db regime) takes
     # the unsplit zero-field lines of the same templates: the B -> 0 limit of
@@ -1214,7 +1093,6 @@ def _balmer_manifolds(
         raise ValueError("fields above 1 MG require the H2db transition database")
     return h2db_balmer_manifolds(
         atmosphere, wavelength, field, physics.transitions,
-        normalize_line_strength=physics.normalize_balmer_strength,
         templates=templates, dispersion=dispersion,
     )
 
@@ -1228,8 +1106,7 @@ def _local_atmosphere(
 
     if physics.energies is None:
         raise ValueError("the magnetic EOS requires the H2db energy database")
-    # A shared mean-field atmosphere may already carry a magnetic EOS. A
-    # null cell must be remapped too; this routine uses the ordinary EOS at B=0.
+    # A null cell is remapped too; this routine uses the ordinary EOS at B=0.
     return atmosphere_with_magnetic_hydrogen_eos(
         atmosphere,
         field,
@@ -1321,8 +1198,8 @@ def synthesize_magnetic_hydrogen_spectrum(
     """Return the disk-integrated Stokes-I surface flux of a DAH.
 
     Each surface cell uses the local-field chemical equilibrium on the shared
-    ``T(P)`` structure (above 1 MG, when enabled), its own Balmer manifolds,
-    RWA continuum and cyclotron resonance, an exact coherent-scattering
+    ``T(P)`` structure (above 1 MG, when enabled), its own Balmer manifolds
+    and RWA continuum, an exact coherent-scattering
     source for its angle-averaged opacity, and one ray at its limb cosine and
     field--ray angle.  Zero-field Stark kernels are computed once on the
     shared structure and rescaled by the local n=2 population per gram.
@@ -1399,7 +1276,7 @@ def synthesize_magnetic_hydrogen_spectrum(
             )
             rwa_enabled = physics.include_rwa_photoionization and regime == "h2db"
             # Full spectrum first, then the same continuum without the
-            # Balmer manifolds (RWA, cyclotron and dispersion retained).
+            # Balmer manifolds (RWA and dispersion retained).
             polarized_variants = (
                 (lines + rwa if rwa_enabled else lines,
                  None if line_dispersion is None else (
@@ -1408,24 +1285,10 @@ def synthesize_magnetic_hydrogen_spectrum(
                 (rwa if rwa_enabled else PolarizedOpacity.zeros(lines.isotropic().shape),
                  continuum_dispersion),
             )
-            # Free electrons: with a field their free-free absorption and
-            # Thomson scattering become the magneto-ionic mode coefficients,
-            # replacing the zero-field values in the continuum.
-            include_cyclotron = physics.include_cyclotron_absorption and field > 0.0
-            rayleigh = hydrogen_rayleigh_scattering_mass_coefficient(local, wavelength)
-            if include_cyclotron:
-                unpolarized = unpolarized - hydrogen_free_free_mass_absorption_coefficient(
-                    local, wavelength
-                )
-                scattering = rayleigh
-                free_absorption, free_scattering = isotropic_free_electron_opacity(
-                    local, wavelength, field,
-                    angular_quadrature_order=CYCLOTRON_ANGULAR_NODES,
-                )
-            else:
-                scattering = electron_scattering_mass_coefficient(local)[np.newaxis, :] + rayleigh
-                free_absorption = free_scattering = 0.0
-            isotropic_scattering = scattering + free_scattering
+            scattering = (
+                electron_scattering_mass_coefficient(local)[np.newaxis, :]
+                + hydrogen_rayleigh_scattering_mass_coefficient(local, wavelength)
+            )
             planck = np.ascontiguousarray(
                 planck_lambda_angstrom(
                     wavelength[:, np.newaxis], local.temperature[np.newaxis, :]
@@ -1433,17 +1296,15 @@ def synthesize_magnetic_hydrogen_spectrum(
             )
             variants = []
             for polarized_opacity, dispersion in polarized_variants:
-                thermal_isotropic = (
-                    unpolarized + polarized_opacity.isotropic() + free_absorption
-                )
+                thermal_isotropic = unpolarized + polarized_opacity.isotropic()
                 depth = optical_depth_from_mass_opacity(
-                    local.column_mass, thermal_isotropic + isotropic_scattering
+                    local.column_mass, thermal_isotropic + scattering
                 )
                 _, radiation, _ = solve_spectrum_source(
                     depth,
                     planck,
                     thermal_isotropic,
-                    isotropic_scattering,
+                    scattering,
                     wavelength=wavelength,
                     n_angle=n_angle,
                     discretization="formal-linear",
@@ -1455,7 +1316,6 @@ def synthesize_magnetic_hydrogen_spectrum(
                 unpolarized,
                 scattering,
                 planck,
-                include_cyclotron,
                 variants,
             )
         (
@@ -1463,49 +1323,23 @@ def synthesize_magnetic_hydrogen_spectrum(
             unpolarized,
             scattering,
             planck,
-            include_cyclotron,
             variants,
         ) = field_cache[field]
-        free = (
-            magnetized_free_electron_manifolds(local, wavelength, field, cosine)
-            if include_cyclotron else None
-        )
         for variant, (polarized_opacity, dispersion, mean_intensity) in enumerate(variants):
             eta_i, eta_q, eta_v = polarized_opacity.stokes(cosine)
             eta_i = eta_i + unpolarized
-            thermal_q, thermal_v = eta_q, eta_v
-            ray_scattering = scattering
-            scattered_q = scattered_v = 0.0
             rho_q = np.zeros_like(eta_i)
             rho_v = np.zeros_like(eta_i)
             if dispersion is not None:
                 _, rho_q, rho_v = dispersion.stokes(cosine)
-            if include_cyclotron:
-                a_i, a_q, a_v = PolarizedOpacity(*free.absorption).stokes(cosine)
-                s_i, s_q, s_v = PolarizedOpacity(*free.scattering).stokes(cosine)
-                # Extinction carries both parts with their dichroism; the thermal
-                # part emits B and the scattered part re-emits J in its own
-                # polarization (unpolarized re-emission would feed the mode the
-                # resonance cannot absorb).
-                eta_i = eta_i + a_i
-                eta_q = eta_q + a_q + s_q
-                eta_v = eta_v + a_v + s_v
-                thermal_q = thermal_q + a_q
-                thermal_v = thermal_v + a_v
-                ray_scattering = scattering + s_i
-                scattered_q, scattered_v = s_q, s_v
-                if polarized:
-                    _, d_q, d_v = PolarizedOpacity(*free.dispersion).stokes(cosine)
-                    rho_q = rho_q + d_q
-                    rho_v = rho_v + d_v
-            extinction = eta_i + ray_scattering
-            emission_i = eta_i * planck + ray_scattering * mean_intensity
+            extinction = eta_i + scattering
+            emission_i = eta_i * planck + scattering * mean_intensity
             source = emission_i / extinction
             if polarized:
                 emission = np.zeros(extinction.shape + (4,))
                 emission[..., 0] = emission_i
-                emission[..., 1] = thermal_q * planck + scattered_q * mean_intensity
-                emission[..., 3] = thermal_v * planck + scattered_v * mean_intensity
+                emission[..., 1] = eta_q * planck
+                emission[..., 3] = eta_v * planck
                 stokes = emergent_stokes_specific_intensity(
                     local.column_mass,
                     extinction,
@@ -1563,13 +1397,7 @@ def synthesize_magnetic_hydrogen_spectrum(
                 if physics.include_rwa_photoionization and regime == "h2db"
                 else "ordinary zero-field H I bound-free"
             ),
-            "free_electrons": (
-                "magneto-ionic free-free absorption, Thomson scattering and "
-                "dispersion per circular mode, Doppler-broadened cyclotron "
-                "resonance"
-                if physics.include_cyclotron_absorption
-                else "zero-field free-free and Thomson scattering"
-            ),
+            "free_electrons": "zero-field free-free and Thomson scattering",
             "surface_chemistry": (
                 "local-field magnetic Saha/HM equilibrium on the shared T(P)"
                 if physics.include_magnetic_eos and regime == "h2db"
@@ -1577,15 +1405,13 @@ def synthesize_magnetic_hydrogen_spectrum(
             ),
             "combined_stark_zeeman": (
                 "frequency-normalized Kurucz/Griem profile translated to each component"
-                if physics.balmer_profile == "kurucz-griem"
-                else "zero-field Tremblay-Bergeron profile translated to each component"
             ),
-            "balmer_profile": physics.balmer_profile,
-            "normalize_balmer_strength": physics.normalize_balmer_strength,
+            "balmer_profile": "kurucz-griem",
+            "normalize_balmer_strength": True,
             "continuum_flux": (
                 "same cells and polarized transfer without the Balmer "
                 "manifolds; magnetic bound-free with its dissolved-level "
-                "pseudo-continuum, free-electron/cyclotron opacity, Rayleigh "
+                "pseudo-continuum, free-electron opacity, Rayleigh "
                 "scattering and continuum dispersion retained"
             ),
         },
@@ -1607,118 +1433,6 @@ def synthesize_magnetic_hydrogen_spectrum(
     return StokesSpectrum(wavelength, flux, metadata, *polarization_flux, continuum_flux)
 
 
-# ---------------------------------------------------------------------------
-# Structure opacity
-
-
-def magnetic_structure_opacity(
-    field_strength_megagauss: float,
-    physics: MagneticPhysics,
-) -> tuple[object, object, object]:
-    """Return ``(balmer, continuum, scattering)`` opacity callables ``(atm, wave)``.
-
-    With a field, free electrons use the magneto-ionic mode coefficients:
-    their angle-averaged free--free absorption replaces the zero-field value
-    in the continuum, and the third callable returns the change of their
-    Thomson scattering relative to the solver's zero-field value.
-
-    Both are angle averages for the isotropic radiation field of a plane-
-    parallel structure solve and use the same manifolds as the synthesis,
-    including its ``balmer_profile`` and strength normalization.
-    With the RWA the dissolved-level pseudo-continuum is attached to the RWA
-    edges here, and the solver's zero-field pseudo-continuum must be off
-    (see :func:`structure_uses_rwa_dissolution`); otherwise the solver's own
-    switch supplies it.
-    """
-
-    field = _validate_field(field_strength_megagauss)
-    regime = physics.regime(field)
-    rwa_active = structure_uses_rwa_dissolution(field, physics)
-
-    def balmer(current: Atmosphere, wavelength: FloatArray) -> FloatArray:
-        # The same profile and strength convention as the synthesis.
-        grid = np.ascontiguousarray(wavelength, dtype=np.float64)
-        templates = _balmer_templates(current, physics, regime, False)
-        return _balmer_manifolds(  # type: ignore[union-attr]
-            current, grid, field, physics, regime, templates, False
-        ).isotropic()
-
-    def continuum(current: Atmosphere, wavelength: FloatArray) -> FloatArray:
-        grid = np.ascontiguousarray(wavelength, dtype=np.float64)
-        unpolarized, rwa = magnetic_continuum(
-            current,
-            grid,
-            field,
-            physics.energies,
-            include_rwa_photoionization=(
-                physics.include_rwa_photoionization and regime == "h2db"
-            ),
-            include_molecular_absorption=physics.include_molecular_absorption,
-            h2_h2_cia_table=physics.h2_h2_cia_table,
-            include_series_pseudocontinuum=rwa_active,
-            include_centered_motion=physics.include_centered_motion,
-        )
-        result = unpolarized + rwa.isotropic()
-        if physics.include_cyclotron_absorption and field > 0.0:
-            absorption, _ = isotropic_free_electron_opacity(
-                current, grid, field, angular_quadrature_order=CYCLOTRON_ANGULAR_NODES
-            )
-            result = (
-                result
-                - hydrogen_free_free_mass_absorption_coefficient(current, grid)
-                + absorption
-            )
-        return np.maximum(result, 0.0)
-
-    def scattering(current: Atmosphere, wavelength: FloatArray) -> FloatArray:
-        """Magnetic Thomson scattering minus the solver's zero-field Thomson."""
-
-        from .opacity import electron_scattering_mass_coefficient
-
-        grid = np.ascontiguousarray(wavelength, dtype=np.float64)
-        if not (physics.include_cyclotron_absorption and field > 0.0):
-            return np.zeros((grid.size, current.n_depth))
-        _, magnetic = isotropic_free_electron_opacity(
-            current, grid, field, angular_quadrature_order=CYCLOTRON_ANGULAR_NODES
-        )
-        return magnetic - electron_scattering_mass_coefficient(current)[np.newaxis, :]
-
-    return balmer, continuum, scattering
-
-
-def cyclotron_structure_wavelengths(field_strength_megagauss: float) -> FloatArray:
-    """Mesh resolving the cyclotron resonance of one field for a structure.
-
-    Its thermal width is ~1e-3 lambda_c |cos| and shrinks to the natural
-    width along the field-perpendicular direction, far below a ~2% opacity-
-    sampling mesh.  Sampling it at a few arbitrary detunings gives a wrong,
-    extremely temperature-sensitive (stiff) energy exchange.  The mesh is
-    geometric in detuning from 0.05 A to 2% of lambda_c on both sides.
-    """
-
-    field = _validate_field(field_strength_megagauss)
-    if field <= 0.0:
-        return np.zeros(0)
-    center = 2.0 * PI * LIGHT_SPEED**2 * ELECTRON_MASS / (
-        ELEMENTARY_CHARGE_ESU * field * 1.0e6
-    ) * 1.0e8
-    offsets = np.geomspace(0.05, 0.02 * center, 160)
-    return np.concatenate((center - offsets[::-1], [center], center + offsets))
-
-
-def structure_uses_rwa_dissolution(
-    field_strength_megagauss: float, physics: MagneticPhysics
-) -> bool:
-    """Whether the structure continuum carries its own dissolved RWA edges."""
-
-    field = _validate_field(field_strength_megagauss)
-    return (
-        physics.include_rwa_photoionization
-        and physics.regime(field) == "h2db"
-        and field > 0.0
-    )
-
-
 def default_magnetic_da_wavelength_grid() -> FloatArray:
     """Return a 3600--7000 A grid resolving magnetic Balmer components."""
 
@@ -1735,7 +1449,6 @@ def default_magnetic_da_wavelength_grid() -> FloatArray:
 
 
 __all__ = [
-    "BalmerBroadening",
     "BalmerLineTemplate",
     "DAH_WAVELENGTH_RANGE_ANGSTROM",
     "LINEAR_ZEEMAN_FREQUENCY_HZ_PER_GAUSS",
@@ -1745,18 +1458,13 @@ __all__ = [
     "PolarizedOpacity",
     "SurfaceCells",
     "WEAK_FIELD_MAXIMUM_MEGAGAUSS",
-    "balmer_line_templates",
-    "cyclotron_structure_wavelengths",
     "default_magnetic_da_wavelength_grid",
     "dipole_surface_cells",
     "frequency_hilbert_dispersion",
     "h2db_balmer_manifolds",
-    "h2db_component_wavelengths",
     "linear_zeeman_triplet",
     "magnetic_continuum",
-    "magnetic_structure_opacity",
     "rwa_dispersion",
-    "structure_uses_rwa_dissolution",
     "synthesize_magnetic_hydrogen_spectrum",
     "uniform_field_surface_cells",
     "weak_field_balmer_manifolds",

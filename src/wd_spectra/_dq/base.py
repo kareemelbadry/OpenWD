@@ -10,7 +10,6 @@ from dataclasses import dataclass, replace
 import hashlib
 import logging
 from pathlib import Path
-import warnings
 import numpy as np
 
 from ..adaptive_structure import solve_adaptive_lte_structure
@@ -75,10 +74,6 @@ from ..models.common import (
 from ..models.stellar import _helium_tables, _metal_structure_line_budget
 
 
-class DQApproximationWarning(RuntimeWarning):
-    """DQ atmosphere convergence is not a qualification of its band profiles."""
-
-
 def _complete_stationarity(solve_step, seed, max_iterations, iteration_callback):
     """Finish an early small-*accepted*-step exit within this one calculation.
 
@@ -136,28 +131,6 @@ def _complete_stationarity(solve_step, seed, max_iterations, iteration_callback)
             "dq_stationarity_segments": segments,
             "dq_stationarity_completion_passes": len(segments) - 1,
         },
-    )
-
-
-def warn_dq_approximation(profile="rotational_overlap"):
-    description = (
-        "C2 Swan bands use a continuous rotational-overlap approximation, "
-        "not measured dense-fluid molecular profiles. "
-        if profile == "rotational_overlap"
-        else (
-            "C2 profiles use approximate neutral-He impact broadening, not measured "
-            "C2-He coefficients or dense-fluid profiles. "
-            if profile != "line_bin"
-            else "The diagnostic line-bin molecular opacity has resolution-dependent line widths. "
-        )
-    )
-    warnings.warn(
-        "Preliminary DQ module: "
-        + description
-        + "Atmosphere convergence does not certify spectral accuracy; "
-        "use these spectra for development/exploration, not abundance fitting.",
-        DQApproximationWarning,
-        stacklevel=3,
     )
 
 
@@ -311,7 +284,7 @@ class DQMaterial:
             helium_minus_prescription=self.config.helium_minus_free_free,
         )
         opacity += helium_i_line_mass_absorption_coefficient(
-            a, wavelength, self.he_i, neutral_broadening="unsold"
+            a, wavelength, self.he_i
         )
         opacity += helium_i_resonance_line_mass_absorption_coefficient(a, wavelength)
         opacity += helium_ii_line_mass_absorption_coefficient(

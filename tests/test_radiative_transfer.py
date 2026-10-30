@@ -11,7 +11,6 @@ from wd_spectra.radiative_transfer import (
     feautrier_radiation_field,
     integrated_emergent_flux_state_response,
     integrated_coherent_scattering_feautrier_state_response,
-    integrated_lambda_response,
     radiation_field,
 )
 
@@ -481,64 +480,6 @@ def test_feautrier_interface_flux_obeys_discrete_moment_equation():
     )
 
 
-def test_integrated_feautrier_interface_flux_response_matches_perturbations():
-    from wd_spectra.radiative_transfer import (
-        integrated_feautrier_interface_flux_response,
-    )
-
-    wavelength = np.asarray([900.0, 1300.0, 2400.0, 5100.0, 9000.0])
-    depth_index = np.arange(6, dtype=np.float64)
-    tau = np.multiply.outer(
-        (wavelength / 2400.0) ** 0.7,
-        np.geomspace(2.0e-4, 40.0, depth_index.size),
-    )
-    source = (
-        0.7
-        + 0.12 * depth_index[np.newaxis, :]
-        + 0.03 * (wavelength[:, np.newaxis] / 1000.0)
-    )
-    derivative = 0.2 + 0.04 * depth_index[np.newaxis, :]
-    derivative = np.broadcast_to(derivative, source.shape).copy()
-    response = integrated_feautrier_interface_flux_response(
-        tau,
-        wavelength,
-        derivative,
-        n_angle=5,
-        wavelength_chunk_size=2,
-    )
-
-    trapezoid_weight = np.empty(wavelength.size)
-    spacing = np.diff(wavelength)
-    trapezoid_weight[0] = 0.5 * spacing[0]
-    trapezoid_weight[-1] = 0.5 * spacing[-1]
-    trapezoid_weight[1:-1] = 0.5 * (spacing[:-1] + spacing[1:])
-    step = 1.0e-3
-    finite_difference = np.empty_like(response)
-    for perturbed_depth in range(source.shape[1]):
-        plus = source.copy()
-        minus = source.copy()
-        plus[:, perturbed_depth] += step * derivative[:, perturbed_depth]
-        minus[:, perturbed_depth] -= step * derivative[:, perturbed_depth]
-        plus_flux = feautrier_radiation_field(
-            tau, plus, n_angle=5
-        ).interface_flux
-        minus_flux = feautrier_radiation_field(
-            tau, minus, n_angle=5
-        ).interface_flux
-        assert plus_flux is not None and minus_flux is not None
-        finite_difference[:, perturbed_depth] = np.sum(
-            (plus_flux - minus_flux)
-            * trapezoid_weight[:, np.newaxis],
-            axis=0,
-        ) / (2.0 * step)
-    # The reference is a centered finite difference and is cancellation
-    # limited across compiled backends.  A few-ppm threshold still catches
-    # physically meaningful response errors.
-    np.testing.assert_allclose(
-        response, finite_difference, rtol=2.0e-6, atol=2.0e-6
-    )
-
-
 def test_feautrier_state_response_includes_optical_depth_motion():
     from wd_spectra.radiative_transfer import (
         integrated_feautrier_interface_state_response,
@@ -703,67 +644,6 @@ def test_diagonal_lambda_matches_direct_source_perturbations():
                 rtol=1.0e-7,
                 atol=4.0e-10,
             )
-
-
-def test_integrated_lambda_response_matches_formal_solution_jacobian():
-    wavelength = np.asarray([900.0, 1100.0, 1700.0, 3000.0, 7000.0])
-    depth_scale = np.geomspace(1.0e-4, 20.0, 6)
-    tau = wavelength[:, np.newaxis] ** -0.4 * 20.0 * depth_scale[np.newaxis, :]
-    source = 1.0 + 0.2 * np.arange(6)[np.newaxis, :] + wavelength[:, np.newaxis] / 1.0e4
-    response_weight = np.broadcast_to(
-        0.5 + wavelength[:, np.newaxis] / 8000.0, source.shape
-    )
-    source_derivative = (
-        0.7
-        + 0.1 * np.arange(6)[np.newaxis, :]
-        + 0.2 * wavelength[:, np.newaxis] / 7000.0
-    )
-    jacobian, surface_flux_jacobian = integrated_lambda_response(
-        tau,
-        wavelength,
-        response_weight,
-        source_derivative,
-        n_angle=4,
-        wavelength_chunk_size=2,
-        return_surface_flux_response=True,
-    )
-    baseline = radiation_field(tau, source, n_angle=4)
-    baseline_surface_flux = emergent_flux(
-        tau, source, n_angle=4, backend="python"
-    )
-    step = 1.0e-4
-    for source_depth in range(source.shape[1]):
-        perturbed = source.copy()
-        perturbed[:, source_depth] += (
-            step * source_derivative[:, source_depth]
-        )
-        changed = radiation_field(tau, perturbed, n_angle=4)
-        changed_surface_flux = emergent_flux(
-            tau, perturbed, n_angle=4, backend="python"
-        )
-        numerical = trapezoid(
-            response_weight
-            * (changed.mean_intensity - baseline.mean_intensity)
-            / step,
-            wavelength,
-            axis=0,
-        )
-        np.testing.assert_allclose(
-            numerical,
-            jacobian[:, source_depth],
-            rtol=2.0e-9,
-            atol=2.0e-8,
-        )
-        numerical_surface_flux = trapezoid(
-            (changed_surface_flux - baseline_surface_flux) / step,
-            wavelength,
-        )
-        np.testing.assert_allclose(
-            numerical_surface_flux,
-            surface_flux_jacobian[source_depth],
-            rtol=2.0e-9,
-            atol=2.0e-8,
-        )
 
 
 def test_integrated_emergent_flux_state_response_includes_opacity_changes():

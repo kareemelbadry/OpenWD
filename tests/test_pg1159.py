@@ -18,13 +18,10 @@ from wd_spectra.metals import (
     MetalLTEState,
 )
 from wd_spectra.pg1159 import (
-    PG1159NLTEModel,
     PG1159NLTEState,
     _add_missing_lte_ion_ladders,
     _align_reduced_level_state,
-    _damp_reduced_level_state,
     _finite_departure_ratio,
-    _formal_population_transition_keys,
     _formal_spectrum_transition_keys,
     _ion_departures_with_explicit_stage_closure,
     _maximum_coupled_helium_population_change,
@@ -32,40 +29,6 @@ from wd_spectra.pg1159 import (
     _replace_light_metal_elements,
     _pg1159_nlte_charge_feedback,
 )
-
-
-def test_pg1159_atmosphere_population_effort_tightens_near_convergence():
-    model = PG1159NLTEModel(
-        helium_model=object(),
-        atomic_database=AtomicDatabase(MappingProxyType({}), "test"),
-        metal_population_iterations=30,
-        metal_population_minimum_iterations=3,
-        metal_population_relative_tolerance=3.0e-3,
-        adaptive_atmosphere_population_effort=True,
-        atmosphere_coarse_population_iterations=6,
-        atmosphere_coarse_population_relative_tolerance=2.0e-2,
-        atmosphere_population_tightening_threshold=1.5e-2,
-    )
-
-    coarse = model.atmosphere_iteration_model(1, None)
-    assert coarse.metal_population_iterations == 6
-    assert coarse.metal_population_relative_tolerance == 2.0e-2
-    assert not coarse.atmosphere_population_accuracy_final
-
-    final = model.atmosphere_iteration_model(2, 1.0e-2)
-    assert final.metal_population_iterations == 30
-    assert final.metal_population_relative_tolerance == 3.0e-3
-    assert final.atmosphere_population_accuracy_final
-
-    # A small local integral-balance residual does not imply that the global
-    # flux mode is converged.  Retain coarse populations while the proposed
-    # temperature correction is still large.
-    global_mode_coarse = model.atmosphere_iteration_model(2, 3.0e-2, 1.0e-3)
-    assert global_mode_coarse.metal_population_iterations == 6
-    assert not global_mode_coarse.atmosphere_population_accuracy_final
-
-    both_final = model.atmosphere_iteration_model(2, 1.0e-2, 1.0e-3)
-    assert both_final.atmosphere_population_accuracy_final
 
 
 def test_pg1159_nlte_charge_feedback_preserves_fixed_pressure():
@@ -198,53 +161,6 @@ def test_pg1159_nlte_charge_feedback_preserves_fixed_pressure():
     assert adjusted_atmosphere.metadata[
         "nlte_charge_feedback_maximum_pressure_residual"
     ] < 2.0e-14
-
-
-def test_population_transfer_uses_only_mapped_formal_components():
-    population_ion = AtomicIon(
-        "C",
-        3,
-        12.0,
-        64.0,
-        (
-            AtomicLevel(1, 0.0, 2.0, "lower"),
-            AtomicLevel(2, 20_000.0, 4.0, "retained upper"),
-            AtomicLevel(3, 30_000.0, 6.0, "LTE upper"),
-        ),
-        (AtomicTransition(1, 2, 1.0e8, "E1", 5005.0, 0.3),),
-    )
-    formal_ion = AtomicIon(
-        "C",
-        3,
-        12.0,
-        64.0,
-        (
-            AtomicLevel(10, 0.0, 2.0, "lower"),
-            AtomicLevel(11, 20_000.0, 4.0, "retained upper"),
-            AtomicLevel(12, 30_000.0, 6.0, "LTE upper"),
-        ),
-        (
-            AtomicTransition(10, 11, 1.0e8, "E1", 5000.0, 0.2),
-            AtomicTransition(10, 12, 1.0e8, "E1", 4000.0, 0.1),
-        ),
-    )
-    population_database = AtomicDatabase(
-        MappingProxyType({("C", 3): population_ion}), "population"
-    )
-    formal_database = AtomicDatabase(
-        MappingProxyType({("C", 3): formal_ion}), "formal"
-    )
-    mapping = MappingProxyType({
-        ("C", 3, 1): (("C", 3, 10),),
-        ("C", 3, 2): (("C", 3, 11),),
-        ("C", 3, 3): (("C", 3, 12),),
-    })
-
-    keys = _formal_population_transition_keys(
-        population_database, formal_database, mapping, "C", {3: 2}
-    )
-
-    assert keys == frozenset({("C", 3, 10, 11)})
 
 
 def test_formal_spectrum_drops_lines_attached_to_omitted_rate_levels():
@@ -441,48 +357,7 @@ def test_helium_change_norm_is_symmetric_for_a_collapsing_level():
     assert diagnostic["ion"] == "He I"
 
 
-def test_tmad_formal_level_mapping_survives_population_damping():
-    population_key = ("C", 3, 1)
-    mapped_key = ("C", 3, 21)
-    lte_parent_key = ("C", 3, 22)
-    common = dict(
-        element="C",
-        level_key=(population_key,),
-        lte_population_density=np.asarray(((2.0, 4.0),)),
-        level_departure_coefficient=MappingProxyType({}),
-        maximum_lte_recovery_error=0.0,
-        metadata={},
-        formal_level_mapping=MappingProxyType({
-            population_key: (mapped_key,),
-        }),
-        formal_lte_parent_mapping=MappingProxyType({
-            lte_parent_key: population_key,
-        }),
-    )
-    previous = ReducedLightMetalLevelState(
-        population_density=np.asarray(((2.0, 4.0),)),
-        **common,
-    )
-    current = ReducedLightMetalLevelState(
-        population_density=np.asarray(((6.0, 12.0),)),
-        **common,
-    )
-
-    damped = _damp_reduced_level_state(previous, current, 0.5)
-
-    np.testing.assert_allclose(
-        damped.population_level_departure_coefficient[population_key],
-        (2.0, 2.0),
-    )
-    np.testing.assert_allclose(
-        damped.level_departure_coefficient[mapped_key], (2.0, 2.0)
-    )
-    np.testing.assert_allclose(
-        damped.level_departure_coefficient[lte_parent_key], (2.0, 2.0)
-    )
-
-
-def test_population_damping_warm_starts_newly_promoted_term_in_lte():
+def test_population_alignment_warm_starts_newly_promoted_term_in_lte():
     shared = ("O", 3, 1)
     promoted = ("O", 3, 2)
     previous = ReducedLightMetalLevelState(
@@ -504,11 +379,6 @@ def test_population_damping_warm_starts_newly_promoted_term_in_lte():
         metadata={},
     )
 
-    damped = _damp_reduced_level_state(previous, current, 0.5)
-
-    np.testing.assert_allclose(damped.population_density[0], (6.0, 12.0))
-    # The newly promoted term starts from b=1 before applying the damping.
-    np.testing.assert_allclose(damped.population_density[1], (4.0, 8.0))
     aligned = _align_reduced_level_state(previous, current)
     assert aligned is not None
     np.testing.assert_allclose(aligned.population_density[0], (4.0, 8.0))

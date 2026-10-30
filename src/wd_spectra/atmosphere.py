@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Callable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
-from numpy.typing import ArrayLike, NDArray
+from numpy.typing import NDArray
 
 from ._compat import trapezoid
 from .eos import (
@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     )
     from .molecules import H2H2CollisionInducedAbsorptionTable
     from .hydrogen_self import BarklemSelfBroadeningTable
-    from .jackson_lyman import JacksonLymanProfileTable
     from .quasimolecular import AllardUnifiedLymanTable
 
 
@@ -167,22 +166,6 @@ def _solve_bracketed_log_root(
                 f_lower *= 0.5
             replaced_side = 1
     return 0.5 * (lower + upper)
-
-
-def _node_values_on_upper_interfaces(
-    values: FloatArray,
-    *,
-    surface_value: float | None = None,
-) -> FloatArray:
-    """Map depth-node values to the upper cell interfaces."""
-
-    array = np.asarray(values, dtype=np.float64)
-    if array.ndim != 1 or array.size < 2 or np.any(~np.isfinite(array)):
-        raise ValueError("values must be a finite one-dimensional depth array")
-    result = np.empty_like(array)
-    result[0] = array[0] if surface_value is None else float(surface_value)
-    result[1:] = 0.5 * (array[:-1] + array[1:])
-    return result
 
 
 def _upper_interface_values_on_nodes(values: FloatArray) -> FloatArray:
@@ -1216,23 +1199,11 @@ def radiative_equilibrium_hydrogen_atmosphere(
     h2_h2_cia_table: H2H2CollisionInducedAbsorptionTable | None = None,
     include_neutral_lyman_alpha_wing: bool = True,
     unified_allard_table: AllardUnifiedLymanTable | None = None,
-    jackson_lyman_table: JacksonLymanProfileTable | None = None,
     mixing_length_alpha: float | None = 0.7,
     n_angle: int = 3,
     initial_temperature: FloatArray | None = None,
     initial_column_mass: FloatArray | None = None,
     initial_atmosphere: Atmosphere | None = None,
-    hydrogen_eos_function: Callable[
-        [FloatArray, FloatArray], HydrogenLTEState
-    ]
-    | None = None,
-    balmer_opacity_function: Callable[[Atmosphere, FloatArray], FloatArray]
-    | None = None,
-    continuum_opacity_function: Callable[[Atmosphere, FloatArray], FloatArray]
-    | None = None,
-    additional_structure_wavelength_angstrom: ArrayLike | None = None,
-    scattering_opacity_function: Callable[[Atmosphere, FloatArray], FloatArray]
-    | None = None,
     metal_database: AtomicDatabase | None = None,
     metal_abundances: Mapping[str, float] | None = None,
     metal_photoionization_database: VernerPhotoionizationDatabase | None = None,
@@ -1248,14 +1219,13 @@ def radiative_equilibrium_hydrogen_atmosphere(
         [int, Atmosphere, Mapping[str, object]], None
     ]
     | None = None,
-    structure_solver: Literal["adaptive-newton"] = "adaptive-newton",
 ) -> Atmosphere:
     """Relax an H-dominated atmosphere toward non-gray energy equilibrium.
 
-    Hydrostatic pressure remains exact on a fixed column-mass grid. With
-    ``structure_solver="adaptive-newton"``, the unknowns are surface
-    ``ln(T)`` and the layer logarithmic temperature gradients. A conservative
-    Feautrier radiative flux and interface ML2 flux are solved together.  A
+    Hydrostatic pressure remains exact on a fixed column-mass grid. The
+    unknowns are surface ``ln(T)`` and the layer logarithmic temperature
+    gradients. A conservative Feautrier radiative flux and interface ML2 flux
+    are solved together.  A
     local ML2-gradient phase first preconditions the nearly adiabatic interior;
     if necessary, the same-grid solve then restores the exact formal-flux
     residual in radiative layers.  The tangent Feautrier operator includes
@@ -1286,33 +1256,11 @@ def radiative_equilibrium_hydrogen_atmosphere(
     If supplied, ``iteration_callback`` receives the updated atmosphere and a
     compact convergence record after every accepted correction. It can be
     used to write resumable checkpoints or inspect spectra during long cool-DA
-    relaxations without changing the numerical iteration.  A caller may
-    provide ``hydrogen_eos_function(T, P)`` to replace the ordinary HM/Q-MHD
-    chemical-equilibrium solve while retaining the same hydrostatic and
-    radiative-equilibrium machinery; the DAH module uses this controlled hook
-    for its stationary-state magnetic EOS experiment.  Likewise,
-    ``balmer_opacity_function(atmosphere, wavelength)`` can replace the
-    zero-field structural Balmer opacity while leaving the remaining series
-    and continuum controls unchanged.  ``continuum_opacity_function`` is the
-    corresponding controlled hook for replacing the thermal continuum.  It
-    must return the complete true-absorption continuum (not scattering), so a
-    magnetic implementation can replace H I bound-free opacity without
-    losing the otherwise validated free-free and molecular terms.  When it
-    is supplied, the adaptive solver's Rosseland mean (its depth coordinate)
-    is taken from the same continuum rather than the zero-field one.
-    ``additional_structure_wavelength_angstrom`` adds frequency points to the
-    structure mesh, e.g. around displaced magnetic Balmer components.
-    ``scattering_opacity_function(atmosphere, wavelength)`` returns a change
-    to the electron plus Rayleigh coherent scattering (e.g. magnetic Thomson
-    scattering; adaptive-newton solver only).
+    relaxations without changing the numerical iteration.
     """
 
     if max_iterations < 1:
         raise ValueError("max_iterations must be positive")
-    if structure_solver != "adaptive-newton":
-        raise ValueError(
-            "Only structure_solver='adaptive-newton' is supported"
-        )
     if temperature_tolerance <= 0.0 or flux_tolerance <= 0.0:
         raise ValueError("convergence tolerances must be positive")
     if n_continuum_wavelength < 80:
@@ -1421,17 +1369,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     )
                 )
             )
-    if additional_structure_wavelength_angstrom is not None:
-        extra_wavelength = np.asarray(
-            additional_structure_wavelength_angstrom, dtype=np.float64
-        ).ravel()
-        if np.any(~np.isfinite(extra_wavelength)) or np.any(
-            extra_wavelength <= 0.0
-        ):
-            raise ValueError(
-                "additional_structure_wavelength_angstrom must be finite and positive"
-            )
-        wavelength = np.unique(np.concatenate((wavelength, extra_wavelength)))
     infrared_line_offsets = np.asarray(
         (
             -300.0,
@@ -1620,19 +1557,15 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 "initial_temperature must have one value per depth when initial_column_mass is omitted"
             )
     def with_temperature(values: FloatArray) -> Atmosphere:
-        eos = (
-            hummer_mihalas_hydrogen_lte(
-                values,
-                seed.gas_pressure,
-                correlated_microfields=correlated_microfields,
-                include_molecules=include_molecules,
-                include_negative_hydrogen=include_negative_hydrogen,
-                trihydrogen_ion_partition_model=(
-                    trihydrogen_ion_partition_model
-                ),
-            )
-            if hydrogen_eos_function is None
-            else hydrogen_eos_function(values, seed.gas_pressure)
+        eos = hummer_mihalas_hydrogen_lte(
+            values,
+            seed.gas_pressure,
+            correlated_microfields=correlated_microfields,
+            include_molecules=include_molecules,
+            include_negative_hydrogen=include_negative_hydrogen,
+            trihydrogen_ion_partition_model=(
+                trihydrogen_ion_partition_model
+            ),
         )
         result = Atmosphere(
             effective_temperature=seed.effective_temperature,
@@ -1666,46 +1599,33 @@ def radiative_equilibrium_hydrogen_atmosphere(
     def true_absorption(current_atmosphere: Atmosphere) -> FloatArray:
         """Evaluate every thermal opacity used by the structure solver."""
 
-        absorption = (
-            hydrogen_continuum_mass_absorption_coefficient(
-                current_atmosphere,
-                wavelength,
-                include_electron_scattering=False,
-                include_rayleigh_scattering=False,
-                h2_h2_cia_table=h2_h2_cia_table,
-            )
-            if continuum_opacity_function is None
-            else continuum_opacity_function(current_atmosphere, wavelength)
+        absorption = hydrogen_continuum_mass_absorption_coefficient(
+            current_atmosphere,
+            wavelength,
+            include_electron_scattering=False,
+            include_rayleigh_scattering=False,
+            h2_h2_cia_table=h2_h2_cia_table,
         )
-        if absorption.shape != (wavelength.size, current_atmosphere.n_depth):
-            raise ValueError(
-                "continuum_opacity_function must return shape "
-                "(wavelength, depth)"
-            )
         if np.any(~np.isfinite(absorption)) or np.any(absorption < 0.0):
             raise ValueError(
-                "continuum_opacity_function returned non-finite or negative opacity"
+                "hydrogen continuum opacity is non-finite or negative"
             )
         if include_balmer_lines:
-            absorption += (
-                balmer_mass_absorption_coefficient(
-                    current_atmosphere,
-                    wavelength,
-                    include_self_broadening=include_balmer_self_broadening,
-                    self_broadening_quadrature_order=(
-                        balmer_self_broadening_quadrature_order
-                    ),
-                    self_broadening_prescription=(
-                        balmer_self_broadening_prescription
-                    ),
-                    self_broadening_truncation_closure=(
-                        balmer_self_broadening_truncation_closure
-                    ),
-                    barklem_self_table=barklem_self_table,
-                    profile_edge_optical_depth=1.0e-4,
-                )
-                if balmer_opacity_function is None
-                else balmer_opacity_function(current_atmosphere, wavelength)
+            absorption += balmer_mass_absorption_coefficient(
+                current_atmosphere,
+                wavelength,
+                include_self_broadening=include_balmer_self_broadening,
+                self_broadening_quadrature_order=(
+                    balmer_self_broadening_quadrature_order
+                ),
+                self_broadening_prescription=(
+                    balmer_self_broadening_prescription
+                ),
+                self_broadening_truncation_closure=(
+                    balmer_self_broadening_truncation_closure
+                ),
+                barklem_self_table=barklem_self_table,
+                profile_edge_optical_depth=1.0e-4,
             )
         if include_paschen_lines:
             absorption += paschen_mass_absorption_coefficient(
@@ -1720,7 +1640,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 current_atmosphere,
                 wavelength,
                 unified_allard_table=unified_allard_table,
-                jackson_lyman_table=jackson_lyman_table,
             )
             if include_series_pseudocontinuum:
                 absorption += (
@@ -1735,13 +1654,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
                         wavelength,
                         allard_table=(
                             unified_allard_table.lines.get((1, 2))
-                            if (
-                                unified_allard_table is not None
-                                and not (
-                                    jackson_lyman_table is not None
-                                    and (1, 2) in jackson_lyman_table.lines
-                                )
-                            )
+                            if unified_allard_table is not None
                             else None
                         ),
                     )
@@ -1808,23 +1721,10 @@ def radiative_equilibrium_hydrogen_atmosphere(
     from .eos import hummer_mihalas_hydrogen_thermodynamics
 
     def scattering_opacity(current: Atmosphere) -> FloatArray:
-        result = (
+        return (
             electron_scattering_mass_coefficient(current)[np.newaxis, :]
             + hydrogen_rayleigh_scattering_mass_coefficient(current, wavelength)
         )
-        if scattering_opacity_function is not None:
-            extra = np.asarray(
-                scattering_opacity_function(current, wavelength), dtype=np.float64
-            )
-            if extra.shape != (wavelength.size, current.n_depth) or np.any(
-                ~np.isfinite(extra)
-            ) or np.any(result + extra < 0.0):
-                raise ValueError(
-                    "scattering_opacity_function must return a finite "
-                    "(wavelength, depth) change that keeps scattering nonnegative"
-                )
-            result = result + extra
-        return result
 
     explicit_metal_rosseland_opacity = (
         metal_database is not None
@@ -1836,14 +1736,6 @@ def radiative_equilibrium_hydrogen_atmosphere(
     )
 
     def rosseland_opacity(current: Atmosphere) -> FloatArray:
-        if continuum_opacity_function is not None and not explicit_metal_rosseland_opacity:
-            # Use the same continuum physics for the Rosseland depth coordinate.
-            return rosseland_mean_from_opacity_grid(
-                wavelength,
-                continuum_opacity_function(current, wavelength)
-                + scattering_opacity(current),
-                current.temperature,
-            )
         if explicit_metal_rosseland_opacity:
             if (
                 hydrogen_structure_absorption_cache.get("atmosphere")
@@ -1936,7 +1828,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 else "hummer-mihalas-occupation-probability"
             ),
             "radiative_equilibrium_seed_tau_min": float(tau_min),
-            "radiative_equilibrium_custom_hydrogen_eos": hydrogen_eos_function is not None,
+            "radiative_equilibrium_custom_hydrogen_eos": False,
             "radiative_equilibrium_resolves_balmer_line_cores": bool(
                 include_balmer_lines and resolve_balmer_line_cores
             ),
@@ -2046,7 +1938,6 @@ def radiative_equilibrium_helium_atmosphere(
     n_depth: int = 80,
     tau_min: float = 1.0e-8,
     max_iterations: int = 300,
-    structure_solver: Literal["adaptive-newton"] = "adaptive-newton",
     temperature_tolerance: float = 3.0e-4,
     flux_tolerance: float = 3.0e-3,
     enforce_local_energy_balance: bool = True,
@@ -2060,7 +1951,6 @@ def radiative_equilibrium_helium_atmosphere(
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
     include_rydberg_bound_free: bool = True,
-    neutral_line_broadening: Literal["none", "unsold", "montreal"] = "unsold",
     initial_temperature: FloatArray | None = None,
     initial_column_mass: FloatArray | None = None,
     initial_gas_pressure: FloatArray | None = None,
@@ -2145,20 +2035,12 @@ def radiative_equilibrium_helium_atmosphere(
         raise TypeError(
             "resume_supplied_structure_in_formal_flux_phase must be boolean"
         )
-    if structure_solver != "adaptive-newton":
-        raise ValueError(
-            "Only structure_solver='adaptive-newton' is supported"
-        )
     if n_continuum_wavelength < 80:
         raise ValueError("n_continuum_wavelength must be at least 80")
     if mixing_length_alpha is not None and (
         not np.isfinite(mixing_length_alpha) or mixing_length_alpha <= 0.0
     ):
         raise ValueError("mixing_length_alpha must be finite and positive")
-    if neutral_line_broadening not in ("none", "unsold", "montreal"):
-        raise ValueError(
-            "neutral_line_broadening must be 'none', 'unsold', or 'montreal'"
-        )
     if hydrogen_self_broadening_quadrature_order < 8:
         raise ValueError(
             "hydrogen_self_broadening_quadrature_order must be at least 8"
@@ -2776,10 +2658,6 @@ def radiative_equilibrium_helium_atmosphere(
                 current, wavelength, stark_table,
                 lines=structure_helium_i_lines,
                 include_occupation_probability=True,
-                # This convolution is expensive but is required for flux
-                # consistency in cool, dense DB atmospheres.  Callers can
-                # explicitly select "none" for fast warm-star diagnostics.
-                neutral_broadening=neutral_line_broadening,
             )
             result += helium_i_resonance_line_mass_absorption_coefficient(
                 current,
@@ -3052,7 +2930,7 @@ def radiative_equilibrium_helium_atmosphere(
                 len(structure_helium_ii_lines)
             ),
             "radiative_equilibrium_neutral_helium_line_broadening": (
-                neutral_line_broadening if include_lines else "disabled"
+                "unsold" if include_lines else "disabled"
             ),
             "helium_stark_profiles": (
                 "Tremblay-2026/Beauchamp-2025 explicit table"

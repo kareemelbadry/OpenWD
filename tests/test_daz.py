@@ -78,7 +78,7 @@ def test_metals_and_hydrogen_chemistry_are_shared_by_structure_and_spectrum(wiri
         assert a[key] is s[key]
     assert a["initial_temperature"] is None and a["initial_column_mass"] is None
     assert a["iteration_callback"] is callback
-    assert a["n_depth"] == 100 and a["structure_solver"] == "adaptive-newton"
+    assert a["n_depth"] == 100
     assert a["include_molecules"] and a["include_negative_hydrogen"]
     assert a["trihydrogen_ion_partition_model"] == "neale-tennyson-1995"
     assert a["mixing_length_alpha"] == 0.7
@@ -148,7 +148,6 @@ def test_automatic_daz_rejects_checkpoint(tmp_path):
         {"abundances": {"He": -1}},
         {"metal_neutral_h_broadening": "bad"},
         {"strong_line_atomic_data": "bad"},
-        {"h3plus_partition_model": "bad"},
         {"ca_ii_resonance_source": "bad"},
         {"lyman_profile_source": "bad"},
         {"maximum_metal_charge": 0},

@@ -79,7 +79,6 @@ def _load_result(directory, config, data):
     """Read this worker's new output, never an atmosphere solver input."""
     from .._dq.base import DQConfig as PhysicalConfig, DQMaterial
     from ..carbon_molecular import read_c2_cross_section_table, _reos_host_state
-    from ..eos import hummer_mihalas_helium_lte
     from .._dq.provenance import digest
     from .._dq.validation import qualify_spectrum
 
@@ -104,6 +103,8 @@ def _load_result(directory, config, data):
     meta = json.loads((directory/'model/metadata.json').read_text())
     physical = PhysicalConfig(**report['physical_config'])
     material = DQMaterial(physical, data, read_c2_cross_section_table(physical.c2_table_path))
+    if material.helium_reos3 is None:
+        raise RuntimeError('DQ output does not declare the REOS3 helium host')
     with np.load(directory/'model/atmosphere.npz', allow_pickle=False) as saved:
         if (float(saved['effective_temperature']) != config.effective_temperature or
                 float(saved['logg']) != config.logg):
@@ -111,11 +112,8 @@ def _load_result(directory, config, data):
         # Model files store bulk state, not the helium population object.
         # Restore the host at the saved T/P before closing the He/C mixture;
         # this is output deserialization, not an atmosphere iteration.
-        helium = (_reos_host_state(saved['temperature'], saved['gas_pressure'],
-                                   material.helium_reos3)
-                  if material.helium_reos3 is not None else
-                  hummer_mihalas_helium_lte(saved['temperature'], saved['gas_pressure'],
-                                          correlated_microfields=True, neutral_radius_scale=.5))
+        helium = _reos_host_state(saved['temperature'], saved['gas_pressure'],
+                                  material.helium_reos3)
         atmosphere = Atmosphere(config.effective_temperature, config.logg,
             **{name: saved[name].copy() for name in ('rosseland_optical_depth',
                'column_mass', 'temperature', 'gas_pressure', 'mass_density', 'electron_density')},

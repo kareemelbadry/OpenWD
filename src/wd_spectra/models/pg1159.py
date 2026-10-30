@@ -15,7 +15,6 @@ from .common import (
 from ..pg1159_presets import PG1424_PUBLISHED_MASS_FRACTIONS
 from .._pg1159_builder import (
     PG1159_HYDROGENIC_STARK_COMPONENTS,
-    PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES,
     build_model,
     structure_wavelength,
 )
@@ -185,10 +184,7 @@ def compute_pg1159(
     )
     model = replace(
         model,
-        population_transfer="mass",
-        use_population_ali=False,
         coupled_population_acceleration_depth=80,
-        metal_population_acceleration_depth=0,
         metal_population_relative_tolerance=config.population_tolerance,
         helium_model=replace(model.helium_model, population_n_angle=structure_angles),
     )
@@ -257,8 +253,6 @@ def compute_pg1159(
         )
         formal_model = replace(
             formal_model,
-            population_transfer="mass",
-            use_population_ali=False,
             # Match the validated structural closure: the 80-state weighted
             # SVD history resolves weak population modes, followed by the
             # undamped physical map near the target. The builder's 0.25
@@ -267,7 +261,6 @@ def compute_pg1159(
             coupled_population_acceleration_depth=(
                 model.coupled_population_acceleration_depth
             ),
-            metal_population_acceleration_depth=0,
             metal_population_damping=1.0,
             helium_population_damping=1.0,
             # The expanded trace-element atom only affects the formal
@@ -383,9 +376,6 @@ def compute_pg1159(
             "independent_grid_validation": False,
             "full_physics_validation": False,
             "hydrogenic_linear_stark_components": PG1159_HYDROGENIC_STARK_COMPONENTS,
-            "static_linear_stark_frequency_scales": dict(
-                PG1159_STATIC_LINEAR_STARK_FREQUENCY_SCALES
-            ),
         },
         population_state=PG1159PopulationResult(
             result.population_state, state, atmosphere

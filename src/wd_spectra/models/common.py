@@ -282,7 +282,7 @@ class ModelData:
             / "molecular-opacity/CIA_Borysow_H2H2_0060-7000K_0.6-500um.dat"
         )
 
-    def require(self, *paths: Path, fetch_command: str | None = None) -> None:
+    def require(self, *paths: Path) -> None:
         missing = [path for path in paths if not path.is_file() and not path.is_dir()]
         if not missing:
             return
@@ -304,6 +304,13 @@ class ModelResult:
     config: object
     metadata: Mapping[str, Any]
     population_state: object | None = None
+
+
+def config_from_stored(config_type: type, stored: Mapping[str, Any]) -> Any:
+    """Rebuild a saved preset configuration, ignoring fields it no longer has."""
+
+    names = {item.name for item in fields(config_type)}
+    return config_type(**{key: value for key, value in stored.items() if key in names})
 
 
 def model_request_fingerprint(
