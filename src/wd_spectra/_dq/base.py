@@ -186,6 +186,9 @@ class DQConfig:
     # Research constitutive data, not an enabled production default. Its
     # bounded wavelength domain is also used for structure convergence.
     helium_dense_continuum_path: str | None = None
+    # He- free-free below John's (1994) 0.5063-micron edge (see
+    # helium_minus_free_free_coefficient); production DQ selects "partial-wave".
+    helium_minus_free_free: str = "automatic"
 
 
 class DQMaterial:
@@ -305,6 +308,7 @@ class DQMaterial:
             include_electron_scattering=False,
             include_rayleigh_scattering=False,
             helium_minus_correction=dense,
+            helium_minus_prescription=self.config.helium_minus_free_free,
         )
         opacity += helium_i_line_mass_absorption_coefficient(
             a, wavelength, self.he_i, neutral_broadening="unsold"

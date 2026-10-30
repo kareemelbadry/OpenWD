@@ -19,10 +19,13 @@ def main(arguments=None):
     parser.add_argument('--no-c2-ca', action='store_true', help='Diagnostic: omit historical C2 C–A opacity')
     parser.add_argument('--swan-helium-broadening', choices=('none', 'exomol-weisskopf'),
                         default='none', help="Swan He perturbation; 'exomol-weisskopf' is an empirical opt-in")
+    parser.add_argument('--helium-minus-free-free', choices=('partial-wave', 'automatic'),
+                        default='partial-wave', help="He- free-free below John's 0.5063-micron edge")
     args = parser.parse_args(arguments)
     config = DQConfig(args.teff, args.logg, args.log_carbon_to_helium,
                       maximum_seconds=args.seconds, include_c2_ca=not args.no_c2_ca,
-                      swan_helium_broadening=args.swan_helium_broadening)
+                      swan_helium_broadening=args.swan_helium_broadening,
+                      helium_minus_free_free=args.helium_minus_free_free)
     validate_config(config)
     wavelength = None
     if args.read_output_grid:

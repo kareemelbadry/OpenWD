@@ -1,7 +1,7 @@
 {
  "source_run": "dq-j1235-uv-refined-cold-v1",
  "source_spectrum_sha256": "703eb50754ade8f7d0443522e290b9bb9143db275d43353bd35352de0c703700",
- "fixture_sha256": "9c5cccf8bf74fb09597fc6c53235458bf7858b51ab7bcdf07ce13470fb5d7c72",
+ "fixture_sha256": "ac7fe0b252d632c8ecd143985151ad40fbc095eb3bbd83b08a41407253426c9d",
  "parameters": {
   "effective_temperature": 9347.0,
   "logg": 8.041,
@@ -45,6 +45,21 @@
     "10000-100000": -0.0002478740828607551
    },
    "max_relative_change": 0.0014853089716515555
+  },
+  {
+   "date": "2026-10-29",
+   "previous_fixture_sha256": "9c5cccf8bf74fb09597fc6c53235458bf7858b51ab7bcdf07ce13470fb5d7c72",
+   "physics_revision": "dq-release-2026-10-29-partial-wave-he-minus",
+   "reason": "DQ He- free-free below John's 0.5063-micron edge now 'partial-wave' (as DZ): a first-principles e-He wavelength shape scaled to John's edge value replaces the Carbon et al. (1969) fit. Structure arrays unchanged.",
+   "band_fractional_changes": {
+    "1000-3000": 0.09985652285176139,
+    "3500-4000": 0.02820555658514956,
+    "4000-4500": 0.01852248105302068,
+    "4500-5500": 0.007061113648247019,
+    "5500-7000": 0.0,
+    "10000-100000": 0.0
+   },
+   "max_relative_change": 0.0998573655354198
   }
  ]
 }

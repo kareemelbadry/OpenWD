@@ -96,7 +96,8 @@ def make_material(config, data=None, output=None, *, structure_stride=STRUCTURE_
         logg=config.logg, log_carbon_to_helium=config.log_carbon_to_helium,
         quality='standard', c2_table_path=str(root/'c2-8states-r15000.npz'),
         helium_eos='reos3', swan_pressure_shift='blouin2019',
-        helium_dense_continuum_path=str(root/'correction.npz'))
+        helium_dense_continuum_path=str(root/'correction.npz'),
+        helium_minus_free_free=getattr(config, 'helium_minus_free_free', 'partial-wave'))
     table = base.read_c2_cross_section_table(physical.c2_table_path)
     cls = refined_material(ProductionDQMaterial, 4000, full_continuum=True,
                            structure_stride=structure_stride)

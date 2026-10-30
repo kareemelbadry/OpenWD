@@ -68,3 +68,11 @@ merged release code (user-approved). Previous hashes are under `reapprovals`.
   1/|eps|^2) and the ideal-excess He-REOS.3 interpolant together change the
   flux by -1 to -2.5%.
 - J1235 (9347 K): at most 0.15% anywhere.
+
+Then, the same day, DQ adopted the DZ partial-wave He- free-free below John's
+0.5063-micron edge in place of the Carbon et al. (1969) fit (user-approved):
+
+- J1311: +6.5% at 3500-4000 A, +4.3% at 4000-4500 A, +0.4% at 4500-5500 A,
+  unchanged redward of 5063 A.
+- J1235: +10% at 1000-3000 A, +2.8% at 3500-4000 A, +1.9% at 4000-4500 A,
+  unchanged redward of 5063 A.

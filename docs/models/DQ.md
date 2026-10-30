@@ -44,6 +44,7 @@ optional `wavelength` array changes only the output grid.
 | `quality` | `"standard"` | The only accepted value. |
 | `maximum_seconds` | 28800 | Wall-clock budget. The run raises an error when it is used up. |
 | `include_c2_ca` | `True` | C₂ C–A band opacity. `False` is a diagnostic omission. |
+| `helium_minus_free_free` | `"partial-wave"` | He⁻ free–free below 5063 Å. `"automatic"` restores the Carbon et al. (1969) fit. |
 | `swan_helium_broadening` | `"none"` | `"exomol-weisskopf"` turns on the empirical Swan-line cut described below. |
 
 ## Physics
@@ -55,8 +56,11 @@ optional `wavelength` array changes only the output grid.
   interpolant. Linear interpolation in log T had given ∇ad jumps of up to 40%
   at the isotherms and stalled convective models. He, C and C₂ are in coupled
   chemical equilibrium.
-- **Continuum.** The He⁻ free–free opacity includes the dense-helium
-  correction of Iglesias et al. (2002). The fluid structure factor comes from
+- **Continuum.** The He⁻ free–free opacity follows John (1994) above
+  5063 Å. Blueward, as in DZ, a first-principles e–He partial-wave shape is
+  scaled to John's edge value. The older Carbon et al. (1969) fit is 9–23%
+  higher at DQ photospheric temperatures and jumps at the edge. The opacity
+  includes the dense-helium correction of Iglesias et al. (2002). The fluid structure factor comes from
   a Rogers–Young closure (checked against Monte Carlo), and the table extends
   to 2.91 g cm⁻³. The 1/|ε|² factor of Blouin et al. (2018) is not applied,
   because the refractive transfer already supplies the 1/n propagation factor
@@ -123,6 +127,13 @@ at τR = 2/3.
 
 The largest absolute-flux misfits (J0239, J2150) come from the flux scale or
 calibration, not the band shapes. The Swan cut is never meaningfully worse.
+
+These sample models predate the partial-wave He⁻ free–free default. On fixed
+J1311 (5529 K) and J1235 (9347 K) atmospheres, that change raises the
+line-free continuum by up to 8% and 3% at 3600–5063 Å, and raises J1235's
+1000–3000 Å flux by 10%. It leaves the Swan
+band depths unchanged to within 0.003 and does not change the flux redward of
+5063 Å.
 
 Peculiar DQs (J0804, J1803; Teff < 6000 K, ρ ≈ 0.4–1 g cm⁻³) are not
 reproduced. Their modeled Swan bands are about twice too deep, and the
