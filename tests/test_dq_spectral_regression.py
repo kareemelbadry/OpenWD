@@ -31,6 +31,7 @@ def test_refractive_spectrum_retains_j1235_absolute_flux(tmp_path):
     # this fixture when the production line coverage changes.
     material.integrated_swan=CachedSwan(material.table,
         branches=data_root()/'hornkohl_calibrated.npz',cache_grids=192)
+    material.swan_helium_broadening=False   # historical (unbroadened) physics control
     actual=material.spectrum(state,wave,3)
     assert actual.metadata['refraction']
     # No normalization, interpolation or observational parameter fitting.

@@ -112,7 +112,8 @@ stationarity in optically thin layers that only the energy equations
 constrain (`use_completion_flux_handoff`). Until October 2026 DQ instead used a
 stack of patched Newton, coordinate and proposal layers; they were removed
 once the EOS kinks they were compensating for were fixed (see below and the
-[October 2026 audit record](../development/history/dq-shared-solver-2026-10-14.md)).
+[October 2026 audit record](../development/history/dq-shared-solver-2026-10-14.md)
+and the [dense He⁻ free-free record](../development/history/dq-dense-he-ff-2026-10-15.md)).
 
 A successful public request must pass all five atmosphere checks: all-depth
 flux, local energy balance, temperature stationarity, source closure, and

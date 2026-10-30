@@ -27,6 +27,7 @@ from .continuum_batches import CONTINUUM_BATCH_SIZE
 from .data import data_root, validate_data
 from .dq_refractive_material import RefractiveDQMaterial
 from .dq_uv_sampling_experiment import refined_material
+from . import dq_swan_impact_broadening as swan_broadening
 from .provenance import digest, source_hashes
 from .swan_strength_cache import CachedSwan
 from .validation import independent_grid, qualify_spectrum
@@ -59,6 +60,19 @@ class ProductionDQMaterial(RefractiveDQMaterial):
             full_physics_validated=False,
         )
 
+    swan_helium_broadening = False
+
+    def swan_column(self, a, j, wavelength):
+        if not self.swan_helium_broadening:
+            return super().swan_column(a, j, wavelength)
+        if not hasattr(self.integrated_swan, 'broadened_cell_average'):
+            raise ValueError('Swan He broadening requested, but the supplied Swan line list '
+                             'cannot broaden; set swan_helium_broadening=False for it')
+        left, right = self.cell_shifts[float(a.gas_pressure[j])]
+        return self.integrated_swan.broadened_cell_average(
+            wavelength, float(a.temperature[j]), left, right,
+            float(a.helium_lte_state.neutral_he_density[j]))
+
     def solve(self, *args, **kwargs):
         # Structure iterations retain response matrices: keep a small Swan
         # strength cache there, the full one for the final synthesis.
@@ -88,8 +102,14 @@ def make_material(config, data=None, output=None, *, structure_stride=STRUCTURE_
                            structure_stride=structure_stride)
     material = cls(physical, ModelData.default() if data is None else data, table,
                    sampling_r=10000., sampling_phase=.5)
-    material.integrated_swan = CachedSwan(table, branches=root/'swan-completed.npz',
+    broadening = getattr(config, 'swan_helium_broadening', 'none')
+    swan_class = swan_broadening.ImpactBroadenedSwan if broadening == 'exomol-weisskopf' else CachedSwan
+    material.integrated_swan = swan_class(table, branches=root/'swan-completed.npz',
                                           cache_grids=192, strength_cache_bytes=1024**3)
+    material.swan_helium_broadening = broadening == 'exomol-weisskopf'
+    material.experiment_metadata.update(
+        swan_helium_broadening=(swan_broadening.DESCRIPTION if material.swan_helium_broadening
+                                else 'none (thermal Doppler lines only)'))
     if config.include_c2_ca:
         material.ca_table = load_ca_table(table)
     material.experiment_metadata.update(
