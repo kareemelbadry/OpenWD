@@ -1,7 +1,7 @@
 {
  "source_run": "dq-j1235-uv-refined-cold-v1",
  "source_spectrum_sha256": "703eb50754ade8f7d0443522e290b9bb9143db275d43353bd35352de0c703700",
- "fixture_sha256": "f2211da7b98de9ab440d233e1b3aa47095e4ec3b366cdea7ae5a3717766a6bcd",
+ "fixture_sha256": "9c5cccf8bf74fb09597fc6c53235458bf7858b51ab7bcdf07ce13470fb5d7c72",
  "parameters": {
   "effective_temperature": 9347.0,
   "logg": 8.041,
@@ -30,6 +30,21 @@
     "10000-100000": -2.5852633287470894e-05
    },
    "max_relative_change": 0.0001470390621504114
+  },
+  {
+   "date": "2026-10-29",
+   "previous_fixture_sha256": "f2211da7b98de9ab440d233e1b3aa47095e4ec3b366cdea7ae5a3717766a6bcd",
+   "physics_revision": "dq-release-2026-10-29",
+   "reason": "DQ shared-solver release (same changes as J1311); at 9347 K only the dense He- ff and EOS changes matter. Structure arrays unchanged.",
+   "band_fractional_changes": {
+    "1000-3000": -0.0014852964559255444,
+    "3500-4000": -0.0008571055366608515,
+    "4000-4500": -0.0007508091013949114,
+    "4500-5500": -0.0006219340695456932,
+    "5500-7000": -0.0004962331186189051,
+    "10000-100000": -0.0002478740828607551
+   },
+   "max_relative_change": 0.0014853089716515555
   }
  ]
 }

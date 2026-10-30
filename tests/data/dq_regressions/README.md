@@ -4,8 +4,8 @@
 from the independently qualified J1235 research cold run of 2026-09-17.
 `manifest.json` records parameters and source/output checksums.
 
-This fixture is used only by `test_dq_spectral_regression.py` to detect changes
-in refractive synthesis and material physics. It is not observed data, is not
+Its structure seeds the C–A A/B comparison in `test_dq_ca.py`; its flux is
+no longer compared by a test (the historical control was pruned 2026-10-28). It is not observed data, is not
 proof of physical accuracy, and never initializes a cold-start test.
 `test_j1235_public_true_cold_and_independent_spectrum` starts from parameters
 alone and is separately marked as a slow canary.
@@ -54,3 +54,17 @@ nabla_ad at the isotherms, and DQ models share that equation of state.
 - J1311 (5529 K): band-integrated flux falls by 0.8% at 3500-4000 A, 0.4% at
   4000-4500 A and 0.2-0.3% redward. The largest single-sample change is 6.4%.
 - J1235 (9347 K): at most 0.015% anywhere.
+
+## Re-approval 2026-10-29 (DQ shared-solver release)
+
+Both flux arrays were recomputed on the unchanged stored structures with the
+merged release code (user-approved). Previous hashes are under `reapprovals`.
+
+- J1311 (5529 K): flux rises by 24% at 3500-4000 A, 12% at 4000-4500 A and
+  1% at 4500-5500 A, and falls by 0.8% at 5500-7000 A. Turning the C I red-wing
+  Boltzmann bound off on the same structure gives +27% / +14% / +1.7% / +0.7%
+  for the bound alone. The far red Lorentz wings of the UV C I lines had been
+  the main blue-optical opacity. The Rogers-Young dense He- ff table (no
+  1/|eps|^2) and the ideal-excess He-REOS.3 interpolant together change the
+  flux by -1 to -2.5%.
+- J1235 (9347 K): at most 0.15% anywhere.
