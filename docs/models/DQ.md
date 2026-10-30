@@ -2,6 +2,12 @@
 
 [Model guide](README.md) · [Getting started](../getting-started.md)
 
+> **Status: in development, not yet ready for broader use.** DQ models
+> converge from cold starts and pass all atmosphere checks. Their spectra
+> match SDSS well only above about 7000 K. Below that the Swan bands are too
+> deep, and peculiar DQs are not reproduced (see [Validation](#validation)).
+> Do not use them to fit stellar parameters or carbon abundances yet.
+
 `DQConfig` computes hydrogen-free, nonmagnetic, helium-dominated LTE
 atmospheres with trace carbon and C₂. The transfer is refractive in both the
 structure and the final spectrum. Each request is a cold start from a gray
@@ -80,8 +86,11 @@ optional `wavelength` array changes only the output grid.
   gives each Swan line an ExoMol impact Lorentzian, cut off at the Weisskopf
   detuning. The cut discards the Lorentz area beyond it: 60–95% of the line
   strength at n_He = 10²²–10²³ cm⁻³. That makes the bands of cool DQs
-  shallower and closer to SDSS (see below), but it is not
-  strength-conserving physics. It is off by default.
+  shallower and closer to SDSS (see below). The gain is phenomenological;
+  the cut has no physical justification. An ab initio test (SA-CASSCF on
+  C₂ + He) found that He contact changes the Swan transition strength by
+  at most ~5% even at 1 g cm⁻³, far less than the strength the cut removes.
+  It is off by default.
 - **Other C₂ systems.** ExoMol 8states gives the other systems and the
   partition function. The Deslandres–d'Azambuja (C–A) system uses band
   envelopes from the Einstein coefficients of Lino da Silva (2024).
@@ -102,6 +111,10 @@ optional `wavelength` array changes only the output grid.
   an error.
 
 ## Validation
+
+> **Out of date.** The two 23-star figures and the table below were made
+> before the partial-wave He⁻ free–free default. The
+> [six-star comparison](#release-check) further down uses the current code.
 
 [![OpenWD DQ models against SDSS spectra of 23 DQs, sorted by Teff](../assets/dq-sample-montage.png)](../assets/dq-sample-montage.png)
 
@@ -126,11 +139,14 @@ at τR = 2/3.
 | ≲ 6000 K | ≳ 0.2 g cm⁻³ | Bands far too deep (J1201: 0.28) | Good to 5800 K, except J1201 (0.13) |
 
 The largest absolute-flux misfits (J0239, J2150) come from the flux scale or
-calibration, not the band shapes. The Swan cut is never meaningfully worse.
+calibration, not the band shapes. The Swan cut is never meaningfully worse,
+but its improvement is phenomenological and not physically justified (see
+[Physics](#physics)).
 
-These sample models predate the partial-wave He⁻ free–free default. Six of
-the stars were rerun cold with the release code, with both He⁻ free–free
-choices:
+### Release check
+
+Six of the stars were rerun cold with the release code, with both He⁻
+free–free choices:
 
 [![Six DQs from this release against SDSS, with the earlier He⁻ free–free](../assets/dq-release-validation.png)](../assets/dq-release-validation.png)
 
@@ -145,8 +161,8 @@ choices:
 
 Here, shape is the RMS over 4200–5720 Å after both spectra are normalized at
 6320–6500 Å. Band depth is the RMS of ln(model/data) about a linear trend over
-the same range. All twelve models converge from cold starts and pass the five atmosphere checks and the
-bolometric check. The partial-wave free–free is the more accurate physics,
+the same range. All twelve models converge from cold starts and pass the
+five atmosphere checks and the bolometric check. The partial-wave free–free is the more accurate physics,
 but with structure feedback it makes the bands slightly deeper and the red
 continuum slightly fainter. Band-depth RMS rises in every star compared. The
 older, too-large Carbon fit was partly standing in for opacity the models

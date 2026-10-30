@@ -21,7 +21,8 @@ The [model guide index](models/README.md) compares the classes.
 - [DB](models/DB.md): helium atmospheres, including the dense-helium workflow.
 - [DAB/DBA](models/DAB.md): mixed hydrogen–helium atmospheres.
 - [DZ/DBZ/DAZ](models/DZ.md): helium or hydrogen atmospheres with metals.
-- [DQ](models/DQ.md): helium atmospheres with trace carbon and C₂.
+- [DQ](models/DQ.md): helium atmospheres with trace carbon and C₂. In
+  development; not yet ready for broader use.
 - [DO/DAO](models/DO-DAO.md): hot NLTE helium and hydrogen–helium atmospheres.
 - [PG 1159](models/PG1159.md): hot NLTE helium–carbon–oxygen atmospheres.
 - [D6](models/D6.md): carbon–oxygen atmospheres without hydrogen or helium.

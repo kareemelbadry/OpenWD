@@ -16,12 +16,15 @@ transfer from a cold start; it does not interpolate in a precomputed grid.
 | DB | Helium | LTE | [DB](docs/models/DB.md) |
 | DAB/DBA | Homogeneous hydrogen–helium mixture | LTE | [DAB/DBA](docs/models/DAB.md) |
 | DZ/DBZ | Helium with metals | LTE | [DZ/DBZ/DAZ](docs/models/DZ.md) |
-| DQ | Helium with trace carbon and C₂ | LTE | [DQ](docs/models/DQ.md) |
+| DQ (in development) | Helium with trace carbon and C₂ | LTE | [DQ](docs/models/DQ.md) |
 | DO/DAO | Hot helium or hydrogen–helium | NLTE H and He | [DO/DAO](docs/models/DO-DAO.md) |
 | PG 1159 | Hot helium–carbon–oxygen | NLTE He, C and O | [PG 1159](docs/models/PG1159.md) |
 | D6 | Carbon–oxygen with heavier elements, no H or He | LTE | [D6](docs/models/D6.md) |
 | DAH | Magnetic hydrogen | LTE | [DAH](docs/models/DAH.md) |
 | sdB | Hot subdwarf hydrogen–helium | LTE structure, NLTE H and He | [sdB](docs/models/sdB.md) |
+
+DQ is in development and not yet ready for broader use. Its spectra match
+observations well only above about 7000 K; see the [DQ guide](docs/models/DQ.md).
 
 ## Install
 
