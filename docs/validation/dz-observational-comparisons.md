@@ -5,7 +5,10 @@
 These comparisons use published effective temperatures (Teff), surface
 gravities and abundances. No parameter or abundance is fitted. The commands
 compute new models with the current defaults. Their spectra can differ
-from the figures.
+from the figures. Apart from LSPM J0207+3331, the figures were computed before
+the 2026-11-02 change of the strong-line default
+(`strong_line_atomic_data="stout"`); the [Sr and NIST note](../development/strontium.md)
+gives the size of that change for these stars.
 
 ## Paper comparisons
 
@@ -115,12 +118,13 @@ measured by Le Bourdais & Dufour.
 
 [![LSPM J0207+3331 HIRES data and OpenWD at the Le Bourdais & Dufour composition](../assets/lspmj0207-hires.png)](../assets/lspmj0207-hires.png)
 
-Red is the default model (no Sr). Blue dashed adds Sr (log N(Sr)/N(H) =
-−10.85) and uses `strong_line_atomic_data="nist-asd"`. In each window the data
+Red uses the Stout strong-line data (`strong_line_atomic_data="stout"`, the
+default before 2026-11-02) and no Sr. Blue dashed is the current default with
+Sr (log N(Sr)/N(H) = −10.85). In each window the data
 are scaled to the model times a quadratic. The windows test the line
 contrasts, not the depth of the pseudo-continuum. Both models reproduce most
 metal lines, including the strong Mg I, Ca I and Ca II wings. The second model
-adds the Sr II resonance lines and corrects Stout oscillator strengths that
+adds the Sr II resonance lines and the NIST values correct Stout oscillator strengths that
 are too small by factors of 4–11 (Ni I 3472.5 and 3807.1 Å, Fe I 3407.5 and
 3684.1 Å). The largest remaining differences:
 

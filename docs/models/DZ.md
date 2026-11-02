@@ -72,7 +72,7 @@ same from the command line (`--help` lists the flags).
 | `quality` | both | `"standard"` | `"quick"` (20 depths, interface test only), `"standard"` (40), `"production"` (80). |
 | `maximum_metal_charge` | both | 3 | Highest ion charge of each metal. |
 | `formal_maximum_metal_lines` | both | `None` (20,000; 1000 for `quick`) | Line budget of the spectrum. The structure uses the same list. |
-| `strong_line_atomic_data` | both | `"stout"` | `"nist-asd"` replaces matched transitions (NIST grade C or better, f ≥ 0.01) with NIST ASD values, for the neutral and singly ionized ions of C, N, O, Na, Mg, Al, Si, P, S, Ca, Ti, Cr, Mn, Fe and Ni at 1150–9000 Å. |
+| `strong_line_atomic_data` | both | `"nist-asd"` | Replaces matched transitions (NIST grade C or better, f ≥ 10⁻⁴) with NIST ASD values, for the neutral and singly ionized ions of C, N, O, Na, Mg, Al, Si, P, S, Ca, Ti, Cr, Mn, Fe and Ni at 1150–9000 Å. `"stout"` keeps the Stout values (the default before 2026-11-02). |
 | `ca_ii_resonance_source` | both | `"chianti-reduced"` | Ca II H and K source function. `"lte"` uses LTE. |
 | `lyman_profile_source` | both | DZ `"stark"`, DAZ `"allard"` | Lyman-line profiles. |
 | `metal_neutral_h_broadening` | DAZ | `"barklem"` | Neutral-H widths of metal lines. `"unsold"` uses Unsöld widths only. |
@@ -94,6 +94,9 @@ The remaining fields are numerical controls. Keep their defaults.
   (van Hoof et al. 2018) in Stout format. Selected Kurucz (2011) transitions
   are added; see the [atomic-data notes](../../src/wd_spectra/data/atomic/README.md)
   and the [Kurucz selection check](../validation/independent-kurucz.md).
+  Matched transitions of the neutral and singly ionized ions of the same
+  15 elements take evaluated NIST ASD oscillator strengths
+  (`strong_line_atomic_data`, see [Sr and NIST lines](../development/strontium.md)).
   Sr and Nb are not in Stout; their levels and transition probabilities
   come from NIST ASD (see [Sr lines](../development/strontium.md)).
   Ionization energies come from NIST ASD.

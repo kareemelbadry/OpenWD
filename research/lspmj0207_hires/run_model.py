@@ -30,7 +30,7 @@ parser.add_argument("--structure-lines", type=int, default=None,
 parser.add_argument("--formal-lines", type=int, default=None,
                     help="DAZConfig.formal_maximum_metal_lines (default 20,000)")
 parser.add_argument("--with-sr", action="store_true", help="include Sr at the paper abundance")
-parser.add_argument("--strong-line-data", default="stout", choices=["stout", "nist-asd"],
+parser.add_argument("--strong-line-data", default="nist-asd", choices=["stout", "nist-asd"],
                     help="DAZConfig.strong_line_atomic_data")
 args = parser.parse_args()
 

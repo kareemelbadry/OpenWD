@@ -30,11 +30,11 @@ the two exposures, and merges all orders with inverse-variance weights on a
 ## Models and figure
 
 ```bash
-python run_model.py results/default                                  # Stout data, no Sr
-python run_model.py results/sr-nist --with-sr --strong-line-data nist-asd
+python run_model.py results/stout --strong-line-data stout     # Stout data, no Sr
+python run_model.py results/default-sr --with-sr               # current default, with Sr
 WINDOW_SET=docs python -I compare_hires.py lspmj0207_hires_merged.npz lspmj0207-hires.png \
-  "results/default=OpenWD default (Stout atomic data, no Sr)" \
-  "results/sr-nist=OpenWD with Sr and nist-asd strong-line data"
+  "results/stout=OpenWD with Stout strong-line data, no Sr (default before Nov 2026)" \
+  "results/default-sr=OpenWD default (NIST strong-line data) with Sr"
 ```
 
 Each model is a cold start at standard quality (about 40 min on 8 threads)
