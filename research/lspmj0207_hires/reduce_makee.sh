@@ -6,9 +6,10 @@
 #   arc   : ThAr HI.20201008.40554 (11:15 UT, right after the science) for LSPM J0207;
 #           ThAr HI.20201008.47629 (13:13 UT) for EGGR 180
 # MAKEE defaults: optimal extraction, vacuum wavelengths, heliocentric correction.
-# usage: bash reduce_makee.sh REDUCTIONDIR    (expects REDUCTIONDIR/split from prep_makee.py)
+# usage: MAKEE_SETUP=/path/to/setup_makee.sh bash reduce_makee.sh REDUCTIONDIR
+#        (expects REDUCTIONDIR/split from prep_makee.py; MAKEE_SETUP is the script that puts makee on PATH)
 set -euo pipefail
-source /resnick/groups/elbadry_lab/makee2018/setup_makee.sh
+source "${MAKEE_SETUP:?set MAKEE_SETUP to the MAKEE setup script}"
 export PGPLOT_DEV=/null
 red=$(readlink -f "$1")
 star=HI.20201008.17118

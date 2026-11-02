@@ -18,7 +18,7 @@ only four blue-CCD orders. To rebuild it (MAKEE is required for step 3):
 ```bash
 python -I fetch_hires.py raw                 # raw frames from KOA
 python -I prep_makee.py raw/lev0 red/split   # split mosaics, combine flats and biases
-bash reduce_makee.sh red                     # MAKEE, one run per CCD and frame
+MAKEE_SETUP=/path/to/setup_makee.sh bash reduce_makee.sh red   # MAKEE, one run per CCD and frame
 python -I build_spectrum.py red spectrum     # response, cosmic rays, order merge
 ```
 
