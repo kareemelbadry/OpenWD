@@ -235,6 +235,7 @@ To approve an intentional physics change:
 - [Hot DA/DAO trace metals](hot-daz-trace-metals.md): the fixed-host NLTE
   metal solver.
 - [Niobium, zinc, copper and nickel lines](niobium.md): HS 0209+0832.
+- [Strontium and NIST strong-line coverage](strontium.md): LSPM J0207+3331.
 - [Hot subdwarf (sdB) models](sdb-hybrid.md): solver options and the trace-metal
   driver.
 - [History](history/README.md): dated investigation records.

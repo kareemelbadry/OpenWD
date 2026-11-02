@@ -295,6 +295,214 @@ NIST_ASD_STRONG_ION_FILES = MappingProxyType(
             "5c41e58c8d0edd109b2f84de2ab5cabb2eb7df3ddae66a75b8dcc41f1a8f9b59",
             "Al", 1,
         ),
+        # The same two windows for every other neutral and singly ionized ion
+        # screened by the independent-Kurucz rule (C, N, O, Na, Mg, Al, Si, P,
+        # S, Ca, Ti, Cr, Mn, Fe, Ni), so the rule applies uniformly.
+        "nist-asd-c1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="C%20I"),
+            "8b3a3a569f6db28b6f0c0b039f0f4683fc5688fa56376d59e2b51803694631e9",
+            "C", 0,
+        ),
+        "nist-asd-c1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="C%20I"),
+            "98ee985a9927aaf74993b417dc0b2af650b87f449abd9cd6e5621710ff72d8c6",
+            "C", 0,
+        ),
+        "nist-asd-c2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="C%20II"),
+            "adf894125de29d06ef92027dc5bbf1d8dd56a978f2d5d54e2e4b5edab4191916",
+            "C", 1,
+        ),
+        "nist-asd-n1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="N%20I"),
+            "47e9d95c3d366d7078cb048c40ef720c1d13101f4a1661a769e41b591747ede6",
+            "N", 0,
+        ),
+        "nist-asd-n1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="N%20I"),
+            "40904a4e8dc02fb7dc722fae610c9dce4ec06e3c79a12d45bf2ef860a139acec",
+            "N", 0,
+        ),
+        "nist-asd-n2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="N%20II"),
+            "6a5386559edd6b6bc7e068ce22bef597a5b2935e45d268de50e784f96362348d",
+            "N", 1,
+        ),
+        "nist-asd-n2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="N%20II"),
+            "ec0d1ca6b342e4347a011c97adf04262fd665044dc25ef79fcfaf85be798b9cd",
+            "N", 1,
+        ),
+        "nist-asd-o2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="O%20II"),
+            "6f8c04bc39cb76a8187e1932be66c78dd44ae363d557f981901a11999b314430",
+            "O", 1,
+        ),
+        "nist-asd-o2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="O%20II"),
+            "467df6dc31566c2df9ea657575c6efbcf106574ef10dfc82d956489f4cb3ee22",
+            "O", 1,
+        ),
+        "nist-asd-na2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Na%20II"),
+            "58ce8248cead05752edecfb81601ffc1959e96ae3f97ac9bd0db02ff50618e11",
+            "Na", 1,
+        ),
+        "nist-asd-na2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Na%20II"),
+            "148c0d59c65aceb322d352709f1b2c2126aa45b57711ea5fa7ec69d0b9184478",
+            "Na", 1,
+        ),
+        "nist-asd-al1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Al%20I"),
+            "3701e1b224845ef139523a2bc74ed8df00bda2eace2f21cc0e2552702729a1a9",
+            "Al", 0,
+        ),
+        "nist-asd-al1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Al%20I"),
+            "5ff858c8394a5f5829925d02df44451425fa65ff2b62c6d59d4dc540113f9421",
+            "Al", 0,
+        ),
+        "nist-asd-al2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Al%20II"),
+            "561d8e73e4414347a1c1698a1666815993eecd6119082cf4c10165e39ac95fc5",
+            "Al", 1,
+        ),
+        "nist-asd-si1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Si%20I"),
+            "31f46d5d37e997e91132780938994edafa7a091ea6213c810843598eedb03dd2",
+            "Si", 0,
+        ),
+        "nist-asd-p1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="P%20I"),
+            "113df63f73281d10e4a97f36d0f50780f908cb6f50824459262ce881ceb79c30",
+            "P", 0,
+        ),
+        "nist-asd-p1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="P%20I"),
+            "55980a61e2141561ebd597fa706ed6385cde929c6932bf41680f2bf6a18b4f89",
+            "P", 0,
+        ),
+        "nist-asd-p2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="P%20II"),
+            "002a621799193fd24d5defd09cf820d5369fafce479caf87c9580f3b1397eb6c",
+            "P", 1,
+        ),
+        "nist-asd-p2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="P%20II"),
+            "110adf2bfe4c6101c6e5fd6da0a47fe17a81c7c5d05ad730d009b588db14210d",
+            "P", 1,
+        ),
+        "nist-asd-s1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="S%20I"),
+            "a71d530ecaafa1551c31c649898cd33650b3f9939002c7c21c63c7d0d8f49bb5",
+            "S", 0,
+        ),
+        "nist-asd-s1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="S%20I"),
+            "c8d2067efa57173f1cce6edb206e73f4d97ce5dd4b71eb9f900735b59baba2c9",
+            "S", 0,
+        ),
+        "nist-asd-s2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="S%20II"),
+            "afceb117674807df293c882d3e81867cc9df85acd4665e1c3a22726205473862",
+            "S", 1,
+        ),
+        "nist-asd-s2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="S%20II"),
+            "92d61cffb1dd6eabd5d81c7510b78a6c0c0ef62613b7892656b1d274c7a5522e",
+            "S", 1,
+        ),
+        "nist-asd-ti1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Ti%20I"),
+            "3da7c64ad194a906632aa737eb41dbe6e24b9005bfbcc65b703cd3a54f2ca432",
+            "Ti", 0,
+        ),
+        "nist-asd-ti1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Ti%20I"),
+            "69155d5961b4a99cc6b6fa1f2b0bdea8e5fcac6d4c877b631499d79db8fcd96b",
+            "Ti", 0,
+        ),
+        "nist-asd-ti2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Ti%20II"),
+            "b88175c66e865ac3fe6aab38a6856c0c3ef7078bc232c7920ed66bc2cd321cd5",
+            "Ti", 1,
+        ),
+        "nist-asd-ti2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Ti%20II"),
+            "a79de8e10064ebd0acf6045c2baf84d293ca487adb231cb2d8fd7dd523e5f8e8",
+            "Ti", 1,
+        ),
+        "nist-asd-cr1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Cr%20I"),
+            "c437cdb8ccb7ad5e74dc9ec6008faf803152cffbf6e28927329249a959573bc9",
+            "Cr", 0,
+        ),
+        "nist-asd-cr1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Cr%20I"),
+            "45ce881594236b0e7a2f038d43cd3542fcf2edd3aa8c0e451f4b2f1535367bdb",
+            "Cr", 0,
+        ),
+        "nist-asd-cr2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Cr%20II"),
+            "90de8f01fc0bd382b581bbb7c1818c7dca3a38446c1c99c237d8fc6411baf191",
+            "Cr", 1,
+        ),
+        "nist-asd-cr2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Cr%20II"),
+            "00593724d177b972d355c8b165af2ee34ef161ed8003c5474ae62d5e0fb0e00d",
+            "Cr", 1,
+        ),
+        "nist-asd-mn1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Mn%20I"),
+            "37eb6057594e07708741e92a83f0e314a319636c385cfc4e8e787f8aed6a6eec",
+            "Mn", 0,
+        ),
+        "nist-asd-mn1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Mn%20I"),
+            "85a76c1733c46978b40c6eee8cf4dca00e5ca68048d8709cac5bfae03d251566",
+            "Mn", 0,
+        ),
+        "nist-asd-mn2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Mn%20II"),
+            "c0ba0955513e91bd1f816be0230649f21cbe79f14d7cf92e3c4b7f7959defbd8",
+            "Mn", 1,
+        ),
+        "nist-asd-mn2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Mn%20II"),
+            "c17255e9b572dcc2567223c82c193787af41da8685202f60836fdef242a89427",
+            "Mn", 1,
+        ),
+        "nist-asd-fe1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Fe%20I"),
+            "227268059e984b6765fccf9ffb69b4c06ac5bb9fc255f1e1224044f0f0396ffe",
+            "Fe", 0,
+        ),
+        "nist-asd-fe2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Fe%20II"),
+            "61fed6b342b2bd9524e64400782057807334418ad70d6ebc882b922042b9aaf3",
+            "Fe", 1,
+        ),
+        "nist-asd-ni1.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Ni%20I"),
+            "9a8396a76b82fc4b4242b93637f1cc006685b501a02bc7dbb76bf0bb15e3a459",
+            "Ni", 0,
+        ),
+        "nist-asd-ni1-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Ni%20I"),
+            "17a2079adca917be7535d6aeafe1e80dfe8fa7c138fc09a381b2ac81c16d61da",
+            "Ni", 0,
+        ),
+        "nist-asd-ni2.tsv": (
+            _NIST_ASD_LINES_QUERY.format(spectrum="Ni%20II"),
+            "3ee60cf4a49d328ee95b7b9e22e76bc97696c67b8cf69154d5e492ce6c5dfe22",
+            "Ni", 1,
+        ),
+        "nist-asd-ni2-uv.tsv": (
+            _NIST_ASD_UV_LINES_QUERY.format(spectrum="Ni%20II"),
+            "2907d3e01886183b2c0b7f70ac34e276ad1cd8b1b6037fa304d6bff74d103783",
+            "Ni", 1,
+        ),
     }
 )
 
@@ -608,8 +816,9 @@ ATOMIC_MASS_U = MappingProxyType(
         "Ni": 58.6934,
         "Cu": 63.546,
         "Zn": 65.38,
-        # Stout stops at Zn; Nb ions come from the NIST/Nilsson snapshot
-        # read by read_niobium_atomic_ion.
+        # Stout stops at Zn; Sr and Nb ions come from NIST snapshots read by
+        # read_strontium_atomic_ion and read_niobium_atomic_ion.
+        "Sr": 87.62,
         "Nb": 92.90637,
     }
 )
@@ -619,7 +828,7 @@ ATOMIC_NUMBER = MappingProxyType(
         "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15, "S": 16, "Ca": 20,
         "Ar": 18,
         "Sc": 21, "Ti": 22, "V": 23, "Cr": 24, "Mn": 25,
-        "Fe": 26, "Co": 27, "Ni": 28, "Cu": 29, "Zn": 30, "Nb": 41,
+        "Fe": 26, "Co": 27, "Ni": 28, "Cu": 29, "Zn": 30, "Sr": 38, "Nb": 41,
     }
 )
 IONIZATION_ENERGY_EV = MappingProxyType(
@@ -824,6 +1033,9 @@ IONIZATION_ENERGY_EV = MappingProxyType(
         "Ni": (7.639878, 18.168838, 35.187, 54.92, 76.06),
         "Cu": (7.726380, 20.29239, 36.841, 57.38, 79.8),
         "Zn": (9.394197, 17.96439, 39.72330, 59.573, 82.6),
+        # Sr I--V, matching the bundled level lists (NIST ASD 5.12).  NIST
+        # brackets the Sr IV and Sr V values as semi-empirical.
+        "Sr": (5.69486745, 11.0302765, 42.88353, 56.280, 70.7),
         # Nb I--VI, matching the bundled level lists.  NIST brackets the
         # Nb II, Nb III and Nb VI values as semi-empirical or theoretical.
         "Nb": (6.75885, 14.32, 25.04, 37.611, 50.5728, 102.069),
@@ -2208,6 +2420,8 @@ def read_stout_atomic_ion(root: str | Path, element: str, charge: int) -> Atomic
         )
     if symbol == "Nb":
         return read_niobium_atomic_ion(root, int(charge))
+    if symbol == "Sr":
+        return read_strontium_atomic_ion(root, int(charge))
     stage = int(charge) + 1
     directory = _resolve_stout_ion_directory(Path(root), symbol, stage)
     stem = f"{symbol.lower()}_{stage}"
@@ -2392,17 +2606,32 @@ def _niobium_einstein_transition(
     upper: Mapping[str, object],
     einstein_a: float,
 ) -> AtomicTransition:
+    return _nist_einstein_transition(lower, upper, einstein_a, "Nb")
+
+
+def _nist_einstein_transition(
+    lower: Mapping[str, object],
+    upper: Mapping[str, object],
+    einstein_a: float,
+    element: str,
+) -> AtomicTransition:
+    """E1 transition between two NIST level records, f from the Einstein A."""
+
     if (
         _odd_parity_term(str(lower["term"])) == _odd_parity_term(str(upper["term"]))
         or float(upper["energy"]) <= float(lower["energy"])
         or not np.isfinite(einstein_a)
         or einstein_a <= 0.0
     ):
-        raise ValueError(f"not an allowed Nb E1 transition: {lower['label']} -> {upper['label']}")
+        raise ValueError(
+            f"not an allowed {element} E1 transition: {lower['label']} -> {upper['label']}"
+        )
     lower_j = (float(lower["weight"]) - 1.0) / 2.0
     upper_j = (float(upper["weight"]) - 1.0) / 2.0
     if abs(lower_j - upper_j) > 1.0 or lower_j == upper_j == 0.0:
-        raise ValueError(f"Nb E1 transition violates the J selection rule: {lower['label']}")
+        raise ValueError(
+            f"{element} E1 transition violates the J selection rule: {lower['label']}"
+        )
     wavelength_cm = 1.0 / (float(upper["energy"]) - float(lower["energy"]))
     oscillator_strength = (
         ELECTRON_MASS * LIGHT_SPEED * wavelength_cm**2
@@ -2565,6 +2794,182 @@ def read_niobium_atomic_ion(root: str | Path, charge: int) -> AtomicIon:
         )
     directory = _niobium_data_directory(Path(root))
     return _niobium_atomic_ions(str(directory.resolve()))[int(charge)]
+
+
+# Strontium (Z = 38).  Stout stops at Zn.  Sr II 4077.7 and 4215.5 A are
+# detected in cool polluted white dwarfs (e.g. LSPM J0207+3331, GD 362), so
+# Sr I--V are built from NIST ASD 5.12 exactly as for Nb: levels from the NIST
+# level lists, and every allowed (E1) NIST line that has a transition
+# probability, attached to its unique NIST level pair.  NIST lists no
+# transition probabilities for Sr III--V; those stages carry partition
+# functions and charge only.  No Sr photoionization data are bundled
+# (Verner's fits stop at Zn).
+_NIST_ASD_STRONTIUM_LEVELS_QUERY = (
+    "https://physics.nist.gov/cgi-bin/ASD/energy1.pl?spectrum=Sr%20{spectrum}&"
+    "units=0&format=3&output=0&page_size=5000&multiplet_ordered=0&conf_out=on&"
+    "term_out=on&level_out=on&unc_out=1&j_out=on&g_out=on&biblio=on"
+)
+_NIST_ASD_STRONTIUM_LINES_QUERY = (
+    "https://physics.nist.gov/cgi-bin/ASD/lines1.pl?spectra=Sr+{spectrum}&"
+    "output_type=0&unit=1&submit=Retrieve+Data&de=0&plot_out=0&"
+    "I_scale_type=1&format=3&line_out=0&en_unit=0&output=0&bibrefs=1&"
+    "page_size=15000&show_obs_wl=1&show_calc_wl=1&unc_out=1&"
+    "order_out=0&show_av=3&A_out=0&f_out=on&loggf_out=on&"
+    "intens_out=on&allowed_out=1&forbid_out=1&conf_out=on&"
+    "term_out=on&enrg_out=on&J_out=on&g_out=on"
+)
+STRONTIUM_ATOMIC_DATA_FILES = MappingProxyType(
+    {
+        **{
+            f"nist-asd-sr{charge + 1}-levels.tsv": (
+                _NIST_ASD_STRONTIUM_LEVELS_QUERY.format(spectrum=spectrum),
+                checksum,
+            )
+            for charge, (spectrum, checksum) in enumerate((
+                ("I", "458a8534af837c1027ff592e9e7614f6576fb0c880e08950d6bb787f8e8f02a5"),
+                ("II", "f2da15fd9e916c2cf6e62645de481e8c24ba8a00082dfb0134ee91300acc0efe"),
+                ("III", "a386dc4cd36ecb240bc0e9c470eaa4aa4c0a371f3a0e06b5066fee5bd2aafaa9"),
+                ("IV", "72f2fa5ebb8c2d3e57bfaef8ef2eaf32d748dc26f54caf0748dcd5e92c2c7ccd"),
+                ("V", "210effc348aee588af9fec7c81bd9ae010e6275b3b037a0bf981856c0ab4851f"),
+            ))
+        },
+        "nist-asd-sr1-lines.tsv": (
+            _NIST_ASD_STRONTIUM_LINES_QUERY.format(spectrum="I"),
+            "435650ce6cef09d6c4380d4bb5d7782565aed0f5fa90f5d9721d48b54eb3ced6",
+        ),
+        "nist-asd-sr2-lines.tsv": (
+            _NIST_ASD_STRONTIUM_LINES_QUERY.format(spectrum="II"),
+            "2ca6186d867f6fa920cb77bda602d250e4e9a9cfc3aec6c23981cb2c6ea7b15e",
+        ),
+        "nist-asd-sr-ionization.csv": (
+            "https://physics.nist.gov/cgi-bin/ASD/ie.pl?spectra=Sr&units=1&"
+            "format=2&at_num_out=on&el_name_out=on&ion_charge_out=on&"
+            "sp_name_out=on&e_out=0&unc_out=on&biblio=on",
+            "e8bb57f402c748010dd5ca53693dc394706a03acfaf51f7e3e561052cdba7546",
+        ),
+    }
+)
+STRONTIUM_MAXIMUM_CHARGE = 4
+
+
+def _strontium_data_directory(root: Path) -> Path:
+    for candidate in (root / "strontium", root.parent / "strontium"):
+        if all((candidate / name).is_file() for name in STRONTIUM_ATOMIC_DATA_FILES):
+            return candidate
+    raise FileNotFoundError(f"could not find the bundled Sr atomic data near {root}")
+
+
+def _nist_allowed_transitions(
+    path: Path, levels: list[dict[str, object]], element: str,
+) -> tuple[list[AtomicTransition], dict[str, int]]:
+    """Every allowed NIST line with an Einstein A, on its unique level pair.
+
+    Rows without a transition probability or with a forbidden ``Type`` are
+    skipped.  A row whose levels do not match exactly one NIST level record
+    (configuration, term, J and energy within 0.011 cm^-1) is an error, as is a
+    second, different A for the same level pair.
+    """
+
+    def level(configuration: str, term: str, j_value: str, energy: str) -> dict[str, object]:
+        value = float(energy.strip("[]?+x"))
+        matches = [
+            record for record in levels
+            if record["configuration"] == configuration
+            and record["term"] == term
+            and record["j"] == j_value
+            and abs(float(record["energy"]) - value)
+            < _NIST_LEVEL_ENERGY_TOLERANCE_WAVENUMBER
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"{element} line level is not unique: {configuration} {term} {j_value} {energy}"
+            )
+        return matches[0]
+
+    counts = {"rows": 0, "no_transition_probability": 0, "forbidden": 0,
+              "duplicate_rows": 0, "transitions": 0}
+    by_pair: dict[tuple[int, int], AtomicTransition] = {}
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream, delimiter="\t"):
+            counts["rows"] += 1
+            einstein_a = _nist_field(row["Aki(s^-1)"])
+            if not einstein_a:
+                counts["no_transition_probability"] += 1
+                continue
+            if _nist_field(row["Type"]):
+                counts["forbidden"] += 1
+                continue
+            lower = level(
+                _nist_field(row["conf_i"]), _nist_field(row["term_i"]),
+                _nist_field(row["J_i"]), _nist_field(row["Ei(cm-1)"]),
+            )
+            upper = level(
+                _nist_field(row["conf_k"]), _nist_field(row["term_k"]),
+                _nist_field(row["J_k"]), _nist_field(row["Ek(cm-1)"]),
+            )
+            transition = _nist_einstein_transition(lower, upper, float(einstein_a), element)
+            key = (transition.lower_index, transition.upper_index)
+            if key in by_pair:
+                if not np.isclose(by_pair[key].einstein_a, transition.einstein_a, rtol=1e-6, atol=0.0):
+                    raise ValueError(f"conflicting {element} A values for {lower['label']} -> {upper['label']}")
+                counts["duplicate_rows"] += 1
+                continue
+            by_pair[key] = transition
+    counts["transitions"] = len(by_pair)
+    return sorted(by_pair.values(), key=lambda t: (t.lower_index, t.upper_index)), counts
+
+
+@lru_cache(maxsize=4)
+def _strontium_atomic_ions(directory: str) -> tuple[AtomicIon, ...]:
+    root = Path(directory)
+    for name, (_, checksum) in STRONTIUM_ATOMIC_DATA_FILES.items():
+        if hashlib.sha256((root / name).read_bytes()).hexdigest() != checksum:
+            raise ValueError(f"Sr atomic data checksum mismatch: {name}")
+    ions = []
+    for charge in range(STRONTIUM_MAXIMUM_CHARGE + 1):
+        levels = _niobium_level_records(root / f"nist-asd-sr{charge + 1}-levels.tsv")
+        lines = root / f"nist-asd-sr{charge + 1}-lines.tsv"
+        if lines.is_file():
+            transitions, _ = _nist_allowed_transitions(lines, levels, "Sr")
+            source = "NIST ASD 5.12 Sr levels and transition probabilities"
+        else:
+            transitions = []
+            source = "NIST ASD 5.12 levels; NIST has no transition probabilities"
+        ions.append(
+            AtomicIon(
+                element="Sr",
+                charge=charge,
+                atomic_mass_u=ATOMIC_MASS_U["Sr"],
+                ionization_energy_ev=IONIZATION_ENERGY_EV["Sr"][charge],
+                levels=tuple(
+                    AtomicLevel(
+                        int(record["index"]), float(record["energy"]),
+                        float(record["weight"]), str(record["label"]),
+                    )
+                    for record in levels
+                ),
+                transitions=tuple(transitions),
+                source=source,
+            )
+        )
+    return tuple(ions)
+
+
+def read_strontium_atomic_ion(root: str | Path, charge: int) -> AtomicIon:
+    """Return bundled Sr I--V (``charge`` 0--4) in the Stout ion format.
+
+    ``root`` is the Stout directory (or its parent ``metal-opacity`` cache);
+    the pinned files live in its sibling ``strontium`` directory.  Wavelengths
+    are vacuum Ritz values from the NIST level energies and oscillator
+    strengths follow from the NIST Einstein coefficients, as for Nb.
+    """
+
+    if not isinstance(charge, (int, np.integer)) or not 0 <= charge <= STRONTIUM_MAXIMUM_CHARGE:
+        raise ValueError(
+            f"bundled Sr data cover charges 0-{STRONTIUM_MAXIMUM_CHARGE} (Sr I-V)"
+        )
+    directory = _strontium_data_directory(Path(root))
+    return _strontium_atomic_ions(str(directory.resolve()))[int(charge)]
 
 
 # The bundled Stout Zn IV-VI and Cu IV-VI files contain only forbidden (M1/E2)
