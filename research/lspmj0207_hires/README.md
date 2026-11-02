@@ -1,6 +1,6 @@
 # LSPM J0207+3331: Keck/HIRES and OpenWD
 
-These scripts make the LSPM J0207+3331 figure of the
+These scripts make the LSPM J0207+3331 figures of the
 [DZ comparisons](../../docs/validation/dz-observational-comparisons.md) and
 the line test of the [Sr note](../../docs/development/strontium.md). The
 parameters and abundances are those of Le Bourdais & Dufour (2025,
@@ -30,15 +30,24 @@ the two exposures, and merges all orders with inverse-variance weights on a
 ## Models and figure
 
 ```bash
-python run_model.py results/stout --strong-line-data stout     # Stout data, no Sr
 python run_model.py results/default-sr --with-sr               # current default, with Sr
-WINDOW_SET=docs python -I compare_hires.py lspmj0207_hires_merged.npz lspmj0207-hires.png \
-  "results/stout=OpenWD with Stout strong-line data, no Sr (default before Nov 2026)" \
-  "results/default-sr=OpenWD default (NIST strong-line data) with Sr"
+python -I plot_figure.py lspmj0207_hires_merged.npz results/default-sr lspmj0207-hires
 ```
 
-Each model is a cold start at standard quality (about 40 min on 8 threads)
-and must pass its convergence certificate. The figure measures one line
-velocity (+53.0 km/s) by χ² over 3800–5000 Å. In each window, the data are
-scaled to the model times a quadratic. The windows test line contrasts, not the
-pseudo-continuum level. `score_lines.py` gives the line scores of the Sr note.
+The model is a cold start at standard quality and must pass its convergence
+certificate. `plot_figure.py` writes `lspmj0207-hires-1` and `-2` (PNG and
+PDF), with the twelve windows of Figure 6 of Le Bourdais & Dufour. It
+measures one line velocity (+53.0 km/s) by χ² over 3800–5000 Å. In each
+window, the data are scaled to the model times a quadratic, so the windows
+test line contrasts, not the pseudo-continuum level.
+
+`compare_hires.py` overlays several models in smaller diagnostic windows,
+for example the earlier Stout data against the current default:
+
+```bash
+python run_model.py results/stout --strong-line-data stout     # Stout data, no Sr
+python -I compare_hires.py lspmj0207_hires_merged.npz compare.png \
+  "results/stout=Stout strong-line data, no Sr" "results/default-sr=Default with Sr"
+```
+
+`score_lines.py` gives the line scores of the Sr note.
