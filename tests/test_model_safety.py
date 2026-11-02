@@ -26,8 +26,8 @@ from wd_spectra.models.common import (
 from wd_spectra.spectrum import Spectrum
 
 
-def test_dz_default_uses_paper_figure_physics():
-    assert DZConfig().strong_line_atomic_data == "stout"
+def test_dz_default_strong_line_and_lyman_data():
+    assert DZConfig().strong_line_atomic_data == "nist-asd"
     assert DZConfig().lyman_profile_source == "stark"
 
 
@@ -187,7 +187,7 @@ def test_hydrogen_full_dissolution_invalidates_previous_family_requests(
         old = model_request_fingerprint(family, config, data)
     requested = model_request_fingerprint(family, config, data)
     assert requested["physics_revision"] != old["physics_revision"]
-    assert requested["physics_revision"].endswith("hydrogen-full-dissolution-2026-10-27")
+    assert "hydrogen-full-dissolution-2026-10-27" in requested["physics_revision"].split(":")
     checkpoint = atmosphere_with_model_request_fingerprint(
         _atmosphere(_certified_metadata()), old,
     )

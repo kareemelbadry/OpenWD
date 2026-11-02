@@ -89,7 +89,9 @@ class DAZConfig:
     synthesis_transfer_depth_refinement: int = 4
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = "chianti-reduced"
     metal_neutral_h_broadening: Literal["barklem", "unsold"] = "barklem"
-    strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
+    # "nist-asd" (default) replaces exactly matched Stout transitions with
+    # evaluated NIST values; "stout" keeps the Stout values.
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
 
 
 def compute_daz(

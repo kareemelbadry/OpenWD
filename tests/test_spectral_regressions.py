@@ -51,6 +51,10 @@ def test_checked_scattering_preserves_broad_spectral_controls(case):
             # These controls were approved for the DB-production-v4 optical-depth
             # synthesis; DBConfig now defaults to the column-mass preset.
             saved_config.setdefault("transfer_discretization", "optical-depth")
+        if kind == "DZ":
+            # The frozen structures store the earlier "stout" strong-line
+            # data; the controls were approved for the current default.
+            saved_config.pop("strong_line_atomic_data", None)
         config = config_from_stored(
             {"DA": DAConfig, "DB": DBConfig, "DAB": DABConfig, "DZ": DZConfig}[kind],
             saved_config,

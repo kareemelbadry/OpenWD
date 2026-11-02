@@ -244,9 +244,9 @@ class DZConfig:
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = (
         "chianti-reduced"
     )
-    # "nist-asd" replaces exactly matched Stout transitions (UV included)
-    # with evaluated NIST values; the default keeps the paper-figure data.
-    strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
+    # "nist-asd" (default) replaces exactly matched Stout transitions (UV
+    # included) with evaluated NIST values; "stout" keeps the Stout values.
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
 
 
 # Trihydrogen-cation partition function of the DA and DAZ molecular EOS.
