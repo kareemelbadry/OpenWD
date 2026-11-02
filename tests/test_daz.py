@@ -30,6 +30,10 @@ def wiring(monkeypatch):
     monkeypatch.setattr(
         daz, "augment_silicon_ii_kurucz_transitions", lambda database: database
     )
+    # The default NIST strong-line replacement also passes the stub through.
+    monkeypatch.setattr(
+        daz, "read_nist_asd_strong_atomic_database", lambda paths, database, **k: database
+    )
     monkeypatch.setattr(
         daz, "_allard_lyman_profiles_for_effective_temperature", lambda *a, **k: None
     )
