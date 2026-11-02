@@ -146,6 +146,22 @@ WINDOWS = [
     ("Na I D", 5875, 5905, 1),
 ]
 MARGIN = 25.0
+import os  # noqa: E402
+if os.environ.get("WINDOW_SET") == "docs":  # windows of the documentation figure
+    WINDOWS = [
+        ("Sr II 4077.7", 4065, 4090, 2),
+        ("Ni I / Co I / Fe I", 3455, 3490, 2),
+        ("Fe I / Cr I", 3565, 3615, 2),
+        ("Mg I / Fe I", 3815, 3865, 2),
+        ("Si I / Ca II H & K / Al I", 3895, 3990, 1),
+        ("Sr II 4215.5 / Ca I 4226.7", 4205, 4240, 2),
+        ("Ca I / Cr I / Fe I", 4240, 4300, 2),
+        ("H$\\beta$", 4830, 4895, 1),
+        ("Mg I b / Fe I", 5160, 5195, 2),
+        ("Na I D", 5875, 5905, 1),
+        ("Fe I / Cr I / Ni I", 3800, 3815, 2),
+    ]
+
 fig = plt.figure(figsize=(16, 21))
 gs = fig.add_gridspec(6, 2, hspace=0.42, wspace=0.12, left=0.06, right=0.985, top=0.955, bottom=0.04)
 axes = [fig.add_subplot(gs[0, 0])] + [fig.add_subplot(gs[r, k]) for r in range(1, 6) for k in (0, 1)]
@@ -189,7 +205,7 @@ for ax, (title, lo, hi, deg) in zip(axes, WINDOWS):
     ax.set_title(title, fontsize=13)
     ax.tick_params(direction="in", top=True, right=True)
     summary["windows"].append(entry)
-axes[0].legend(loc="lower right", fontsize=11)
+axes[0].legend(loc="lower right", fontsize=9 if os.environ.get("WINDOW_SET") == "docs" else 11)
 info_ax.axis("off")
 ab = inputs["abundances_log_n_z_over_n_h"]
 abtxt = "  ".join(f"{k} {v:+.2f}" for k, v in ab.items())
@@ -200,7 +216,7 @@ lines = [
     "log N(Z)/N(H):",
     abtxt[:len(abtxt) // 2].rsplit("  ", 0)[0],
     abtxt[len(abtxt) // 2:],
-    "Upper limits omitted",
+    "Sr omitted (no OpenWD atomic data); upper limits omitted",
     "",
     f"OpenWD {inputs['openwd_version']} ({inputs['openwd_commit'][:7]}), DAZ, quality = {inputs['quality']}",
     *([f"Model {i + 1}: {m.label}" for i, m in enumerate(models)] if len(models) > 1 else []),
@@ -209,7 +225,22 @@ lines = [
     "  is the model's; line contrasts are tested); y = 1 = true continuum",
     f"HIRES binned by {BIN} px (3.9 km/s); no abundances or widths fitted",
 ]
-info_ax.text(0.02, 0.95, "\n".join(lines), va="top", fontsize=12.5, family="sans-serif", transform=info_ax.transAxes)
+if os.environ.get("WINDOW_SET") == "docs":
+    lines = [
+        "Keck/HIRES 2020-10-08, 2 x 3600 s, C5 decker (R = 37,000)",
+        f"Teff = {inputs['teff']:,.0f} K · log g = {inputs['logg']:.2f} · hydrogen host",
+        "Le Bourdais & Dufour (2025) parameters and abundances",
+        "log N(Z)/N(H): " + abtxt[:len(abtxt) // 2].strip(),
+        "    " + abtxt[len(abtxt) // 2:].strip() + ", Sr -10.85 (model 2 only)",
+        "",
+        *[f"{['Red', 'Blue dashed'][i]}: {m.label}" for i, m in enumerate(models)],
+        f"Line velocity {vel:+.1f} km/s; nothing fitted",
+        "Each window: data scaled to model × quadratic;",
+        "y = 1 is the model continuum; HIRES binned by 3 px",
+    ]
+    info_ax.text(0.0, 1.0, "\n".join(lines), va="top", fontsize=11, family="sans-serif", transform=info_ax.transAxes)
+else:
+    info_ax.text(0.02, 0.95, "\n".join(lines), va="top", fontsize=12.5, family="sans-serif", transform=info_ax.transAxes)
 fig.suptitle("LSPM J0207+3331 — Le Bourdais & Dufour (2025) parameters and abundances fixed", fontsize=17)
 fig.supxlabel("Rest air wavelength (Å)", fontsize=14)
 fig.supylabel("Flux / model continuum", fontsize=14)
