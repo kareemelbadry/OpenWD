@@ -154,7 +154,12 @@ def compute_daz(
         ]
         if paths:
             data.require(*paths)
-            atomic = read_nist_asd_strong_atomic_database(paths, atomic)
+            # Replace every graded NIST transition the synthesis can include,
+            # as for DZ, not only f >= 0.01.
+            atomic = read_nist_asd_strong_atomic_database(
+                paths, atomic,
+                minimum_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
+            )
     if config.metal_neutral_h_broadening == "barklem":
         data.require(data.barklem_neutral_h_broadening)
         atomic = read_barklem_neutral_hydrogen_broadening(
