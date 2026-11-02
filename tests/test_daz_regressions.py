@@ -18,7 +18,11 @@ APPROVED = Path(__file__).parent / "data/approved_regressions/current"
 def test_daz_paper_spectrum(case, monkeypatch):
     path = CONTROLS / (case + ".npz")
     with np.load(path) as saved:
-        config = config_from_stored(DAZConfig, json.loads(str(saved["config_json"])))
+        stored = json.loads(str(saved["config_json"]))
+        # The frozen structures store the earlier "stout" strong-line data;
+        # the controls were approved for the current default.
+        stored.pop("strong_line_atomic_data", None)
+        config = config_from_stored(DAZConfig, stored)
         wave = saved["wavelength"]
     with np.load(APPROVED / ("daz-" + case + ".npz")) as approved:
         np.testing.assert_array_equal(wave, approved["wavelength"])

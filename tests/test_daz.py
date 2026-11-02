@@ -30,6 +30,10 @@ def wiring(monkeypatch):
     monkeypatch.setattr(
         daz, "augment_silicon_ii_kurucz_transitions", lambda database: database
     )
+    # The default NIST strong-line replacement also passes the stub through.
+    monkeypatch.setattr(
+        daz, "read_nist_asd_strong_atomic_database", lambda paths, database, **k: database
+    )
     monkeypatch.setattr(
         daz, "_allard_lyman_profiles_for_effective_temperature", lambda *a, **k: None
     )
@@ -52,7 +56,7 @@ def test_default_and_automatic_selection_do_not_use_a_helium_host(monkeypatch):
         "wd_spectra.models.selection._helium_probe",
         lambda *a: pytest.fail("helium probe"),
     )
-    assert DAZConfig().strong_line_atomic_data == "stout"
+    assert DAZConfig().strong_line_atomic_data == "nist-asd"
     assert DAZConfig().metal_neutral_h_broadening == "barklem"
     assert DAZConfig().abundances["Ca"] == -6.58
     assert select_physics(DAZConfig()).workflow == "daz"

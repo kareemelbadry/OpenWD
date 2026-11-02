@@ -89,7 +89,9 @@ class DAZConfig:
     synthesis_transfer_depth_refinement: int = 4
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = "chianti-reduced"
     metal_neutral_h_broadening: Literal["barklem", "unsold"] = "barklem"
-    strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
+    # "nist-asd" (default) replaces exactly matched Stout transitions with
+    # evaluated NIST values; "stout" keeps the Stout values.
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
 
 
 def compute_daz(
@@ -152,7 +154,12 @@ def compute_daz(
         ]
         if paths:
             data.require(*paths)
-            atomic = read_nist_asd_strong_atomic_database(paths, atomic)
+            # Replace every graded NIST transition the synthesis can include,
+            # as for DZ, not only f >= 0.01.
+            atomic = read_nist_asd_strong_atomic_database(
+                paths, atomic,
+                minimum_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
+            )
     if config.metal_neutral_h_broadening == "barklem":
         data.require(data.barklem_neutral_h_broadening)
         atomic = read_barklem_neutral_hydrogen_broadening(

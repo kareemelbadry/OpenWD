@@ -244,9 +244,9 @@ class DZConfig:
     ca_ii_resonance_source: Literal["chianti-reduced", "lte"] = (
         "chianti-reduced"
     )
-    # "nist-asd" replaces exactly matched Stout transitions (UV included)
-    # with evaluated NIST values; the default keeps the paper-figure data.
-    strong_line_atomic_data: Literal["stout", "nist-asd"] = "stout"
+    # "nist-asd" (default) replaces exactly matched Stout transitions (UV
+    # included) with evaluated NIST values; "stout" keeps the Stout values.
+    strong_line_atomic_data: Literal["stout", "nist-asd"] = "nist-asd"
 
 
 # Trihydrogen-cation partition function of the DA and DAZ molecular EOS.
@@ -1596,7 +1596,8 @@ def compute_dz(
             # synthesis can include, not only f >= 0.01: UV abundance lines
             # such as Si II 1808 (f = 0.002) are weak but important.
             atomic = read_nist_asd_strong_atomic_database(
-                nist_paths, atomic, minimum_oscillator_strength=1.0e-4
+                nist_paths, atomic,
+                minimum_oscillator_strength=_METAL_MINIMUM_OSCILLATOR_STRENGTH,
             )
     atomic = atomic_database_with_kurucz_electron_stark(atomic)
     atomic = atomic_database_with_si_ii_he_unified_profile(atomic)
