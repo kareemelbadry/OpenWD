@@ -71,6 +71,46 @@ scaling over ±3 Å:
 The summed χ² per pixel over the 27 lines decreases from 62.6 to 38.8. Over
 eleven 35–95 Å windows, no window degrades by more than 0.001 in reduced χ².
 
+## Other DZ stars
+
+The defaults are unchanged, so the published figures are unchanged. To
+check `strong_line_atomic_data="nist-asd"` on other stars, every star below
+was also computed with it at the published parameters and abundances. Every
+model is a cold start at standard quality and passes its convergence
+certificate.
+
+Xu et al. (2019) HIRES stars (WD 1232+563, WD 1551+175, WD 2207+127): the
+mean χ² per pixel over the panels of the
+[comparison figures](../validation/dz-observational-comparisons.md#xu-et-al-2019-hires-comparisons)
+changes by at most 0.001, and no panel changes by more than 0.015. The
+largest model changes are Ti II 3261.6 and 3444.3 Å and Si II 3862.6 and
+5041.0 Å, which become weaker by up to 0.1 of the continuum, and Ti II/Fe II
+4549.6 Å, which becomes deeper by up to 0.2. Where HIRES covers them, the
+data do not prefer either model. The abundances of Xu et al. were derived
+with their own oscillator strengths, so these windows do not test the
+atomic data independently.
+
+Cool DZ and DAZ stars of the
+[cool-DZ comparison](../validation/dz-observational-comparisons.md): the
+change of the model flux, as an rms over 20 Å bins, is:
+
+| Star | 3000–4000 Å | 4000–9000 Å | Largest line change |
+| --- | ---: | ---: | --- |
+| WD 2251−070 | 2.6% | ≤ 1.0% | 4% |
+| vMa2 | 0.2% | ≤ 0.1% | 2% |
+| SDSS J1227+6330 | 0.6% | ≤ 0.3% | 11% |
+| WD J0255+0237 | 0.2% | ≤ 0.1% | 13% |
+| WD J1336−0337 | 0.2% | ≤ 0.1% | 67% (Ni I 3472.5 Å) |
+
+WD 2251−070 is the only star with a broad change: its near-UV flux is lower
+by 2.6% with the NIST data. WD J0255+0237 converged in 89 iterations with the
+option and in 19 without it.
+
+SDSS J0916+2540 converges slowly with either atomic data set. Its structure
+residual stays near 0.14 for about 30 iterations before it decreases. A run
+of the release commit of the cool-DZ comparison (`783908a`) follows the same
+trajectory, so this is not a regression.
+
 Lines that this change does not address:
 
 - Ti II 3685.18/3685.20 Å is absent from the Stout atom. The

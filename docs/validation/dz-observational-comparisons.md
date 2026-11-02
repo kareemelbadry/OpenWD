@@ -102,6 +102,36 @@ The fetch script downloads ten X-shooter products from the ESO archive
 script refuses a model that failed its convergence checks or whose
 parameters differ from `objects.json`.
 
+### A heavily polluted cool DAZ: LSPM J0207+3331
+
+LSPM J0207+3331 is a 3 Gyr old hydrogen-atmosphere white dwarf with 13
+detected metals. The figure uses the parameters and abundances of
+[Le Bourdais & Dufour (2025)](https://arxiv.org/abs/2510.08676): Teff = 5910 K,
+log g = 8.11 and log N(Fe)/N(H) = −6.20. The observation is Keck/HIRES
+(2020-10-08, 2 × 3600 s, C5 decker), re-extracted from the raw frames and
+divided by the DC white dwarf EGGR 180 from the same night. Nothing is
+fitted. The line velocity is +53.0 km/s, the same as the Ca II core emission
+measured by Le Bourdais & Dufour.
+
+[![LSPM J0207+3331 HIRES data and OpenWD at the Le Bourdais & Dufour composition](../assets/lspmj0207-hires.png)](../assets/lspmj0207-hires.png)
+
+Red is the default model (no Sr). Blue dashed adds Sr (log N(Sr)/N(H) =
+−10.85) and uses `strong_line_atomic_data="nist-asd"`. In each window the data
+are scaled to the model times a quadratic. The windows test the line
+contrasts, not the depth of the pseudo-continuum. Both models reproduce most
+metal lines, including the strong Mg I, Ca I and Ca II wings. The second model
+adds the Sr II resonance lines and corrects Stout oscillator strengths that
+are too small by factors of 4–11 (Ni I 3472.5 and 3807.1 Å, Fe I 3407.5 and
+3684.1 Å). The largest remaining differences:
+
+- The Balmer cores are deeper than observed (Hβ 0.56 against 0.72).
+- Ti II 3685.2 Å is absent from the Stout atom.
+- Fe I 3649.3, 4177.6 and 4216.2 Å are below the f ≥ 10⁻⁴ synthesis floor.
+
+The [Sr note](../development/strontium.md) gives the line scores. The
+scripts and the reduced spectrum are in
+[`research/lspmj0207_hires`](../../research/lspmj0207_hires).
+
 ## Xu et al. (2019) HIRES comparisons
 
 These comparisons use the helium-dominated stars of Figures 11–13 of
