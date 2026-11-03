@@ -167,10 +167,10 @@ def test_helium_cubic_synthesis_closes_without_changing_legacy(temperature):
     assert np.all(cubic.surface_flux_lambda >= 0.)
 
 
-def test_public_dz_option_only_changes_synthesis(monkeypatch):
+def _stub_dz(monkeypatch):
+    """Stub the DZ physics; returns the list of structure and synthesis calls."""
     from types import SimpleNamespace
     from wd_spectra.models import stellar
-    from wd_spectra import DZConfig, compute_dz
     from wd_spectra.atmosphere import gray_helium_atmosphere
     from wd_spectra.spectrum import Spectrum
     atmosphere = gray_helium_atmosphere(13950., 8.4, n_depth=8)
@@ -198,6 +198,12 @@ def test_public_dz_option_only_changes_synthesis(monkeypatch):
     table = SimpleNamespace(source='test', sha256='test')
     monkeypatch.setattr(stellar, 'read_helium_reos3_table', lambda *args: table)
     monkeypatch.setattr(dense_helium_continuum, 'DenseHeliumCorrectionTable', lambda *args: table)
+    return calls
+
+
+def test_public_dz_option_only_changes_synthesis(monkeypatch):
+    from wd_spectra import DZConfig, compute_dz
+    calls = _stub_dz(monkeypatch)
     # A DZ model needs at least one metal; the trace Fe abundance is inert here.
     config = DZConfig(abundances={'Fe': -10.0}, ca_ii_resonance_source='lte')
     compute_dz(config, [4000., 5000.], synthesis_transfer='formal-linear')
@@ -205,3 +211,14 @@ def test_public_dz_option_only_changes_synthesis(monkeypatch):
     assert calls[1][1]['transfer_discretization'] == 'formal-linear'
     assert calls[3][1]['transfer_discretization'] == 'formal-pchip'
     assert calls[0][1] == calls[2][1]
+
+
+@pytest.mark.parametrize("data,preset", [("nist-asd", "DZ-production-v9"),
+                                         ("stout", "DZ-production-v8-paper-stout")])
+def test_dz_preset_names_the_strong_line_data(monkeypatch, data, preset):
+    from wd_spectra import DZConfig, compute_dz
+    _stub_dz(monkeypatch)
+    config = DZConfig(abundances={'Fe': -10.0}, ca_ii_resonance_source='lte', strong_line_atomic_data=data)
+    result = compute_dz(config, [4000., 5000.])
+    assert result.metadata['preset'] == preset
+    assert result.metadata['strong_line_atomic_data'] == data

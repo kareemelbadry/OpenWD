@@ -1827,7 +1827,12 @@ def compute_dz(
         spectrum,
         config,
         {
-            "preset": "DZ-production-v8-paper-stout",
+            # v9: NIST ASD strong-line data by default (2026-11-02); "stout" keeps v8.
+            "preset": (
+                "DZ-production-v9"
+                if config.strong_line_atomic_data == "nist-asd"
+                else "DZ-production-v8-paper-stout"
+            ),
             "abundance_source": (
                 "Klein et al. (2010), GD 40"
                 if default_abundances
