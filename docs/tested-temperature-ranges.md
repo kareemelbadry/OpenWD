@@ -95,9 +95,11 @@ Paper range: 75,000–200,000 K. See the [PG 1159 guide](models/PG1159.md).
 
 | Points | Settings | Evidence |
 | --- | --- | --- |
-| PG 1707+427: 85000/7.5 | standard | Cold start, `spectrum-qualified` |
+| PG 1707+427: 85000/7.5; MCT 0130-1937: 90000/7.5; PG 2131+066: 95000/7.5 | standard | Cold starts, `spectrum-qualified` |
 | PG 1424+535: 110000/7.0 | standard | Cold start, `spectrum-qualified`; canary `pg1159-pg1424` (He/C/O only) |
-| PG 1159-035: 140000/7.0 | standard, `include_radiative_acceleration=True` | Cold start, `spectrum-qualified` |
+| PG 1159-035: 140000/7.0 | standard, static and `include_radiative_acceleration=True` | Cold starts, `spectrum-qualified` |
+| Abell 21: 140000/6.5; PG 1151-029: 140000/6.0; PG 1144+005: 150000/6.5 | standard | Cold starts, `spectrum-qualified`; PG 1151-029 and PG 1144+005 with the gate fallback to 1e-4 |
+| HE 1429-1209: 160000/6.0; RX J0122.9-7521: 175000/7.7 | standard | Cold starts, `spectrum-qualified`; gate fallback (HE 1429-1209 to 1e-3) |
 
 ## D6
 
