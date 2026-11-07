@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Mapping
 import hashlib
+import warnings
 import numpy as np
 from .common import (
     ModelData,
@@ -44,6 +45,24 @@ class PG1159Config:
     # barely depends on temperature, so they are not in local radiative
     # equilibrium. Either way the certificate scope is spectrum-qualified.
     refine_upper_atmosphere: bool = True
+    # Rosseland depth above which the refinement imposes local radiative
+    # equilibrium; Unsold-Lucy flux corrections apply below it. With 1e-2 the
+    # line-dominated mid-layers (1e-3 < tau_Ross < 1e-2) are ill-conditioned
+    # under local balance, and the refinement stagnated or diverged in several
+    # published-parameter models.
+    refinement_local_maximum_rosseland_depth: float = 1e-3
+    # Shallowest Rosseland depth at which the coupled solve gates local energy
+    # balance. If the first gated cell stalls the Newton step, the solve
+    # restarts cold with the gate ten times deeper, up to
+    # ``maximum_local_energy_minimum_rosseland_depth``. Set both equal to
+    # disable the fallback.
+    local_energy_minimum_rosseland_depth: float = 1e-5
+    maximum_local_energy_minimum_rosseland_depth: float = 1e-3
+    # Formal-model atomic upgrades (see _pg1159_rydberg): explicit hydrogenic
+    # O VI/C IV Rydberg shells, same-shell electron collisions, and linear
+    # Stark profiles for high C IV/C VI lines. Enabling them also tightens
+    # the formal population tolerance to 1e-3.
+    rydberg_upgrades: bool = True
 
 
 @dataclass(frozen=True)
@@ -75,6 +94,24 @@ def validate_config(config):
         raise ValueError("include_radiative_acceleration must be boolean")
     if not isinstance(config.refine_upper_atmosphere, bool):
         raise ValueError("refine_upper_atmosphere must be boolean")
+    if not isinstance(config.rydberg_upgrades, bool):
+        raise ValueError("rydberg_upgrades must be boolean")
+    for name in (
+        "refinement_local_maximum_rosseland_depth",
+        "local_energy_minimum_rosseland_depth",
+        "maximum_local_energy_minimum_rosseland_depth",
+    ):
+        value = getattr(config, name)
+        if isinstance(value, bool) or not np.isfinite(value) or not 0 < value <= 1:
+            raise ValueError(f"{name} must lie in (0, 1]")
+    if (
+        config.maximum_local_energy_minimum_rosseland_depth
+        < config.local_energy_minimum_rosseland_depth
+    ):
+        raise ValueError(
+            "maximum_local_energy_minimum_rosseland_depth must not be shallower "
+            "than local_energy_minimum_rosseland_depth"
+        )
     if (
         isinstance(config.population_maximum_iterations, bool)
         or not isinstance(config.population_maximum_iterations, int)
@@ -128,6 +165,73 @@ def required_atomic_files(data, oxygen_atom):
             cache / "chianti/o_6/o_6.scups",
         ]
     return tuple(paths)
+
+
+class _LocalEnergyGateStall(Exception):
+    """The first gated cell stalled the coupled Newton solve."""
+
+
+def _gate_stall_monitor(
+    callback,
+    *,
+    minimum_residual=2e-2,
+    maximum_step=5e-3,
+    crawl_iterations=8,
+    converged_flux=2e-2,
+):
+    """Wrap an iteration callback; raise when the gate-boundary cell stalls.
+
+    Two failure modes seen in published-parameter models, both with the worst
+    local-energy cell at the shallowest gated cell and its relative residual
+    above twice the 1e-2 relaxation tolerance (``minimum_residual``):
+
+    * stall: the boundary cell is the worst on two consecutive iterations and
+      the trust region shrinks the accepted step below ``maximum_step``
+      (HE 1429-1209 at 1e-5 and 1e-4, PG 1144+005 and RX J0122.9-7521 at 1e-5);
+    * crawl: the all-depth flux has already converged below
+      ``converged_flux``, yet the boundary cell stays the worst for
+      ``crawl_iterations`` consecutive iterations with full-size steps
+      (PG 1151-029 at 1e-5, whose residual fell from 9% to 1.7% over 30
+      iterations and about 6 h).
+
+    On the logged published-parameter runs these fired only on those models.
+    Among the converging runs, the longest flux-converged boundary streak was
+    four iterations.
+    """
+    boundary_iterations = [0]
+    crawl = [0]
+
+    def monitor(i, a, p, d):
+        if callback is not None:
+            callback(i, a, p, d)
+        gate = d.get("local_energy_minimum_rosseland_depth")
+        index = d.get("maximum_local_energy_balance_depth_index")
+        residual = d.get("maximum_relative_cell_energy_balance_residual")
+        step = d.get("nonlinear_step")
+        flux = d.get("maximum_all_depth_total_flux_residual")
+        tau = getattr(a, "rosseland_optical_depth", None)
+        if gate is None or index is None or residual is None or tau is None:
+            boundary_iterations[0] = 0
+            crawl[0] = 0
+            return
+        tau = np.asarray(tau)
+        gated = np.flatnonzero(tau >= gate)
+        at_boundary = (
+            gated.size > 0 and int(index) == int(gated[0]) and residual > minimum_residual
+        )
+        boundary_iterations[0] = boundary_iterations[0] + 1 if at_boundary else 0
+        crawl[0] = (
+            crawl[0] + 1 if at_boundary and flux is not None and flux < converged_flux else 0
+        )
+        location = f"local-energy gate boundary (tau_Ross={tau[int(index)]:.3g}, residual {residual:.3g})"
+        if boundary_iterations[0] >= 2 and step is not None and step < maximum_step:
+            raise _LocalEnergyGateStall(f"{location} stalled the Newton step ({step:.3g})")
+        if crawl[0] >= crawl_iterations:
+            raise _LocalEnergyGateStall(
+                f"{location} held the converged-flux solve for {crawl[0]} iterations"
+            )
+
+    return monitor
 
 
 def compute_pg1159(
@@ -220,29 +324,71 @@ def compute_pg1159(
         refinement = (
             refinement_model,
             structure_wavelength(refinement_model, structure_continuum),
-            {"include_radiative_acceleration": False},
+            {
+                "include_radiative_acceleration": False,
+                "local_maximum_rosseland_depth": (
+                    config.refinement_local_maximum_rosseland_depth
+                ),
+            },
         )
-    result = solve_pg1159_atmosphere(
-        seed,
-        model,
-        structure_wavelength(model, structure_continuum),
-        maximum_iterations=resolution.maximum_iterations,
-        cold_start=True,
-        refinement=refinement,
-        include_radiative_acceleration=config.include_radiative_acceleration,
-        iteration_callback=(
-            None
-            if iteration_callback is None
-            else lambda i, a, p, d: iteration_callback(i, a, d)
-        ),
+    user_callback = (
+        None
+        if iteration_callback is None
+        else lambda i, a, p, d: iteration_callback(i, a, d)
     )
+    gate = config.local_energy_minimum_rosseland_depth
+    gate_restarts = []
+    while True:
+        gated_model = replace(
+            model, atmosphere_local_energy_minimum_rosseland_depth=gate
+        )
+        fallback = gate * 10.0 <= (
+            config.maximum_local_energy_minimum_rosseland_depth * (1 + 1e-9)
+        )
+        try:
+            result = solve_pg1159_atmosphere(
+                seed,
+                gated_model,
+                structure_wavelength(gated_model, structure_continuum),
+                maximum_iterations=resolution.maximum_iterations,
+                cold_start=True,
+                refinement=(
+                    None
+                    if refinement is None
+                    else (
+                        replace(
+                            refinement[0],
+                            atmosphere_local_energy_minimum_rosseland_depth=gate,
+                        ),
+                        *refinement[1:],
+                    )
+                ),
+                include_radiative_acceleration=config.include_radiative_acceleration,
+                iteration_callback=(
+                    _gate_stall_monitor(user_callback) if fallback else user_callback
+                ),
+            )
+        except _LocalEnergyGateStall as stall:
+            gate_restarts.append({"gate": gate, "reason": str(stall)})
+            warnings.warn(
+                f"PG1159 {stall}; restarting cold with the local-energy gate at "
+                f"tau_Ross={gate * 10.0:.3g}",
+                AtmosphereConvergenceWarning,
+                stacklevel=2,
+            )
+            gate *= 10.0
+            continue
+        break
+    model = gated_model
     from .._convergence import recorded_equilibrium_status
-    import warnings
 
     status = recorded_equilibrium_status(result.atmosphere.metadata)
     formal_model = model
     state = result.population_state
     atmosphere = result.atmosphere
+    formal_tolerance = (
+        1.0e-3 if config.rydberg_upgrades else max(config.population_tolerance, 1.0e-2)
+    )
     if set(full) - {"He", "C", "O"}:
         formal_model, _ = build_model(
             data,
@@ -268,13 +414,40 @@ def compute_pg1159(
             # floor while the optical spectrum is already stable, so do not
             # force the formal solve below one percent.  The He/C/O structure
             # is independently certified at config.population_tolerance.
-            metal_population_relative_tolerance=max(
-                config.population_tolerance, 1.0e-2
-            ),
+            # With the Rydberg upgrades the explicit high shells start from
+            # the structural anchor and need a real fixed point: 1e-3 closed
+            # in 2-74 iterations across the published-parameter suite.
+            metal_population_relative_tolerance=formal_tolerance,
+            atmosphere_local_energy_minimum_rosseland_depth=gate,
             helium_model=replace(
                 formal_model.helium_model, population_n_angle=structure_angles
             ),
         )
+    elif config.rydberg_upgrades:
+        # He/C/O only: the formal solve runs on the structural atom, with the
+        # same undamped map as the trace-element branch. The builder's 0.25
+        # metal damping left RX J0122.9-7521 short of the 1e-3 tolerance
+        # after 400 iterations.
+        formal_model = replace(
+            model,
+            metal_population_relative_tolerance=formal_tolerance,
+            metal_population_damping=1.0,
+            helium_population_damping=1.0,
+        )
+    if config.rydberg_upgrades:
+        from .._pg1159_rydberg import with_pg1159_rydberg_upgrades
+
+        formal_model = with_pg1159_rydberg_upgrades(
+            replace(
+                formal_model,
+                # The explicit Rydberg shells start from the structural anchor;
+                # RX J0122.9-7521 needed 393 undamped iterations to reach 1e-3.
+                metal_population_iterations=max(
+                    formal_model.metal_population_iterations, 800
+                ),
+            )
+        )
+    if formal_model is not model:
         formal_equations = PG1159Equations(
             atmosphere,
             formal_model,
@@ -376,6 +549,17 @@ def compute_pg1159(
             "independent_grid_validation": False,
             "full_physics_validation": False,
             "hydrogenic_linear_stark_components": PG1159_HYDROGENIC_STARK_COMPONENTS,
+            "refinement_local_maximum_rosseland_depth": (
+                config.refinement_local_maximum_rosseland_depth
+                if config.refine_upper_atmosphere
+                else None
+            ),
+            "local_energy_minimum_rosseland_depth": gate,
+            "local_energy_gate_restarts": gate_restarts,
+            "rydberg_upgrades": config.rydberg_upgrades,
+            "formal_population_tolerance": (
+                formal_tolerance if formal_model is not model else None
+            ),
         },
         population_state=PG1159PopulationResult(
             result.population_state, state, atmosphere

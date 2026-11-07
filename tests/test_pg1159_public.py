@@ -30,10 +30,11 @@ def test_bad_input_fails_before_reading_data(changes,tmp_path):
         compute_pg1159(replace(PG1159Config(),**changes),data=ModelData(tmp_path))
 
 
+@pytest.mark.parametrize("rydberg_upgrades", [False, True])
 @pytest.mark.parametrize("trace_failure", [False, True])
 @pytest.mark.parametrize("refine_upper_atmosphere", [True, False])
 def test_public_result_has_flux_metadata_and_saves(
-    tmp_path,monkeypatch,trace_failure,refine_upper_atmosphere
+    tmp_path,monkeypatch,trace_failure,refine_upper_atmosphere,rydberg_upgrades
 ):
     data=ModelData(tmp_path/'data')
     for p in public.required_atomic_files(data,'extended54-complete'):
@@ -52,6 +53,8 @@ def test_public_result_has_flux_metadata_and_saves(
         metal_population_damping:float=.25
         helium_population_damping:float=.4
         metal_population_relative_tolerance:float=1e-4
+        metal_population_iterations:int=120
+        atmosphere_local_energy_minimum_rosseland_depth:float=1e-5
         metal_rate_line_velocity_samples_kms:object=None
         carbon_levels_per_charge:object=None
         oxygen_levels_per_charge:object=None
@@ -73,26 +76,40 @@ def test_public_result_has_flux_metadata_and_saves(
             logg=a.logg,
             structure_acceleration_depth=m.coupled_population_acceleration_depth,
             refinement=kwargs['refinement'],
+            gate=m.atmosphere_local_energy_minimum_rosseland_depth,
         )
         assert m.metal_rate_line_velocity_samples_kms is None
         return SimpleNamespace(atmosphere=replace(a,metadata={'radiative_equilibrium_converged':False}),population_state=SimpleNamespace(converged=trace_failure))
     monkeypatch.setattr(public,'solve_pg1159_atmosphere',solve)
     fractions={'He':.52,'C':.45,'O':.03}
+    if rydberg_upgrades:
+        from wd_spectra import _pg1159_rydberg
+        def upgrades(m):
+            seen['upgraded_iterations']=m.metal_population_iterations
+            return m
+        monkeypatch.setattr(_pg1159_rydberg,'with_pg1159_rydberg_upgrades',upgrades)
     if trace_failure:
         from wd_spectra import _convergence
         monkeypatch.setattr(_convergence,'recorded_equilibrium_status',lambda metadata:'converged')
+    if trace_failure or rydberg_upgrades:
         class FormalEquations:
             def __init__(self,a,*args,**kwargs):
                 self.a=a
                 seen['formal_tolerance']=args[0].metal_population_relative_tolerance
+                seen['formal_damping']=(
+                    args[0].metal_population_damping, args[0].helium_population_damping
+                )
                 seen['formal_acceleration_depth']=(
                     args[0].coupled_population_acceleration_depth
                 )
             def initial_state(self):return np.log(self.a.temperature)
             def material(self,x):return self.a,SimpleNamespace(converged=False)
         monkeypatch.setattr(public,'PG1159Equations',FormalEquations)
+    if trace_failure:
         fractions['N']=.01
-    config=PG1159Config(quality='quick',mass_fractions=fractions)
+    config=PG1159Config(
+        quality='quick',mass_fractions=fractions,rydberg_upgrades=rydberg_upgrades
+    )
     if not refine_upper_atmosphere:
         config=replace(config,refine_upper_atmosphere=False)
     with pytest.warns(RuntimeWarning,match='equilibrium certificate'):
@@ -100,12 +117,20 @@ def test_public_result_has_flux_metadata_and_saves(
     assert seen['teff'] == 110000.
     assert seen['logg'] == 7.
     assert seen['structure_acceleration_depth'] == 80
+    assert seen['gate'] == 1e-5
+    assert result.metadata['local_energy_minimum_rosseland_depth'] == 1e-5
+    assert result.metadata['local_energy_gate_restarts'] == []
+    assert result.metadata['rydberg_upgrades'] is rydberg_upgrades
     if refine_upper_atmosphere:
         from wd_spectra._pg1159_ali_temperature import REFINEMENT_LINE_VELOCITY_SAMPLES_KMS
         refinement_model,refinement_wave,refinement_options=seen['refinement']
         assert refinement_model.metal_rate_line_velocity_samples_kms == REFINEMENT_LINE_VELOCITY_SAMPLES_KMS
         np.testing.assert_array_equal(refinement_wave,np.geomspace(50.,10000.,60))
-        assert refinement_options == {'include_radiative_acceleration':False}
+        assert refinement_options == {
+            'include_radiative_acceleration':False,
+            'local_maximum_rosseland_depth':1e-3,
+        }
+        assert refinement_model.atmosphere_local_energy_minimum_rosseland_depth == 1e-5
     else:
         assert seen['refinement'] is None
     assert result.metadata['cold_start'] is True
@@ -113,8 +138,17 @@ def test_public_result_has_flux_metadata_and_saves(
     assert result.metadata['helium_ii_collision_model']=='ccc-scaled'
     assert result.metadata['structure_continuum_points']==120
     assert result.metadata['structure_angle_points']==2
-    if trace_failure:
+    if trace_failure or rydberg_upgrades:
+        # Undamped formal map for trace mixtures and He/C/O-only stars alike.
+        assert seen['formal_damping'] == (1.0, 1.0)
+    if rydberg_upgrades:
+        assert seen['formal_tolerance'] == pytest.approx(1e-3)
+        assert seen['upgraded_iterations'] == 800
+    elif trace_failure:
         assert seen['formal_tolerance'] == pytest.approx(1e-2)
+    else:
+        assert 'formal_tolerance' not in seen
+    if trace_failure:
         assert seen['formal_acceleration_depth'] == 80
         assert result.metadata['structure_convergence_status']=='converged'
         assert not result.population_state.line_formation.converged
