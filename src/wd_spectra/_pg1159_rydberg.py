@@ -5,7 +5,7 @@ the formal model only (the structure model and the other model classes are not
 touched):
 
 1. :func:`with_hydrogenic_rydberg_ladder` -- explicit hydrogenic shells for
-   O VI (n = 11..18) and C IV (n = 11..14) replace the TMAD LTE reservoir levels
+   O VI (n = 11..18) and C IV (n = 11..22) replace the TMAD LTE reservoir levels
    they cover.  Each shell has g = 2 n^2 and E = IP - Z^2 R / n^2, and
    shell-averaged hydrogenic E1 lines (Kramers f with the Johnson 1972 Gaunt
    factor) to every explicit term below it and to the lower shells.  Shells
@@ -14,7 +14,11 @@ touched):
    explicit n <= 10 terms couple to the reservoir only radiatively (the TMAD
    atoms carry no CBX collision records), so the high-n ladder cannot
    thermalize to the continuum.  This flips O VI 5290 from absorption to the
-   observed emission.
+   observed emission.  C IV has no LTE shells (nmax = ntop = 22): in the
+   outer layers of the cooler stars the electron density is too low to hold
+   C IV n = 15..22 in LTE with C V, and LTE shells there over-populate
+   n = 7..8 and put spurious emission cores into C IV 7726, 5470 and 4658
+   (PG 1424+535).
 2. :func:`with_same_shell_electron_collisions` -- electron-impact dipole
    collisions between adjacent l states of the same n (l <-> l+1) from the
    hydrogenic line strength S = 2 (l+1) R^2, R = 3 n sqrt(n^2 - (l+1)^2)/(2Z)
@@ -102,7 +106,7 @@ def with_hydrogenic_rydberg_ladder(
 ):
     """Return ``model`` with explicit hydrogenic O VI and C IV Rydberg shells (see module docstring)."""
 
-    maximum_explicit_n = maximum_explicit_n or {"C": 14, "O": 18}
+    maximum_explicit_n = maximum_explicit_n or {"C": 22, "O": 18}
     maximum_reservoir_n = maximum_reservoir_n or {"C": 22, "O": 26}
     updates = {}
     for element, symbol, charge in (("carbon", "C", 3), ("oxygen", "O", 5)):
