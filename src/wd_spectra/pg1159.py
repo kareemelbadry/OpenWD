@@ -1035,6 +1035,10 @@ class PG1159NLTEModel:
     include_static_linear_stark: bool = True
     include_semiclassical_ovi_stark_widths: bool = False
     hydrogenic_linear_stark_components: bool = False
+    # Rosseland depth above which the coupled solve gates local energy balance
+    # (cells above it copy the boundary temperature); the public PG1159 model
+    # deepens it automatically when the boundary cell stalls the Newton solve.
+    atmosphere_local_energy_minimum_rosseland_depth: float = 1.0e-5
     strong_uv_resonance_core_optical_depth: float = 1.0e3
     solve_oxygen_levels_nlte: bool = True
     carbon_levels_per_charge: Mapping[int, int] = field(
