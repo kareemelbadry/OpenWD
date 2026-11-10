@@ -15,9 +15,14 @@ manifests that recorded each physics change are in git history (removed
 2026-10-29). The last approvals were the 2026-10-27 Montreal neutral-hydrogen
 defaults (`da-3000`, `da-4000`, `da-5000`), combined with full hydrogen
 dissolution on 2026-10-28 for every other hydrogen-bearing case; `db-22000`
-dates from the 2026-10-01 flux-conserving numerics.
+dates from the 2026-10-01 flux-conserving numerics. On 2026-11-10 `da-3000`,
+`da-4000` and `da-5000` were recaptured for the cool-hydrogen physics revision
+(H3+ nuclear-spin normalization and 0 K dissociation energy, Kowalski & Saumon
+H--H2 Lyalpha wing, H2- free-free, H2--H CIA) with
+`research/capture_cool_h_chemistry_controls.py`; no other control moved.
 
-`cold/` and `montreal_h_radius_2026_10_27/cold/` supply comparison outputs for
+`cold/`, `montreal_h_radius_2026_10_27/cold/` and
+`cool_h_chemistry_2026_11_10/cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium
 check; the Montreal copies replace the DA references moved by the 2026-10-27

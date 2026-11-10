@@ -26,7 +26,7 @@ from wd_spectra.opacity import (
     BRACKETT_LINES,
     LYMAN_LINES,
     PASCHEN_LINES,
-    _h_h2_lyman_alpha_log_temperature_correction,
+    _h_h2_lyman_alpha_log_cross_section,
     _hminus_cross_section_per_electron_pressure,
     _lorentz_convolved_stark_profile,
     balmer_mass_absorption_coefficient,
@@ -974,8 +974,10 @@ def test_molecular_hydrogen_adds_the_published_lyman_alpha_red_wing():
         )
     )
 
-    np.testing.assert_array_equal(molecular_opacity[[0, -1]], 0.0)
-    assert np.all(molecular_opacity[1:-1] > atomic_opacity[1:-1])
+    # Blueward of Lyalpha there is no red wing; past the 600 nm end of the
+    # KS06 curves the H--H2 wing continues along its terminal slope.
+    np.testing.assert_array_equal(molecular_opacity[0], 0.0)
+    assert np.all(molecular_opacity[1:] > atomic_opacity[1:])
 
 
 def test_molecular_lyman_alpha_far_wing_fades_out_of_the_line_core():
@@ -1012,18 +1014,46 @@ def test_molecular_lyman_alpha_far_wing_fades_out_of_the_line_core():
 
 def test_molecular_lyman_alpha_far_wing_uses_local_temperature():
     wavelength_nm = np.array([130.0, 300.0, 600.0])
-    correction = _h_h2_lyman_alpha_log_temperature_correction(
+    log_sigma = _h_h2_lyman_alpha_log_cross_section(
         wavelength_nm, np.array([3000.0, 5000.0, 6000.0, 8000.0])
     )
 
-    np.testing.assert_allclose(correction[:, 2:], 0.0)
-    assert np.all(correction[:, 0] < correction[:, 1])
-    assert np.all(correction[:, 1] < 0.0)
-    # The vector digitization gives -43.3856 at 3000 K and -41.5887
-    # at 6000 K for 300 nm.  The 5000-K curve follows the expected
-    # inverse-temperature interpolation (one fifth of the full correction).
-    np.testing.assert_allclose(correction[1, 0], -1.7969, atol=2.0e-4)
-    np.testing.assert_allclose(correction[1, 1], -0.35938, atol=2.0e-4)
+    np.testing.assert_allclose(log_sigma[:, 3], log_sigma[:, 2])
+    assert np.all(log_sigma[:, 0] < log_sigma[:, 1])
+    assert np.all(log_sigma[:, 1] < log_sigma[:, 2])
+    # Absolute KS06 values (Sahu et al. 2025, Fig. 4 digitization) at 300 nm:
+    # -43.3856 at 3000 K and -41.5887 at 6000 K.  5000 K lies one fifth of the
+    # way in inverse temperature.
+    np.testing.assert_allclose(log_sigma[1, 0], -43.3856, atol=1.0e-4)
+    np.testing.assert_allclose(log_sigma[1, 2], -41.5887, atol=1.0e-4)
+    np.testing.assert_allclose(log_sigma[1, 1], -41.5887 - 0.35938, atol=2.0e-4)
+
+
+def test_molecular_lyman_alpha_wing_uses_ks06_normalization_and_red_tail():
+    temperature = np.array([3000.0, 4000.0, 6000.0])
+    # KS06 lies 0.66 and 0.8 dex above Rohrmann et al. (2011) at 500 and
+    # 600 nm; the opacity follows KS06.
+    log_sigma = _h_h2_lyman_alpha_log_cross_section(
+        np.array([500.0, 600.0]), temperature
+    )
+    np.testing.assert_allclose(log_sigma[:, 2], [-42.9819, -43.4759], atol=1.0e-4)
+
+    # Continuous through the 600 nm end of the table and through the 125-130
+    # nm join to the Rohrmann points, then declining monotonically.
+    edge = _h_h2_lyman_alpha_log_cross_section(
+        np.array([599.999, 600.0, 600.001]), temperature
+    )
+    assert np.all(np.abs(np.diff(edge, axis=0)) < 1.0e-4)
+    join = _h_h2_lyman_alpha_log_cross_section(
+        np.array([129.999, 130.0]), temperature
+    )
+    assert np.all(np.abs(np.diff(join, axis=0)) < 1.0e-3)
+    tail = _h_h2_lyman_alpha_log_cross_section(
+        np.array([600.0, 700.0, 1000.0, 2000.0]), temperature
+    )
+    assert np.all(np.diff(tail, axis=0) < 0.0)
+    # Cooler gas has the steeper (larger-energy) tail, as in the table.
+    assert np.all(np.diff(tail[:, 0]) < np.diff(tail[:, 2]))
 
 
 def test_neutral_lyman_alpha_wing_complements_finite_allard_table(tmp_path):

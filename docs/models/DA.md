@@ -75,21 +75,43 @@ Other fields control numerics (`photospheric_depth_concentration`,
 - **Continuum.** H I bound–free and free–free, H⁻, electron scattering and
   Rayleigh scattering. Dissolved-level opacity uses the full
   occupation-probability dissolved fraction. Below 12,000 K: H₂–H₂
-  collision-induced absorption and molecular Rayleigh scattering and bands.
+  collision-induced absorption and molecular Rayleigh scattering and bands,
+  H₂⁻ free–free ([Bell 1980](https://ui.adsabs.harvard.edu/abs/1980JPhB...13.1859B))
+  and H₂–H collision-induced absorption
+  (Gustafsson & Frommhold 2003, via the
+  [HITRAN CIA list](https://hitran.org/cia/); its 1000–2500 K table is held at 2500 K in hotter layers).
+- **H₃⁺ chemistry.** The [Neale & Tennyson (1995)](https://ui.adsabs.harvard.edu/abs/1995ApJ...454L.169N)
+  H₃⁺ partition function counts all eight proton-spin states; it is divided by
+  eight to match the H₂ partition function, which (like the rest of the EOS)
+  divides nuclear spin out. The dissociation energy is the 0 K value from the
+  lowest allowed H₃⁺ level, 34,948 cm⁻¹ (4.333 eV), from the components of
+  [Mizus et al. (2019)](https://arxiv.org/abs/1812.06035).
+  [Kilic et al. (2026)](https://arxiv.org/abs/2606.25377) made the same
+  spin correction in the Montreal codes; it reddens g − z by about 0.1 mag
+  at 4000–4500 K.
 - **Lines.** Lyα–Ly21, Hα–H22, Paα–Pa22 and Brα–Br14. Charged-particle
   profiles from [Tremblay & Bergeron (2009)](https://doi.org/10.1088/0004-637X/696/2/1755).
   Neutral-H self broadening uses Ali–Griem resonance widths
   ([Ali & Griem 1965](https://doi.org/10.1103/PhysRev.140.A1044)) at all
   Teff.
-- **Lyman α.** Below 9000 K: quasi-static H–H and H–H₂ red wing
-  ([Rohrmann et al. 2011](https://doi.org/10.1111/j.1365-2966.2010.17716.x)),
-  with the temperature dependence of
-  [Sahu et al. (2025)](https://doi.org/10.1093/mnras/staf1907).
+- **Lyman α.** Below 9000 K: quasi-static H–H red wing
+  ([Rohrmann et al. 2011](https://doi.org/10.1111/j.1365-2966.2010.17716.x))
+  and the H–H₂ red wing of
+  [Kowalski & Saumon (2006)](https://arxiv.org/abs/astro-ph/0609720), at the local
+  temperature (3000–6000 K curves of
+  [Sahu et al. 2025](https://doi.org/10.1093/mnras/staf1907), interpolated
+  in 1/T). Past its 600 nm end the H–H₂ wing continues along its terminal
+  log-slope. Rohrmann et al.'s H–H₂ curve, used before 2026-11, is 0.3–0.8
+  dex weaker at 450–600 nm and made cool DAs too bright in g.
   From 9000 to 13,000 K: the fixed TLUSTY/SYNSPEC Allard table
   ([Hubeny & Lanz 2017](https://doi.org/10.48550/arXiv.1706.01859)).
   Above 13,000 K: temperature-dependent Allard tables for Lyα–Lyγ
   ([Allard et al. 1999](https://doi.org/10.1103/PhysRevA.60.1021)) plus half
-  the charged-particle Stark profile.
+  the charged-particle Stark profile (the SYNSPEC convention).
+  Both Allard choices are calibrations against the Koester grid, not
+  first-principles selections: with the temperature-specific 10,000 K Allard
+  table instead of the fixed one, the 3000–4000 Å rms difference from
+  Koester at 10,000 K rises from 0.43% to 1.00%.
 
 ### Spectrum synthesis
 
@@ -190,8 +212,11 @@ changes the structure slightly. It raises an error with
   modeled.
 - The 3D mode uses the log g = 8 temperature differences only. It omits NLTE
   and 3D turbulent pressure, and it is not flux-conserving.
-- Below about 4500 K, the Lyα red wing is the main uncertainty in the UV and
-  blue optical.
+- Below about 4500 K, the Lyα red wing and H₃⁺ chemistry are the main
+  uncertainties in the UV and blue optical. No reference grid is a ground
+  truth below 6000 K; published grids differ by up to 0.04 mag in g − z at
+  4000 K.
+- The H₂–H₂ CIA lacks the high-density corrections of Hare & Welsh (1958).
 - A high Teff does not switch to NLTE. Above about 40,000 K use
   [DAOConfig](DO-DAO.md).
 

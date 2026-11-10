@@ -33,6 +33,12 @@ pytestmark = pytest.mark.canary
 MONTREAL_H_RADIUS_COLD = (
     Path(__file__).parent / "data/approved_regressions/montreal_h_radius_2026_10_27/cold"
 )
+# Reviewed 2026-11-10 cool-hydrogen chemistry and opacity (H3+ spin
+# normalization, KS06 H--H2 wing, H2- ff, H2--H CIA); newest first.
+COOL_H_CHEMISTRY_COLD = (
+    Path(__file__).parent / "data/approved_regressions/cool_h_chemistry_2026_11_10/cold"
+)
+REVIEWED_COLD = (COOL_H_CHEMISTRY_COLD, MONTREAL_H_RADIUS_COLD)
 _FORMAL_WAVELENGTH = np.unique(
     np.r_[np.geomspace(900.0, 300000.0, 1100), np.arange(3700.0, 7000.0, 2.0)]
 )
@@ -52,8 +58,9 @@ def _assert_solver_control(result, case, step_tolerance, caught):
     reference = Path(__file__).parent / "data/approved_regressions/cold" / (case + ".npz")
     # Reviewed 2026-10-27 hydrogen neutral defaults: fresh certified cold starts
     # replace only the references they moved; see that directory's manifest.
-    reviewed = MONTREAL_H_RADIUS_COLD / (case + ".npz")
-    with np.load(reviewed if reviewed.exists() else reference) as old:
+    reviewed = [folder / (case + ".npz") for folder in REVIEWED_COLD]
+    reviewed = [path for path in reviewed if path.exists()]
+    with np.load(reviewed[0] if reviewed else reference) as old:
         for name in ("gas_pressure", "column_mass"):
             np.testing.assert_allclose(
                 getattr(result.atmosphere, name)[: len(old[name])],

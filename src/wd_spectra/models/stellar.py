@@ -266,6 +266,13 @@ _HELIUM_MINUS_PRESCRIPTION = "partial-wave"
 # the photospheric part is applied from this temperature upward.
 _MEAN_3D_MAXIMUM_LOGG_OFFSET = 0.75
 _MEAN_3D_UPPER_LAYER_MAXIMUM_TEFF_K = 9_000.0
+# Lyalpha profile policy (calibration choices, not first-principles ones):
+# 9000-13000 K uses the fixed TLUSTY205 laquasi.dat Allard Lyalpha profile
+# because it matches the Koester DA grid better than the temperature-specific
+# Allard delivery (10000 K, 3000-4000 A rms vs Koester 0.43 per cent with it,
+# 1.00 per cent with fort_ALPHA_abs10000.3).  At and above 13000 K the full
+# temperature-dependent Allard tables are used together with half of the
+# Tremblay--Bergeron Stark profile (the SYNSPEC "half-Stark" convention).
 _ALLARD_MINIMUM_EFFECTIVE_TEMPERATURE_K = 9_000.0
 _ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K = 13_000.0
 # DA cold-start seed span (the hydrogen solver's defaults) and the bottom
@@ -359,9 +366,10 @@ def _allard_lyman_profiles_for_effective_temperature(
     boundary leaves the cool H--H/H2 treatment active.
 
     For the DA preset, between 9000 and 13,000 K use the checksum-pinned
-    TLUSTY205 Allard Ly-alpha profile alone. Direct fixed-structure controls
-    against the Koester DA grid show that the delivered cool Ly-alpha
-    generation over-absorbs the 1300--1600 A wing, while the delivered
+    TLUSTY205 Allard Ly-alpha profile alone. This is a calibration to the
+    Koester DA grid (see ``_ALLARD_TEMPERATURE_DEPENDENT_CUTOFF_K``): direct
+    fixed-structure controls against that grid show that the delivered cool
+    Ly-alpha generation over-absorbs the 1300--1600 A wing, while the delivered
     Ly-beta and Ly-gamma grids do not extend through this regime. Mixed H/He
     atmospheres instead set ``use_fixed_low_temperature_profile=False``:
     their Warwick/Montreal reference grid uses the delivered Allard profiles,

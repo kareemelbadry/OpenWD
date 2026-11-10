@@ -13,6 +13,7 @@ from .constants import (
     BOLTZMANN,
     ELECTRON_MASS,
     HYDROGEN_MASS,
+    LIGHT_SPEED,
     PI,
     PLANCK,
 )
@@ -218,9 +219,263 @@ def read_borysow_h2_h2_cia_table(
 # Ground-state dissociation energies.  The H2+ value refers to H + H+.
 H2_DISSOCIATION_ENERGY = 4.4781 * 1.602176634e-12
 H2_PLUS_DISSOCIATION_ENERGY = 2.6507 * 1.602176634e-12
-# Proton affinity of H2 for H2 + H+ <-> H3+.  The measured value is
-# 4.377 eV (Ruscic et al. 2004, 2005; see also Kowalski 2026).
-H3_PLUS_DISSOCIATION_ENERGY = 4.377 * 1.602176634e-12
+H2_H_CIA_FILENAME = "h2_h_cia_hitran2011.cia.xz"
+# SHA-256 of the decompressed HITRAN file H2-H_2011.cia.
+H2_H_CIA_SHA256 = (
+    "0f68b263e20d99e25704a95eac489c1b58b37984974638fc8bcf9bfe86fe9f18"
+)
+
+
+def _molecular_data_path(name: str) -> Path:
+    return Path(__file__).with_name("data") / "molecular" / name
+
+
+@lru_cache(maxsize=1)
+def _bell_h2_minus_free_free_table() -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Return Bell (1980) H2- ff as (theta, log10 lambda_A, log10 k).
+
+    ``k`` is in cm^4 dyn^-1 per H2 molecule per unit electron pressure.
+    """
+
+    path = _molecular_data_path("h2minus_ff_bell1980.csv")
+    rows = [
+        line
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    wavelength = np.asarray([float(v) for v in rows[0].split(",")[1:]])
+    values = np.asarray(
+        [[float(v) for v in row.split(",")] for row in rows[1:]],
+        dtype=np.float64,
+    )
+    theta = values[:, 0]
+    coefficient = values[:, 1:].T * 1.0e-26
+    order = np.argsort(wavelength)
+    result = (
+        np.ascontiguousarray(theta),
+        np.ascontiguousarray(np.log10(wavelength[order])),
+        np.ascontiguousarray(np.log10(coefficient[order])),
+    )
+    for array in result:
+        array.setflags(write=False)
+    return result
+
+
+def h2_minus_free_free_coefficient_per_electron_pressure(
+    wavelength_angstrom: ArrayLike, temperature: ArrayLike
+) -> FloatArray:
+    r"""Return Bell (1980) H2- free-free absorption in cm^4 dyn^-1.
+
+    The result has shape ``(wavelength, temperature)``.  Multiplying it by the
+    electron pressure and the H2 number density gives an absorption
+    coefficient in cm^-1, with stimulated emission already included, exactly
+    as for the John (1988) H- free-free term.  Bell's table spans
+    0.35--15.2 micron and theta = 5040/T = 0.5--3.6 (1400--10080 K).  The
+    logarithm is interpolated bilinearly in (theta, log lambda).  Outside the
+    wavelength range it follows the terminal log-log slope of each end (the
+    table is close to the free-free lambda^2 law there); temperatures are held
+    at the table edges, where H2 is either negligible (hot) or below the
+    present model range (cold).
+    """
+
+    wavelength = np.atleast_1d(np.asarray(wavelength_angstrom, dtype=np.float64))
+    temperature = np.atleast_1d(_positive_temperature(temperature))
+    if wavelength.ndim != 1 or np.any(~np.isfinite(wavelength)) or np.any(
+        wavelength <= 0.0
+    ):
+        raise ValueError("wavelength_angstrom must be a finite positive 1D array")
+    theta_grid, log_wavelength_grid, log_coefficient = (
+        _bell_h2_minus_free_free_table()
+    )
+    theta = np.clip(5040.0 / temperature, theta_grid[0], theta_grid[-1])
+    # Interpolate in theta first: (n_lambda_table, n_temperature).
+    theta_index = np.clip(
+        np.searchsorted(theta_grid, theta, side="right") - 1,
+        0,
+        theta_grid.size - 2,
+    )
+    theta_fraction = (theta - theta_grid[theta_index]) / (
+        theta_grid[theta_index + 1] - theta_grid[theta_index]
+    )
+    at_temperature = (
+        (1.0 - theta_fraction) * log_coefficient[:, theta_index]
+        + theta_fraction * log_coefficient[:, theta_index + 1]
+    )
+    log_wavelength = np.log10(wavelength)
+    wavelength_index = np.clip(
+        np.searchsorted(log_wavelength_grid, log_wavelength, side="right") - 1,
+        0,
+        log_wavelength_grid.size - 2,
+    )
+    wavelength_fraction = (
+        log_wavelength - log_wavelength_grid[wavelength_index]
+    ) / (
+        log_wavelength_grid[wavelength_index + 1]
+        - log_wavelength_grid[wavelength_index]
+    )
+    interpolated = (
+        (1.0 - wavelength_fraction[:, np.newaxis])
+        * at_temperature[wavelength_index]
+        + wavelength_fraction[:, np.newaxis]
+        * at_temperature[wavelength_index + 1]
+    )
+    return 10.0**interpolated
+
+
+@dataclass(frozen=True)
+class H2HCollisionInducedAbsorptionTable:
+    """HITRAN H2--H collision-induced absorption (Gustafsson & Frommhold 2003).
+
+    ``absorption_coefficient`` is the binary coefficient in cm^5 molecule^-2,
+    shape ``(wavenumber, temperature)``; multiplying by n(H2) n(H) gives
+    cm^-1.  HITRAN's binary coefficients are net absorption, so no separate
+    stimulated-emission factor is applied.
+    """
+
+    wavenumber_cm_inverse: FloatArray
+    temperature_K: FloatArray
+    absorption_coefficient: FloatArray
+
+    def coefficient_for_wavelength_temperature(
+        self, wavelength_angstrom: ArrayLike, temperature_K: ArrayLike
+    ) -> FloatArray:
+        """Return interpolated coefficients, shape ``(wavelength, temperature)``.
+
+        The logarithm is interpolated linearly in wavenumber and temperature.
+        The calculation covers 1000--2500 K and 100--10000 cm^-1 only.  Hotter
+        layers use the 2500 K column (photospheres of 4000--6000 K DA models
+        lie above the published range; the coefficient grows with temperature,
+        so this underestimates rather than invents opacity).  Above 10000 cm^-1
+        (blueward of 1 micron) every column declines, and its terminal
+        log-slope is continued as for the Borysow H2--H2 tail; below
+        100 cm^-1 the coefficient is zero.
+        """
+
+        wavelength = np.atleast_1d(np.asarray(wavelength_angstrom, dtype=np.float64))
+        temperature = np.atleast_1d(np.asarray(temperature_K, dtype=np.float64))
+        if wavelength.ndim != 1 or np.any(~np.isfinite(wavelength)) or np.any(
+            wavelength <= 0.0
+        ):
+            raise ValueError("wavelength_angstrom must be a finite positive 1D array")
+        temperature = np.clip(
+            temperature, self.temperature_K[0], self.temperature_K[-1]
+        )
+        wavenumber = 1.0e8 / wavelength
+        grid = self.wavenumber_cm_inverse
+        log_coefficient = np.log10(self.absorption_coefficient)
+        temperature_index = np.clip(
+            np.searchsorted(self.temperature_K, temperature, side="right") - 1,
+            0,
+            self.temperature_K.size - 2,
+        )
+        temperature_fraction = (
+            temperature - self.temperature_K[temperature_index]
+        ) / (
+            self.temperature_K[temperature_index + 1]
+            - self.temperature_K[temperature_index]
+        )
+        at_temperature = (
+            (1.0 - temperature_fraction) * log_coefficient[:, temperature_index]
+            + temperature_fraction * log_coefficient[:, temperature_index + 1]
+        )
+        result = np.zeros((wavelength.size, temperature.size), dtype=np.float64)
+        inside = wavenumber >= grid[0]
+        if not np.any(inside):
+            return result
+        sampled = wavenumber[inside]
+        index = np.clip(np.searchsorted(grid, sampled, side="right") - 1, 0, grid.size - 2)
+        fraction = (sampled - grid[index]) / (grid[index + 1] - grid[index])
+        result[inside] = 10.0 ** (
+            (1.0 - fraction[:, np.newaxis]) * at_temperature[index]
+            + fraction[:, np.newaxis] * at_temperature[index + 1]
+        )
+        return result
+
+
+@lru_cache(maxsize=1)
+def h2_h_cia_table() -> H2HCollisionInducedAbsorptionTable:
+    """Load the bundled HITRAN 2011 H2--H CIA file after checking its hash."""
+
+    import hashlib
+    import lzma
+
+    raw = lzma.decompress(_molecular_data_path(H2_H_CIA_FILENAME).read_bytes())
+    if hashlib.sha256(raw).hexdigest() != H2_H_CIA_SHA256:
+        raise ValueError("bundled H2-H CIA table failed its checksum")
+    lines = raw.decode("ascii").splitlines()
+    temperatures: list[float] = []
+    columns: list[FloatArray] = []
+    wavenumber: FloatArray | None = None
+    position = 0
+    while position < len(lines):
+        header = lines[position].split()
+        if not header:
+            position += 1
+            continue
+        count = int(header[3])
+        temperatures.append(float(header[4]))
+        block = np.asarray(
+            [line.split() for line in lines[position + 1 : position + 1 + count]],
+            dtype=np.float64,
+        )
+        if wavenumber is None:
+            wavenumber = block[:, 0]
+        elif not np.array_equal(wavenumber, block[:, 0]):
+            raise ValueError("H2-H CIA blocks use different wavenumber grids")
+        columns.append(block[:, 1])
+        position += 1 + count
+    assert wavenumber is not None
+    coefficient = np.column_stack(columns)
+    if np.any(coefficient <= 0.0) or np.any(np.diff(temperatures) <= 0.0):
+        raise ValueError("unexpected H2-H CIA table contents")
+    if np.any(coefficient[-1] >= coefficient[-2]):
+        raise ValueError("H2-H CIA tail must decline for its continuation")
+    # Continue every column past its last point along its terminal log-slope
+    # by appending one far point (1000 Angstrom, where it is already ~70 dex
+    # down); log-linear interpolation then reproduces the extrapolation
+    # without a special case.
+    far = 1.0e5
+    slope = (np.log10(coefficient[-1]) - np.log10(coefficient[-2])) / (
+        wavenumber[-1] - wavenumber[-2]
+    )
+    far_values = 10.0 ** (np.log10(coefficient[-1]) + slope * (far - wavenumber[-1]))
+    wavenumber = np.r_[wavenumber, far]
+    coefficient = np.vstack([coefficient, far_values])
+    return H2HCollisionInducedAbsorptionTable(
+        wavenumber_cm_inverse=wavenumber,
+        temperature_K=np.asarray(temperatures, dtype=np.float64),
+        absorption_coefficient=coefficient,
+    )
+
+
+# Zero-kelvin dissociation energy of H3+ into H2(v=0, J=0) + H+, measured
+# from the lowest Pauli-allowed H3+ level (J=1, K=1).  This is the energy
+# zero of the Neale & Tennyson (1995) partition function used below.  The
+# former 4.377 eV is the 298 K proton affinity of H2 (an enthalpy), not the
+# 0 K energy the equilibrium constant needs.
+#
+# Mizus et al. (2019, arXiv:1812.06035, Sec. 3) give the
+# Born--Oppenheimer value from the vibrationless J=0 ground state,
+# D0 = De - ZPE(H3+) + ZPE(H2) = 37195.3 - 4362.76 + 2179.3
+# = 35011.8 cm^-1, and the non-BO correction to it is below 1 cm^-1.  The
+# J=1, K=1 level lies 64.21 cm^-1 above J=0, which lowers the dissociation
+# energy from that level to 34947.6 cm^-1.  Their quoted total, 35076 cm^-1,
+# equals 35011.8 + 64.21: the Pauli offset there was added to, rather than
+# subtracted from, the dissociation energy.  Converting the 298 K proton
+# affinity (NIST, 422.3 kJ/mol) to 0 K with ideal-gas enthalpies gives an
+# independent ~4.32 eV, consistent with the value adopted here.
+H3_PLUS_DISSOCIATION_ENERGY_CM_INVERSE = 35011.8 - 64.21
+H3_PLUS_DISSOCIATION_ENERGY = (
+    H3_PLUS_DISSOCIATION_ENERGY_CM_INVERSE * PLANCK * LIGHT_SPEED
+)
+# The Neale & Tennyson (1995) H3+ partition function counts every one of the
+# 2^3 proton-spin states (ExoMol's NT readme; para levels carry g_ns = 2 and
+# ortho levels g_ns = 4).  The Barklem--Collet H2 partition function and the
+# atomic H/H+ terms of this EOS divide the nuclear-spin degeneracy out
+# (Q(H2) -> 1/4 as T -> 0).  A consistent H3+ equilibrium therefore uses
+# Q_NT / 8.  Kilic et al. (2026) report and correct the same mismatch in the
+# Montreal codes.
+H3_PLUS_NUCLEAR_SPIN_STATES = 8.0
 # Electron affinity for H + e <-> H-.
 H_MINUS_DETACHMENT_ENERGY = 0.754195 * 1.602176634e-12
 
@@ -310,7 +565,10 @@ def molecular_hydrogen_ion_internal_partition_function(
     vibration = 1.0 / -np.expm1(
         -H2_PLUS_VIBRATIONAL_TEMPERATURE / temperature
     )
-    # The X 2Sigma_g+ state has electronic spin degeneracy two.
+    # 0.5 = 2 / 4: the X 2Sigma_g+ electronic spin degeneracy (two) times
+    # the division by the 2^2 proton-spin states used throughout this EOS
+    # (the ortho/para weights 1 and 3 above sum to those four states).  It is
+    # not an error for "degeneracy two"; see H3_PLUS_NUCLEAR_SPIN_STATES.
     return 0.5 * rotation * vibration
 
 
@@ -327,6 +585,10 @@ def trihydrogen_ion_internal_partition_function(
     Evaluation of the published sixth-order polynomial is retained through
     10,000 K; the endpoint is held fixed at higher temperature, where H2 and
     H3+ are already negligible in the present DA calculations.
+
+    This returns the published value, which includes all eight proton-spin
+    states.  The chemical equilibrium divides it by
+    ``H3_PLUS_NUCLEAR_SPIN_STATES`` to match the H2 convention.
 
     The much smaller partition function advocated by Kylänpää & Rantala
     (2011), and the possibility of unaccounted negative molecular ions, make
@@ -370,7 +632,9 @@ def trihydrogen_ion_dissociation_constant(
     This is the ideal translational equilibrium for dissociation into H2 and
     a proton.  The reduced mass is 2/3 of a hydrogen-atom mass.  The H2
     partition function uses the same Barklem--Collet convention as the rest
-    of the molecular EOS.
+    of the molecular EOS, with the proton-spin degeneracy divided out; the
+    Neale & Tennyson H3+ value is divided by its eight proton-spin states to
+    match.
     """
 
     temperature = _positive_temperature(temperature)
@@ -385,6 +649,7 @@ def trihydrogen_ion_dissociation_constant(
             trihydrogen_ion_internal_partition_function(
                 temperature, model=partition_model
             )
+            / H3_PLUS_NUCLEAR_SPIN_STATES
         )
         - H3_PLUS_DISSOCIATION_ENERGY / (BOLTZMANN * temperature)
     )

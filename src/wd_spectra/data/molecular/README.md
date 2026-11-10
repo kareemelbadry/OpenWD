@@ -47,6 +47,16 @@ always dissociate), the Kurucz bound sum is kept. Untabulated levels keep the
 Kurucz sum, with the dissociation fraction of the highest tabulated J. Both
 rates enter the fluorescent source function and the line damping.
 
+## H2- free-free and H2-H CIA
+
+`h2minus_ff_bell1980.csv` is Table 1 of Bell (1980): the H2- free-free
+absorption coefficient per H2 molecule per unit electron pressure
+(1e-26 cm^4 dyn^-1, stimulated emission included) at theta = 5040/T =
+0.5-3.6 and 0.35-15.2 micron. `h2_h_cia_hitran2011.cia.xz` is HITRAN's
+`H2-H_2011.cia` (Gustafsson & Frommhold 2003; 1000-2500 K, 100-10000 cm^-1),
+checked against its SHA-256 by `wd_spectra.molecules.h2_h_cia_table`. See
+`THIRD_PARTY_NOTICES.md` for sources.
+
 ## Other files
 
 `barklem_collet_h2_partition.csv`, `h2_photoabsorption_1nm.csv` and

@@ -112,6 +112,25 @@ OpenWD's BSD source-code license. Credit Robert L. Kurucz in scientific uses.
 the CDS catalogue J/A+AS/141/297, unmodified. Cite that paper in scientific
 uses.
 
+## H2- free-free and H2-H collision-induced absorption
+
+`src/wd_spectra/data/molecular/h2minus_ff_bell1980.csv` holds the numerical
+values of Table 1 of Bell (1980, J. Phys. B 13, 1859), the H2- free-free
+absorption coefficient. The values were taken from the transcription in
+PICASO's `reference/opacities/h2minus.csv`
+(<https://github.com/natashabatalha/picaso>, SHA-256
+`0ea7c83ae92e899c1e397eae01c908c4cb2d07b4b709c1fdf6c0a48d0423e375`), without
+its extrapolated theta = 10 row; the header was rewritten. Cite Bell (1980) in
+scientific uses.
+
+`src/wd_spectra/data/molecular/h2_h_cia_hitran2011.cia.xz` is the
+xz-compressed HITRAN CIA file `H2-H_2011.cia`
+(<https://hitran.org/cia/>; decompressed SHA-256
+`0f68b263e20d99e25704a95eac489c1b58b37984974638fc8bcf9bfe86fe9f18`),
+otherwise unmodified. The data are the calculation of Gustafsson & Frommhold
+(2003, A&A 400, 1161), distributed by HITRAN (Richard et al. 2012, Karman et
+al. 2019). Cite those works in scientific uses.
+
 ## Kurucz electron Stark constants
 
 `src/wd_spectra/data/stark/kurucz_stark_constants.csv.xz` lists Robert L.

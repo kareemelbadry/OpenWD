@@ -924,7 +924,7 @@ def synthesize_balmer_spectrum(
                 else "disabled"
             ),
             "neutral_lyman_alpha_wing": (
-                "Rohrmann-Althaus-Kepler 2011 H-H b-a/X-B plus H-H2 E1-E3/E1-E4 at 6000 K"
+                "Rohrmann-Althaus-Kepler 2011 H-H b-a/X-B plus H-H2 Kowalski-Saumon 2006 (local T, red tail past 600 nm)"
                 if (
                     include_lyman
                     and include_neutral_lyman_alpha_wing
@@ -934,6 +934,12 @@ def synthesize_balmer_spectrum(
             "h2_h2_collision_induced_absorption": (
                 "Borysow 60--7000 K table"
                 if include_molecular_absorption and h2_h2_cia_table is not None
+                else "disabled"
+            ),
+            "h2_minus_free_free_and_h2_h_cia": (
+                "Bell 1980 H2- free-free; HITRAN 2011 H2-H CIA "
+                "(Gustafsson-Frommhold 2003, held at 2500 K above its range)"
+                if include_molecular_absorption
                 else "disabled"
             ),
             "dissolved_level_pseudocontinuum": (
