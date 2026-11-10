@@ -453,3 +453,20 @@ def test_hydrogen_checkpoint_without_chemistry_record_warns(tmp_path):
     with pytest.warns(RuntimeWarning, match="does not record its molecular chemistry"):
         restored = load_atmosphere_checkpoint(path, 5000.0, 8.0, "hydrogen")
     assert restored.hydrogen_lte_state.molecular_hydrogen_density is None
+
+
+def test_hydrogen_checkpoint_reload_reads_saved_run_chemistry_keys(tmp_path):
+    # atmosphere.npz written by run_model records the chemistry under these
+    # radiative-equilibrium keys, with DAConfig.include_molecules=None.
+    path = tmp_path / "run-model-da.npz"
+    _save_cool_hydrogen_checkpoint(path, {
+        "includes_molecular_equilibrium": True,
+        "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium": True,
+        "radiative_equilibrium_h3plus_partition_model": "neale-tennyson-1995",
+        "model_request_fingerprint": {"config": {"include_molecules": None}},
+    })
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        restored = load_atmosphere_checkpoint(path, 5000.0, 8.0, "hydrogen")
+    assert np.any(restored.hydrogen_lte_state.trihydrogen_ion_density > 0.0)
+    assert "checkpoint_changed_requires_relaxation" not in restored.metadata

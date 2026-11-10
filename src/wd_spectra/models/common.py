@@ -638,16 +638,21 @@ def load_atmosphere_checkpoint(
         old_config = {}
     recorded_molecules = old_config.get("include_molecules")
     if recorded_molecules is None:
-        recorded_molecules = stored_metadata.get("includes_molecular_equilibrium")
+        recorded_molecules = stored_metadata.get(
+            "includes_molecular_equilibrium",
+            stored_metadata.get(
+                "radiative_equilibrium_includes_molecular_equilibrium_and_opacity"))
     recorded_negative = stored_metadata.get(
         "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium",
         stored_metadata.get("negative_hydrogen_in_charge_equilibrium"))
-    partition_recorded = (
-        "h3plus_partition_model" in old_config
-        or "trihydrogen_ion_partition_model" in stored_metadata
-    )
-    recorded_partition = old_config.get("h3plus_partition_model",
-        stored_metadata.get("trihydrogen_ion_partition_model"))
+    # Saved runs record the H3+ model as radiative_equilibrium_h3plus_partition_model.
+    partition_keys = ("trihydrogen_ion_partition_model",
+                      "radiative_equilibrium_h3plus_partition_model")
+    partition_recorded = "h3plus_partition_model" in old_config or any(
+        key in stored_metadata for key in partition_keys)
+    recorded_partition = old_config.get("h3plus_partition_model", next(
+        (stored_metadata[key] for key in partition_keys if key in stored_metadata),
+        None))
     if recorded_partition == "none":
         recorded_partition = None
     unrecorded = []
