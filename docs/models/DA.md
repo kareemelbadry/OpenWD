@@ -139,11 +139,15 @@ R = 18,500 and normalized like the data. Above about 10,000 K the codes agree
 and match the data; below, OpenWD fits Hα better.
 [PDF](../assets/da-paper-spy.pdf).
 
-**Cool DAs (3000–5000 K).** OpenWD agrees with the models of
-[Tremblay et al. (2011)](https://doi.org/10.1088/0004-637X/730/2/128) and the
-photometry of [Blouin et al. (2018)](https://doi.org/10.3847/1538-4357/aad4a9).
-At 3000 K, OpenWD is a factor of two fainter in GALEX NUV, where all models
-predict very little flux. The likely cause is a different Lyα red wing.
+**Cool DAs (3000–5000 K).** Compared with the 1D models of
+[Tremblay et al. (2011)](https://doi.org/10.1088/0004-637X/730/2/128), which
+predate the H₃⁺ spin correction, OpenWD's Pan-STARRS g − z is redder by
+0.07 mag at 5000 K and 0.10 mag at 4000 K, and 0.03 mag bluer at 3000 K. The
+correction moves g − z by +0.065 and +0.10 mag at 5000 and 4000 K in the
+Montreal models ([Kilic et al. 2026](https://arxiv.org/abs/2606.25377)).
+Below 0.4 µm OpenWD is 15–20% fainter than Tremblay et al., because the
+lower electron density puts the photosphere deeper, where the H–H₂ Lyα wing
+is stronger. No reference grid is a ground truth below 6000 K.
 
 ## 3D line-profile mode (opt-in)
 
