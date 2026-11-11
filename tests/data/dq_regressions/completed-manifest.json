@@ -2,7 +2,7 @@
  "source_run": "results/dq-continuum-followup/j1311-combined-warm",
  "source_atmosphere_sha256": "ecdcd41d1ae95c17528da0ff5022ebdff339af8502be2cb7621278634458e198",
  "source_spectrum_sha256": "a7e33e91ec7e60939968d48a79005feaf272de1a3b94aae4c83ff1a98bcb736e",
- "fixture_sha256": "e7c6b7332d62ac7a8dc26514c79449349079bed6c26da689439d4c0cc8f60430",
+ "fixture_sha256": "ee585a1b0d974f35a975da6e9e4e8dd76db6d37d917df6825263ef1398949e3b",
  "points": 30000,
  "n_angle": 4,
  "parameters": {
@@ -57,6 +57,19 @@
     "5500-7000": 0.0
    },
    "max_relative_change": 0.07279191730080581
+  },
+  {
+   "date": "2026-11-10",
+   "previous_fixture_sha256": "e7c6b7332d62ac7a8dc26514c79449349079bed6c26da689439d4c0cc8f60430",
+   "physics_revision": "audit-fixes-2026-11-10",
+   "reason": "C2 dissociation constant uses the 12C2 reduced mass m(12C)/2 = 6 u instead of 6 hydrogen masses (K was 1.18% too large), so n(C2) rises by 1.18% where carbon is mostly atomic and the Swan bands deepen. The carbon mass in the density alone changes nothing here. Structure arrays unchanged.",
+   "band_fractional_changes": {
+    "3500-4000": -0.0023849998238507264,
+    "4000-4500": -0.004159265113944675,
+    "4500-5500": -0.005272153500238233,
+    "5500-7000": -0.003383301754615151
+   },
+   "max_relative_change": 0.013271832486360657
   }
  ]
 }

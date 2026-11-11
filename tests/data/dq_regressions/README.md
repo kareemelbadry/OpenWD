@@ -76,3 +76,16 @@ Then, the same day, DQ adopted the DZ partial-wave He- free-free below John's
   unchanged redward of 5063 A.
 - J1235: +10% at 1000-3000 A, +2.8% at 3500-4000 A, +1.9% at 4000-4500 A,
   unchanged redward of 5063 A.
+
+## Re-approval 2026-11-10 (audit fixes)
+
+The J1311 flux array was recomputed on the unchanged stored structure
+(user-approved) by `research/capture_audit_fix_controls.py`; the previous hash
+is under `reapprovals`. The C2 dissociation constant now uses the 12C2
+reduced mass m(12C)/2 = 6 u instead of six hydrogen masses, so the
+dissociation constant K falls by 1.18% and n(C2) rises by the same amount
+where carbon is mostly atomic. The Swan bands deepen: band-integrated flux
+falls by 0.2-0.5% at 3500-7000 A (at most 1.3% in one sample), about a
+0.005 dex change in C/He. Using the 12C
+mass in the density as well changes nothing on this structure. J1235's flux is
+not compared by any test and was not recaptured.

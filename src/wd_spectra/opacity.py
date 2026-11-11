@@ -685,6 +685,10 @@ _CAUCHY_QUADRATURE_NODES, _CAUCHY_QUADRATURE_WEIGHTS = (
     np.polynomial.legendre.leggauss(128)
 )
 _CAUCHY_QUADRATURE_BLOCK_SIZE = 16
+# Longest angle interval of the Stark-split Cauchy quadrature.  Fixed interior
+# breaks keep the smooth Lorentz-core part of the integral resolved
+# when the Stark-table breaks crowd towards the cusp.
+_CAUCHY_MAXIMUM_ANGLE_INTERVAL = 0.125 * PI
 _IMPACT_VALIDITY_TAPER_FRACTION = 0.40
 
 
@@ -704,6 +708,103 @@ def _hydrogen_profile_worker_count(n_depth: int) -> int:
         if requested < 1:
             raise ValueError("OPENWD_NUM_THREADS must be a positive integer")
     return min(n_depth, requested)
+
+
+def _cauchy_break_stride(order: int) -> int:
+    """Return the Stark-table node stride used for the angle breaks.
+
+    Order 128 (final synthesis) breaks at every tabulated node; the far wing
+    is then within 0.5 per cent of a brute-force reference.  The structure
+    order 32 breaks at every fourth node (wing within ~10 per cent, against
+    ~50 per cent for the old two-interval rule).  A cold 7000 K DA moved by
+    under 1 K when the structure wing error went from ~50 to 0.5 per cent,
+    and the coarser structure rule changes its spectrum by under 1e-4, so the
+    structure does not need synthesis accuracy.
+    """
+
+    return max(1, 128 // int(order))
+
+
+@lru_cache(maxsize=None)
+def _cauchy_interval_rule(order: int) -> tuple[FloatArray, FloatArray]:
+    """Return the per-interval Gauss--Legendre rule of the split convolution.
+
+    ``order // 64`` nodes per Stark-split interval, and never fewer than two:
+    a one-point rule misses the curvature of the log-linear table segments by
+    a few per cent.
+    """
+
+    nodes_per_interval = max(2, int(order) // 64)
+    nodes, weights = np.polynomial.legendre.leggauss(nodes_per_interval)
+    return (
+        np.asarray(nodes, dtype=np.float64),
+        np.asarray(weights, dtype=np.float64),
+    )
+
+
+def _cauchy_stark_break_offsets(
+    stark_line: object,
+    temperature: float,
+    electron_density: float,
+    quadrature_order: int,
+) -> FloatArray:
+    """Detunings ``F0 10**log_alpha`` of the Stark nodes used as breaks."""
+
+    field_strength, _ = stark_line._local_profile_state(
+        temperature, electron_density
+    )
+    log_alpha = np.asarray(stark_line.log_alpha, dtype=np.float64)
+    return field_strength * 10.0 ** log_alpha[
+        :: _cauchy_break_stride(quadrature_order)
+    ]
+
+
+def _cauchy_angle_breaks(
+    detuning: FloatArray,
+    lorentz_hwhm_angstrom: float,
+    angle_limit: float,
+    stark_offset_angstrom: FloatArray,
+    taper_start_angstrom: float | None,
+) -> FloatArray:
+    """Return sorted angle breaks, shape (wavelength, break), for each row.
+
+    Breaks sit at the kernel limits, at the cusp where the shifted Stark
+    profile reaches the line centre, at the selected Stark-table nodes on
+    both sides of that cusp (``stark_offset_angstrom``), at the impact taper
+    start, and at equally spaced angles no farther apart than
+    ``_CAUCHY_MAXIMUM_ANGLE_INTERVAL``.  The compiled kernel uses the same
+    construction.
+    """
+
+    gamma = lorentz_hwhm_angstrom
+    column = detuning[:, np.newaxis]
+    n_fixed_pieces = max(
+        1,
+        int(
+            np.ceil(
+                2.0 * angle_limit / _CAUCHY_MAXIMUM_ANGLE_INTERVAL - 1.0e-12
+            )
+        ),
+    )
+    fixed = angle_limit * (
+        -1.0 + 2.0 * np.arange(n_fixed_pieces + 1) / n_fixed_pieces
+    )
+    pieces = [
+        np.broadcast_to(fixed, (detuning.size, fixed.size)),
+        np.arctan(column / gamma),
+        np.arctan((column - stark_offset_angstrom[np.newaxis, :]) / gamma),
+        np.arctan((column + stark_offset_angstrom[np.newaxis, :]) / gamma),
+    ]
+    if taper_start_angstrom is not None:
+        taper_angle = np.arctan(taper_start_angstrom / gamma)
+        pieces.append(
+            np.broadcast_to(
+                np.asarray([-taper_angle, taper_angle]),
+                (detuning.size, 2),
+            )
+        )
+    breaks = np.clip(np.concatenate(pieces, axis=1), -angle_limit, angle_limit)
+    return np.sort(breaks, axis=1)
 
 
 @lru_cache(maxsize=None)
@@ -734,12 +835,18 @@ def _lorentz_convolved_stark_profile(
 ) -> FloatArray:
     """Convolve a Stark profile with a normalized Lorentz profile.
 
-    With ``u = gamma tan(theta)``, the Cauchy convolution becomes a smooth
-    finite integral, ``(1/pi) integral P(x-u) dtheta``.  Gauss-Legendre
-    quadrature therefore preserves the line strength without constructing a
-    large auxiliary uniform wavelength grid.  When an impact-validity limit
-    is supplied, the Cauchy kernel is smoothly tapered over its outermost 40
-    per cent.  ``renormalize`` rescales that supported interval to unit area.
+    With ``u = gamma tan(theta)``, the Cauchy convolution becomes a finite
+    integral, ``(1/pi) integral P(x-u) dtheta``.  In the far wing the shifted
+    Stark core occupies an angle of only about ``gamma w / x**2``, so a
+    fixed Gauss-Legendre rule on the two sides of the cusp misses much of the
+    Lorentz-wing times Stark-area term.  The angle interval is therefore
+    split at the Stark-table nodes, ``u = x -/+ F0 10**log_alpha`` (every
+    node at synthesis order 128, every fourth at structure order 32), and at
+    fixed interior angles; a short Gauss-Legendre rule integrates each piece.
+    Every piece conserves the kernel measure, so line strength is preserved
+    without a large auxiliary uniform wavelength grid.  When an
+    impact-validity limit is supplied, the Cauchy kernel is smoothly tapered
+    over its outermost 40 per cent.  ``renormalize`` rescales that supported interval to unit area.
     ``stark-core`` instead leaves the supported Cauchy probability unchanged
     and returns the missing probability to the unshifted Stark profile.  Both
     closures conserve line strength.  A hard cutoff translates the narrow
@@ -763,7 +870,9 @@ def _lorentz_convolved_stark_profile(
             temperature,
             electron_density,
         )
-    quadrature_nodes, quadrature_weights = _cauchy_quadrature(quadrature_order)
+    quadrature_nodes, quadrature_weights = _cauchy_interval_rule(
+        quadrature_order
+    )
     profile = np.zeros_like(wavelength_angstrom)
     detuning = wavelength_angstrom - line_center_angstrom
     angle_limit = 0.5 * PI
@@ -830,6 +939,14 @@ def _lorentz_convolved_stark_profile(
                 np.ascontiguousarray(detuning),
                 np.ascontiguousarray(stark_line.log_alpha),
                 np.ascontiguousarray(local_log_profile),
+                np.ascontiguousarray(
+                    _cauchy_stark_break_offsets(
+                        stark_line,
+                        temperature,
+                        electron_density,
+                        quadrature_order,
+                    )
+                ),
                 np.ascontiguousarray(quadrature_nodes),
                 np.ascontiguousarray(quadrature_weights),
                 float(field_strength),
@@ -847,42 +964,44 @@ def _lorentz_convolved_stark_profile(
                     else float(taper_start)
                 ),
                 unresolved_probability,
+                _CAUCHY_MAXIMUM_ANGLE_INTERVAL,
             ),
             dtype=np.float64,
         )
-    # Split each Cauchy integral where its shifted Stark profile reaches the
-    # line center.  Treating that narrow cusp as an interval boundary removes
-    # the fixed-node aliasing that otherwise appears as spikes on irregular
-    # wavelength grids, especially for cool Halpha profiles.
-    cusp_angle = np.clip(
-        np.arctan(detuning / lorentz_hwhm_angstrom),
-        -angle_limit,
-        angle_limit,
+    # Split each Cauchy integral at the cusp, where its shifted Stark profile
+    # reaches the line centre, and at the selected Stark-table nodes on both
+    # sides of it.  The cusp break removes fixed-node aliasing on irregular
+    # wavelength grids; the Stark-node breaks resolve the shifted core in the
+    # far wing, whose angular width falls as detuning**-2.
+    stark_offset = _cauchy_stark_break_offsets(
+        stark_line, temperature, electron_density, quadrature_order
     )
-    for lower, upper in (
-        (-angle_limit * np.ones_like(cusp_angle), cusp_angle),
-        (cusp_angle, angle_limit * np.ones_like(cusp_angle)),
-    ):
+    taper_start_or_none = (
+        None if maximum_impact_shift_angstrom is None else taper_start
+    )
+    block_size = 64
+    for row_start in range(0, detuning.size, block_size):
+        row_stop = min(row_start + block_size, detuning.size)
+        local_detuning = detuning[row_start:row_stop]
+        breaks = _cauchy_angle_breaks(
+            local_detuning,
+            lorentz_hwhm_angstrom,
+            float(angle_limit),
+            stark_offset,
+            taper_start_or_none,
+        )
+        lower = breaks[:, :-1]
+        upper = breaks[:, 1:]
         midpoint = 0.5 * (lower + upper)
         half_width = 0.5 * (upper - lower)
-        for start in range(
-            0,
-            quadrature_nodes.size,
-            _CAUCHY_QUADRATURE_BLOCK_SIZE,
-        ):
-            stop = start + _CAUCHY_QUADRATURE_BLOCK_SIZE
-            node = quadrature_nodes[start:stop, np.newaxis]
-            weight = quadrature_weights[start:stop, np.newaxis]
-            angle = midpoint[np.newaxis, :] + half_width[np.newaxis, :] * node
-            shifted_detuning = (
-                detuning[np.newaxis, :]
-                - lorentz_hwhm_angstrom * np.tan(angle)
-            )
+        for node, weight in zip(quadrature_nodes, quadrature_weights):
+            angle = midpoint + half_width * node
+            shift = lorentz_hwhm_angstrom * np.tan(angle)
+            shifted_detuning = local_detuning[:, np.newaxis] - shift
             impact_weight: FloatArray | float = 1.0
             if maximum_impact_shift_angstrom is not None:
-                impact_shift = np.abs(lorentz_hwhm_angstrom * np.tan(angle))
                 taper_coordinate = np.clip(
-                    (impact_shift - taper_start)
+                    (np.abs(shift) - taper_start)
                     / (maximum_impact_shift_angstrom - taper_start),
                     0.0,
                     1.0,
@@ -890,24 +1009,15 @@ def _lorentz_convolved_stark_profile(
                 impact_weight = 1.0 - taper_coordinate**3 * (
                     10.0 + taper_coordinate * (-15.0 + 6.0 * taper_coordinate)
                 )
-            safe_center = max(
-                line_center_angstrom,
-                1.0 + float(np.max(np.abs(shifted_detuning))),
-            )
-            profile += (
-                np.sum(
-                    weight
-                    * half_width[np.newaxis, :]
-                    * impact_weight
-                    / kernel_normalization
-                    * stark_line.wavelength_profile(
-                        safe_center + shifted_detuning,
-                        safe_center,
-                        temperature,
-                        electron_density,
-                    ),
-                    axis=0,
-                )
+            profile[row_start:row_stop] += np.sum(
+                weight
+                * half_width
+                * impact_weight
+                / kernel_normalization
+                * stark_line.detuning_profile(
+                    shifted_detuning, temperature, electron_density
+                ),
+                axis=1,
             )
     if (
         maximum_impact_shift_angstrom is not None
@@ -1701,11 +1811,18 @@ def hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
         lower_probability = distribution.occupation_probability[
             :, lower_level - 1
         ]
-        dissolved_fraction = 1.0 - np.clip(
-            upper_probability / lower_probability[np.newaxis, :],
-            0.0,
-            1.0,
+        # A fully dissolved lower level (w = 0) has no population and no
+        # dissolved-level opacity; avoid the 0/0 there.
+        lower_row = np.broadcast_to(
+            lower_probability[np.newaxis, :], upper_probability.shape
         )
+        survival_ratio = np.divide(
+            upper_probability,
+            lower_row,
+            out=np.ones_like(upper_probability),
+            where=lower_row > 0.0,
+        )
+        dissolved_fraction = 1.0 - np.clip(survival_ratio, 0.0, 1.0)
         frequency = LIGHT_SPEED / (selected[:, np.newaxis] * 1.0e-8)
         stimulated_emission = -np.expm1(
             -PLANCK

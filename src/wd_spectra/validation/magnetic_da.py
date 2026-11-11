@@ -222,13 +222,31 @@ def _scores(rest_wave: np.ndarray, observed: np.ndarray, model: np.ndarray) -> d
 CHI2_WINDOW_ANGSTROM = (3_820.0, 6_950.0)
 
 
+_NOISE_SMOOTHING_PIXELS = 3.0
+
+
+def _high_pass_noise_fraction(sigma_pixels: float) -> float:
+    """Fraction of white-noise sigma kept by ``x - gaussian_smooth(x)``.
+
+    For kernel weights k the residual variance is ``1 - 2 k0 + sum k**2`` of
+    the input variance (0.82 for a 3-pixel Gaussian, i.e. 0.91 of sigma).
+    """
+
+    radius = max(1, int(np.ceil(4.0 * sigma_pixels)))
+    impulse = np.zeros(2 * radius + 1)
+    impulse[radius] = 1.0
+    kernel = gaussian_smooth(impulse, sigma_pixels)
+    return float(np.sqrt(1.0 - 2.0 * kernel[radius] + np.sum(kernel**2)))
+
+
 def _estimated_noise(flux: np.ndarray) -> np.ndarray:
     """Per-pixel noise from the robust scatter about a 3-pixel smooth."""
 
-    residual = flux - gaussian_smooth(flux, 3.0)
+    residual = flux - gaussian_smooth(flux, _NOISE_SMOOTHING_PIXELS)
     deviation = 1.4826 * np.median(np.abs(residual - np.median(residual)))
-    # The residual about a 3-pixel Gaussian retains ~0.8 of white noise.
-    return np.full_like(flux, 1.25 * deviation)
+    return np.full_like(
+        flux, deviation / _high_pass_noise_fraction(_NOISE_SMOOTHING_PIXELS)
+    )
 
 
 def _chi2_scores(
@@ -655,7 +673,14 @@ def score_dah_weak_field_profiles(
         pieces = []
         for (wave_obs, flux, inverse_variance), velocity in zip(epochs, velocities):
             rest = wave_obs / (1.0 + velocity * 1.0e5 / LIGHT_SPEED)
-            selected = (np.abs(rest - center) <= half) & (inverse_variance > 0.0)
+            # local_normalize drops non-positive pixels; select them out here
+            # too so flux and inverse variance stay aligned with its output.
+            selected = (
+                (np.abs(rest - center) <= half)
+                & (inverse_variance > 0.0)
+                & np.isfinite(flux)
+                & (flux > 0.0)
+            )
             wave, normalized = local_normalize(rest[selected], flux[selected], center - half, center + half)
             continuum = flux[selected] / normalized
             pieces.append((wave, normalized, inverse_variance[selected] * continuum**2))
@@ -702,7 +727,12 @@ def weak_field_profile_arrays(
         pieces = []
         for (wave_obs, flux, inverse_variance), velocity in zip(epochs, velocities_kms):
             rest = wave_obs / (1.0 + velocity * 1.0e5 / LIGHT_SPEED)
-            selected = (np.abs(rest - center) <= half) & (inverse_variance > 0.0)
+            selected = (
+                (np.abs(rest - center) <= half)
+                & (inverse_variance > 0.0)
+                & np.isfinite(flux)
+                & (flux > 0.0)
+            )
             wave, normalized = local_normalize(rest[selected], flux[selected], center - half, center + half)
             continuum = flux[selected] / normalized
             pieces.append((wave, normalized, inverse_variance[selected] * continuum**2))

@@ -111,10 +111,30 @@ class StarkLine:
         wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
         if np.any(~np.isfinite(wavelength)) or np.any(wavelength <= 0.0):
             raise ValueError("wavelength must contain finite positive values")
+        return self.detuning_profile(
+            wavelength - line_center_angstrom, temperature, electron_density
+        )
+
+    def detuning_profile(
+        self,
+        detuning_angstrom: ArrayLike,
+        temperature: float,
+        electron_density: float,
+    ) -> FloatArray:
+        """Return :meth:`wavelength_profile` at a wavelength offset.
+
+        Taking the offset directly avoids forming ``center + offset`` and
+        subtracting the centre again, which loses precision for the large
+        shifts of the neutral-broadening Cauchy convolution.
+        """
+
+        detuning = np.asarray(detuning_angstrom, dtype=np.float64)
+        if np.any(~np.isfinite(detuning)):
+            raise ValueError("detuning must contain finite values")
         field_strength, local_log_profile = self._local_profile_state(
             temperature, electron_density
         )
-        alpha = np.abs(wavelength - line_center_angstrom) / field_strength
+        alpha = np.abs(detuning) / field_strength
         with np.errstate(divide="ignore"):
             query_log_alpha = np.log10(alpha)
         query_shape = query_log_alpha.shape

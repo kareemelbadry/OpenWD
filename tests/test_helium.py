@@ -668,3 +668,42 @@ def test_compiled_helium_lorentz_kernel_matches_numpy_fallback(monkeypatch):
     np.testing.assert_allclose(
         accelerated, fallback, rtol=2.0e-13, atol=1.0e-13 * float(np.max(fallback))
     )
+
+
+@pytest.mark.parametrize(
+    "interpolation", ["synspec-quadratic", "series-adaptive"]
+)
+def test_helium_ii_high_density_continuation_keeps_unit_area(interpolation):
+    """Above the tables the STARKA continuation must keep the line strength.
+
+    SYNSPEC's He II call (FAC = 1) gives 0.48 of unit area, which halved the
+    He II line opacity in DO and PG 1159 layers above log Ne = 17.17.
+    """
+
+    path = ModelData.default().helium_ii_stark
+    if not path.exists():
+        pytest.skip("optional SYNSPEC He II profile table not downloaded")
+    table = read_helium_ii_stark_table(
+        path, thermodynamic_interpolation=interpolation
+    )
+    centers = {
+        (
+            item.lower_principal_quantum_number,
+            item.upper_principal_quantum_number,
+        ): item.wavelength_vacuum_angstrom
+        for item in HELIUM_II_LINES
+    }
+    offset = np.concatenate(([0.0], np.geomspace(1.0e-4, 2.0e4, 40_000)))
+    for transition in ((3, 4), (2, 3), (4, 7), (4, 10)):
+        line = table[transition]
+        center = centers[transition]
+        jacobian = 2.99792458e10 / (center * 1.0e-8) ** 2 * 1.0e-8
+        for temperature in (3.0e4, 1.0e5):
+            for log_density in (17.18, 17.5, 18.0):
+                profile = line.frequency_profile(
+                    center + offset, center, temperature, 10.0**log_density
+                )
+                area = 2.0 * trapezoid(profile, offset) * jacobian
+                assert area == pytest.approx(1.0, abs=0.03), (
+                    transition, temperature, log_density
+                )

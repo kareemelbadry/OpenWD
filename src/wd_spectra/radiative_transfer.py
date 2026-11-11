@@ -74,7 +74,10 @@ def angular_quadrature(n_angle: int = 4) -> tuple[FloatArray, FloatArray]:
 
 
 def _validate_inputs(
-    optical_depth: ArrayLike, source_function: ArrayLike
+    optical_depth: ArrayLike,
+    source_function: ArrayLike,
+    *,
+    positive_surface: bool = False,
 ) -> tuple[FloatArray, FloatArray]:
     tau = np.ascontiguousarray(optical_depth, dtype=np.float64)
     source = np.ascontiguousarray(source_function, dtype=np.float64)
@@ -94,6 +97,10 @@ def _validate_inputs(
         raise ValueError("source_function must be non-negative")
     if np.any(np.diff(tau, axis=-1) <= 0.0):
         raise ValueError("optical_depth must increase strictly inward")
+    if positive_surface and np.any(tau[..., 0] <= 0.0):
+        # The Feautrier solvers insert their own tau = 0 surface node; a
+        # supplied zero (or negative) first depth gives a zero-width cell.
+        raise ValueError("optical_depth must be positive at the first depth")
     return tau, source
 
 
@@ -713,7 +720,9 @@ def feautrier_radiation_field(
     wavelengths for each Gaussian angle.
     """
 
-    tau, source = _validate_inputs(optical_depth, source_function)
+    tau, source = _validate_inputs(
+        optical_depth, source_function, positive_surface=True
+    )
     if tau.ndim == 1:
         tau = np.broadcast_to(tau[np.newaxis, :], source.shape)
     n_wavelength, n_depth = source.shape
@@ -823,7 +832,9 @@ def coherent_scattering_feautrier_field(
     albedo-dependent convergence error.
     """
 
-    tau, planck = _validate_inputs(optical_depth, planck_function)
+    tau, planck = _validate_inputs(
+        optical_depth, planck_function, positive_surface=True
+    )
     absorption = np.broadcast_to(
         np.asarray(true_absorption, dtype=np.float64), planck.shape
     )
@@ -1030,7 +1041,9 @@ def integrated_feautrier_interface_state_response(
         mass_opacity_derivative, dtype=np.float64
     )
     mass = np.ascontiguousarray(column_mass, dtype=np.float64)
-    tau, source = _validate_inputs(optical_depth, source)
+    tau, source = _validate_inputs(
+        optical_depth, source, positive_surface=True
+    )
     if tau.ndim == 1:
         tau = np.broadcast_to(tau[np.newaxis, :], source.shape)
     if (
@@ -1339,7 +1352,9 @@ def integrated_coherent_scattering_feautrier_state_response(
         np.asarray(scattering_fraction, dtype=np.float64), source.shape
     )
     mass = np.asarray(column_mass, dtype=np.float64)
-    tau, source = _validate_inputs(optical_depth, source)
+    tau, source = _validate_inputs(
+        optical_depth, source, positive_surface=True
+    )
     if tau.ndim == 1:
         tau = np.broadcast_to(tau[np.newaxis, :], source.shape)
     if (

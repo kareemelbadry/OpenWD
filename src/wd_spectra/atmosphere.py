@@ -113,6 +113,9 @@ def _metal_line_opacity_sampling_grid(
         samples.append(
             (centers[n_wing:, np.newaxis] + core_offsets).ravel()
         )
+    if not samples:
+        # Opacity sampling with every selected line outside the Planck band.
+        return np.empty(0, dtype=np.float64), n_wing
     return np.unique(np.concatenate(samples)), n_wing
 
 
@@ -624,10 +627,12 @@ def photosphere_concentrated_optical_depths(
     interval across 0.01 < tau < 10, where both the structure's Feautrier
     flux and the formal emergent flux acquire their discretization error
     (1-2% of the bolometric flux in polluted helium atmospheres).  The
-    additional photospheric points are taken only from the upper layers,
-    which contribute negligibly to that error, so the deep convective
-    spacing is never coarser than the uniform grid's and the cost is
-    unchanged.
+    additional photospheric points are taken mostly from the upper layers,
+    which contribute negligibly to that error, at unchanged cost.  The deep
+    layers give up a few points once the concentration is large: on a
+    1e-10..1e2 span with 40 depths the deepest interval matches the uniform
+    spacing near ``concentration = 1.8`` and is ~1.15x coarser at 3 (the DA
+    standard mesh), at tau > 20 where the emergent flux is insensitive.
     """
 
     if not 0.0 < tau_min < tau_max:
@@ -2077,7 +2082,7 @@ def radiative_equilibrium_helium_atmosphere(
         PLANCK,
         STEFAN_BOLTZMANN,
     )
-    from .helium import HELIUM_I_LINES, HELIUM_II_LINES, _helium_ii_level_distribution, helium_continuum_mass_absorption_coefficient, helium_i_line_mass_absorption_coefficient, helium_i_resonance_line_mass_absorption_coefficient, helium_ii_line_mass_absorption_coefficient, helium_rayleigh_scattering_mass_coefficient, rosseland_mean_helium_continuum_opacity
+    from .helium import HELIUM_I_LINES, HELIUM_II_LINES, _helium_ii_level_distribution, helium_continuum_mass_absorption_coefficient, helium_minus_free_free_description, helium_i_line_mass_absorption_coefficient, helium_i_resonance_line_mass_absorption_coefficient, helium_ii_line_mass_absorption_coefficient, helium_rayleigh_scattering_mass_coefficient, rosseland_mean_helium_continuum_opacity
     if homogeneous_mixture:
         from .mixture import rosseland_mean_hydrogen_helium_continuum_opacity
     from .opacity import BALMER_LINES, BRACKETT_LINES, LYMAN_LINES, PASCHEN_LINES, balmer_mass_absorption_coefficient, brackett_mass_absorption_coefficient, electron_scattering_mass_coefficient, hydrogen_continuum_mass_absorption_coefficient, hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient, hydrogen_rayleigh_scattering_mass_coefficient, lyman_mass_absorption_coefficient, paschen_mass_absorption_coefficient
@@ -2952,9 +2957,8 @@ def radiative_equilibrium_helium_atmosphere(
                 include_helium_three_body_cia
             ),
             "helium_rydberg_bound_free": bool(include_rydberg_bound_free),
-            "helium_minus_free_free": (
-                "John-1994 inside tabulated T/lambda domain; "
-                "Carbon-1969 fit to John-1968 elsewhere"
+            "helium_minus_free_free": helium_minus_free_free_description(
+                helium_minus_prescription
             ),
             "helium_minus_free_free_prescription": helium_minus_prescription,
             "dense_helium_minus_free_free": (
