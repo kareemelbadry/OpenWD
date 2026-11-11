@@ -127,8 +127,14 @@ as in TLUSTY. `spectrum.txt` stores it as the third column.
 
 **OpenWD and the Koester (2010) grid.** Six models: 5000, 10,000, 20,000
 and 30,000 K at log g = 8, and log g = 7 and 9 at 20,000 K. Left: UV–IR
-surface F_λ. Right: optical spectrum. No flux scaling. The two codes agree
-well. [PDF](../assets/da-paper-grid.pdf).
+surface F_λ. Right: optical spectrum. No flux scaling. At 10,000 K and above
+the two codes agree closely. At 5000 K OpenWD is 18–21% fainter below
+4000 Å and 4–7% brighter at 0.5–1.2 µm. The dotted curve repeats the 5000 K
+model with the H₃⁺ partition function not divided by eight (the convention
+before the spin correction); it is within about 3% of Koester at
+0.35–1.2 µm. The H₃⁺ correction thus accounts for most of the 5000 K
+difference. Koester's H₃⁺ treatment is not published.
+[PDF](../assets/da-paper-grid.pdf).
 
 [![Observed SPY Balmer profiles with Koester 2010 and OpenWD](../assets/da-paper-spy.png)](../assets/da-paper-spy.pdf)
 
@@ -142,12 +148,29 @@ and match the data; below, OpenWD fits Hα better.
 **Cool DAs (3000–5000 K).** Compared with the 1D models of
 [Tremblay et al. (2011)](https://doi.org/10.1088/0004-637X/730/2/128), which
 predate the H₃⁺ spin correction, OpenWD's Pan-STARRS g − z is redder by
-0.07 mag at 5000 K and 0.10 mag at 4000 K, and 0.03 mag bluer at 3000 K. The
-correction moves g − z by +0.065 and +0.10 mag at 5000 and 4000 K in the
-Montreal models ([Kilic et al. 2026](https://arxiv.org/abs/2606.25377)).
-Below 0.4 µm OpenWD is 15–20% fainter than Tremblay et al., because the
-lower electron density puts the photosphere deeper, where the H–H₂ Lyα wing
-is stronger. No reference grid is a ground truth below 6000 K.
+0.07 mag at 5000 K and 0.10 mag at 4500 and 4000 K, and 0.03 mag bluer at
+3000 K. The correction moves g − z by +0.065, +0.10 and +0.10 mag at 5000,
+4500 and 4000 K in the Montreal models
+([Kilic et al. 2026](https://arxiv.org/abs/2606.25377)).
+Adding these shifts to Tremblay et al., OpenWD's g − z is within 0.003 mag
+of the corrected Montreal values at 4000, 4500 and 5000 K (shifts read from
+their Fig. 2 to about ±0.005 mag). Below 0.4 µm OpenWD is 15–20% fainter than
+Tremblay et al., because the lower electron density puts the photosphere
+deeper, where the H–H₂ Lyα wing is stronger. With the H₃⁺ correction
+reverted, OpenWD matches Tremblay et al. to within 1% in u through Ks at
+4000 and 5000 K, and to within 3% in g through Ks at 3000 K. All of the
+remaining difference therefore comes from the H₃⁺ correction. At 3000 K
+OpenWD's near-IR flux lies between Tremblay et al. and the photometry of
+[Blouin et al. (2018)](https://doi.org/10.3847/1538-4357/aad4a9), and its
+GALEX NUV flux is half of both. No reference grid is a ground truth below
+6000 K.
+
+[![Cool DAs: OpenWD before and after the H₃⁺ correction, Tremblay+2011 and Blouin+2018](../assets/da-cool-recheck.png)](../assets/da-cool-recheck.pdf)
+
+**Cool DAs at log g = 8.** Top: surface F_λ. Bottom: flux relative to
+Tremblay et al. (2011). Circles are Blouin et al. (2018) band fluxes relative
+to Tremblay et al. Both reference grids predate the H₃⁺ correction; the
+dotted curves revert it in OpenWD. [PDF](../assets/da-cool-recheck.pdf).
 
 ## 3D line-profile mode (opt-in)
 
