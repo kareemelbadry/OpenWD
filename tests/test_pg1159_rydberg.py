@@ -1,7 +1,7 @@
 """PG1159 formal-model Rydberg upgrades and the local-energy gate fallback."""
 
 from dataclasses import replace
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -135,3 +135,64 @@ def test_gate_monitor_crawl_count_resets_when_another_cell_leads():
     for i in range(20):
         index = BOUNDARY if i % 5 else BOUNDARY + 1
         monitor(i, ATMOSPHERE, None, _stall_diagnostics(index, 0.05, 0.05, flux=0.005))
+
+
+def test_upgraded_ion_database_does_not_inherit_the_warmed_line_cache():
+    from wd_spectra._pg1159_rydberg import _with_ion
+    from wd_spectra.metals import AtomicDatabase, AtomicIon, AtomicLevel, AtomicTransition
+
+    levels = tuple(AtomicLevel(i, 100.0 * (i - 1), 2.0, f"level-{i}") for i in (1, 2, 3))
+    old = AtomicIon("C", 3, 12.0, 64.5, levels, (AtomicTransition(1, 2, 1e8, "E1", 1550.0, 0.2),))
+    new = replace(old, transitions=old.transitions + (AtomicTransition(1, 3, 1e8, "E1", 1200.0, 0.1),))
+    database = AtomicDatabase(MappingProxyType({("C", 3): old}))
+    database._line_selection_cache[("warm",)] = ((old, old.transitions[0], levels[0]),)
+    database._unsold_hydrogen_coefficient_cache[("C", 3, 1, 2)] = None
+    upgraded = _with_ion(database, ("C", 3), new)
+    assert upgraded.ions[("C", 3)] is new
+    assert isinstance(upgraded.ions, MappingProxyType)
+    assert upgraded.source == database.source
+    assert upgraded._line_selection_cache == {}
+    assert upgraded._unsold_hydrogen_coefficient_cache == {}
+    assert database._line_selection_cache  # the original keeps its own cache
+
+
+def test_appended_threshold_entries_follow_the_target_gbar_convention():
+    from wd_spectra.light_metal_nlte import tmap_seaton_gbar
+    from wd_spectra.pg1159_oxygen import _threshold_cross_sections_for
+
+    tlusty = SimpleNamespace(
+        threshold_cross_section_cm2=np.array([1.0, 2.0, 3.0]) * 0.3e-18,
+        threshold_cross_section_includes_gbar=True,
+    )
+    raw = SimpleNamespace(
+        threshold_cross_section_cm2=np.array([1.0, 2.0, 3.0]) * 1e-18,
+        threshold_cross_section_includes_gbar=False,
+    )
+    indices = np.array([0, 2])
+    assert tmap_seaton_gbar(5) == pytest.approx(0.3)
+    np.testing.assert_allclose(_threshold_cross_sections_for(raw, tlusty, indices), [1e-18, 3e-18], rtol=1e-12, atol=0)
+    np.testing.assert_allclose(_threshold_cross_sections_for(tlusty, raw, indices), [0.3e-18, 0.9e-18], rtol=1e-12, atol=0)
+    np.testing.assert_allclose(_threshold_cross_sections_for(raw, raw, indices), [1e-18, 3e-18], rtol=1e-12, atol=0)
+
+
+def test_extended_oxygen_vi_high_l_terms_get_one_seaton_gbar():
+    from wd_spectra._pg1159_builder import build_model
+    from wd_spectra.models.common import ModelData
+    from wd_spectra.models.pg1159 import required_atomic_files
+
+    data = ModelData.default()
+    if not all(path.is_file() for path in required_atomic_files(data, "extended54-complete")):
+        pytest.skip("PG1159 atomic data not installed")
+    model, _ = build_model(
+        data, {"He": 0.33, "C": 0.48, "O": 0.17}, structure_only=True,
+        population_iterations=1, oxygen_atom_preset="extended54-complete",
+    )
+    table = model.oxygen_photoionization_threshold_data[5]
+    assert table.threshold_cross_section_includes_gbar is False
+    high_l = [index for index, label in enumerate(table.level_label)
+              if label.strip() in ("O VI 2Fo 1", "O VI 2Fo 2", "O VI 2Ge 1")]
+    assert len(high_l) == 3
+    for index in high_l:
+        # Formula-2 amplitude (Mb) is the raw threshold cross section.
+        amplitude = table.photoionization_parameters[index][1]
+        assert table.threshold_cross_section_cm2[index] == pytest.approx(amplitude * 1e-18, rel=1e-3, abs=0.0)

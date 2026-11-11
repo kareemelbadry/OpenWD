@@ -5077,6 +5077,15 @@ def _photoionization_rate(
     )[0]
 
 
+def tmap_seaton_gbar(ion_charge: int) -> float:
+    """Return the TMAP/TLUSTY Seaton collisional-ionization g-bar.
+
+    0.1, 0.2 and 0.3 for neutral, singly and multiply ionized lower levels.
+    """
+
+    return min(0.1 * (int(ion_charge) + 1), 0.3)
+
+
 def _tmap_seaton_collisional_ionization_rate(
     electron_density: ArrayLike,
     temperature: ArrayLike,
@@ -5098,11 +5107,7 @@ def _tmap_seaton_collisional_ionization_rate(
     density = np.asarray(electron_density, dtype=np.float64)
     local_temperature = np.asarray(temperature, dtype=np.float64)
     u = np.asarray(threshold_u, dtype=np.float64)
-    gbar = (
-        1.0
-        if cross_section_includes_gbar
-        else min(0.1 * (int(ion_charge) + 1), 0.3)
-    )
+    gbar = 1.0 if cross_section_includes_gbar else tmap_seaton_gbar(ion_charge)
     return np.ascontiguousarray(
         density
         * 1.55e13
