@@ -644,6 +644,25 @@ def stout_ground_term_centroid_ev(ion: AtomicIon) -> float:
     return float(np.sum(weights * energies) / np.sum(weights) / EV_TO_WAVENUMBER)
 
 
+def _tlusty_ground_zero_point_ev(
+    ion: AtomicIon, data: object, source_threshold: FloatArray
+) -> float:
+    """Return the Stout energy of a TLUSTY model atom's ground level.
+
+    An LS-coupled atom stores its ground term at the term average, which
+    lies :func:`stout_ground_term_centroid_ev` above the Stout zero point. A
+    fine-structure-resolved ground term (its label repeated, one level per
+    ``J``, as in TLUSTY's ``si2_36+4lev`` ``2Po``) starts at the lowest ``J``
+    level, which is the Stout zero point itself.
+    """
+
+    ground_index = int(np.argmax(source_threshold))
+    labels = [str(label).strip() for label in data.level_label]
+    if labels.count(labels[ground_index]) > 1:
+        return 0.0
+    return stout_ground_term_centroid_ev(ion)
+
+
 def read_tlusty_topbase_lte_photoionization(
     datasets: Iterable[tuple[str | Path, str, int]],
     atomic_database: AtomicDatabase,
@@ -687,7 +706,7 @@ def read_tlusty_topbase_lte_photoionization(
         source_ground_threshold = float(np.max(source_threshold[positive]))
         # Model-atom energies are term averages measured from the ground
         # term; the population database measures from the lowest J level.
-        ground_term = stout_ground_term_centroid_ev(ion)
+        ground_term = _tlusty_ground_zero_point_ev(ion, data, source_threshold)
         for level_index, source_edge in enumerate(source_threshold):
             if source_edge <= 0.0:
                 continue
@@ -1349,7 +1368,7 @@ def tlusty_observed_term_excitation_overrides(
         if not np.any(positive):
             continue
         source_ground_threshold = float(np.max(source_threshold[positive]))
-        ground_term = stout_ground_term_centroid_ev(ion)
+        ground_term = _tlusty_ground_zero_point_ev(ion, data, source_threshold)
         label_count: dict[str, int] = {}
         for label in data.level_label:
             label_count[label] = label_count.get(label, 0) + 1

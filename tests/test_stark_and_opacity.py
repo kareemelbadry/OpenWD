@@ -6,6 +6,7 @@ import pytest
 import wd_spectra.opacity as opacity_module
 
 from wd_spectra._compat import trapezoid
+from wd_spectra.stark import _log_profile_area
 from wd_spectra import (
     default_balmer_stark_table,
     default_brackett_stark_table,
@@ -208,6 +209,8 @@ def test_stark_profile_combined_corner_interpolation_matches_literal_sum():
     with np.errstate(divide="ignore"):
         query = np.log10(np.abs(wavelength - center) / field_strength)
     literal_log_profile = np.zeros_like(query)
+    node_log_profile = np.zeros_like(line.log_alpha)
+    corner_area = 0.0
     for ne_index, ne_weight in (
         (ne_lower, 1.0 - ne_fraction),
         (ne_lower + 1, ne_fraction),
@@ -217,6 +220,10 @@ def test_stark_profile_combined_corner_interpolation_matches_literal_sum():
             (t_lower + 1, t_fraction),
         ):
             corner = line.log_profile[ne_index, t_index]
+            node_log_profile += ne_weight * t_weight * corner
+            corner_area += ne_weight * t_weight * _log_profile_area(
+                line.log_alpha, corner
+            )
             values = np.interp(
                 query,
                 line.log_alpha,
@@ -232,8 +239,12 @@ def test_stark_profile_combined_corner_interpolation_matches_literal_sum():
                 query[beyond] - line.log_alpha[-1]
             )
             literal_log_profile += ne_weight * t_weight * values
-    expected = 10.0**literal_log_profile / field_strength
-    np.testing.assert_allclose(calculated, expected, rtol=5.0e-15)
+    # Off the nodes the interpolated profile is rescaled to the bilinear
+    # weighting of the corner areas.
+    renormalization = corner_area / _log_profile_area(line.log_alpha, node_log_profile)
+    assert 0.0 < ne_fraction < 1.0 and renormalization > 1.0
+    expected = renormalization * 10.0**literal_log_profile / field_strength
+    np.testing.assert_allclose(calculated, expected, rtol=1.0e-13)
 
 
 def test_bundled_lyman_table_and_atomic_data():
@@ -1757,3 +1768,55 @@ def test_ml2_uses_shared_hydrogen_helium_thermodynamics_for_mixture():
         np.zeros(atmosphere.n_depth),
     )
     np.testing.assert_allclose(inferred, expected, rtol=2.0e-9)
+
+
+def _numerical_stark_area(line, temperature, electron_density):
+    """Integrate the two-sided profile on a dense log grid (independent of the area formula)."""
+
+    field_strength, _ = line._local_profile_state(temperature, electron_density)
+    log_alpha = np.linspace(line.log_alpha[0] - 6.0, line.log_alpha[-1] + 6.0, 400_001)
+    detuning = field_strength * 10.0**log_alpha
+    profile = line.detuning_profile(detuning, temperature, electron_density)
+    core = profile[0] * detuning[0]
+    return 2.0 * (core + trapezoid(profile * detuning * np.log(10.0), log_alpha))
+
+
+@pytest.mark.parametrize("transition", [(2, 3), (2, 4), (2, 8)])
+def test_stark_profile_area_is_bilinear_between_density_nodes(transition):
+    # Log-bilinear interpolation alone forms a geometric mean of the corner
+    # profiles and lost 12-14% of the area midway between density nodes
+    # where the Doppler core gives way to the Stark wings.
+    line = default_balmer_stark_table()[transition]
+    temperature = 10.0 ** line.log_temperature[2]
+    for lower in (0, 2, 6):
+        node_area = [
+            _numerical_stark_area(line, temperature, 10.0 ** line.log_electron_density[i])
+            for i in (lower, lower + 1)
+        ]
+        for fraction in (0.25, 0.5):
+            log_ne = (
+                (1.0 - fraction) * line.log_electron_density[lower]
+                + fraction * line.log_electron_density[lower + 1]
+            )
+            area = _numerical_stark_area(line, temperature, 10.0**log_ne)
+            expected = (1.0 - fraction) * node_area[0] + fraction * node_area[1]
+            assert area == pytest.approx(expected, rel=2.0e-4)
+
+
+def test_stark_profile_is_unchanged_on_table_nodes():
+    line = default_balmer_stark_table()[(2, 3)]
+    node = (4, 3)
+    temperature = 10.0 ** line.log_temperature[node[1]]
+    electron_density = 10.0 ** line.log_electron_density[node[0]]
+    field_strength, local = line._local_profile_state(temperature, electron_density)
+    np.testing.assert_allclose(local, line.log_profile[node], rtol=0.0, atol=1.0e-12)
+
+
+def test_log_profile_area_matches_dense_quadrature_on_nodes():
+    line = default_balmer_stark_table()[(2, 4)]
+    for i, j in ((0, 0), (5, 3), (9, 6)):
+        temperature = 10.0 ** line.log_temperature[j]
+        electron_density = 10.0 ** line.log_electron_density[i]
+        assert line._node_area[i, j] == pytest.approx(
+            _numerical_stark_area(line, temperature, electron_density), rel=2.0e-4
+        )

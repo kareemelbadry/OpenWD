@@ -7,7 +7,7 @@ Lemke (1997).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
@@ -29,6 +29,17 @@ class StarkLine:
     log_temperature: FloatArray
     log_profile: FloatArray
     goodness_flag: NDArray[np.int64]
+    _node_area: FloatArray = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_node_area",
+            _log_profile_area(
+                np.asarray(self.log_alpha, dtype=np.float64),
+                np.asarray(self.log_profile, dtype=np.float64),
+            ),
+        )
 
     def _local_profile_state(
         self,
@@ -42,6 +53,14 @@ class StarkLine:
         is identical to :meth:`wavelength_profile`; only redundant work is
         removed. Below the density grid, keep the whole Doppler-convolved
         boundary profile on its tabulated physical wavelength scale.
+
+        Bilinear interpolation of the log-profile in log(ne), log(T) at fixed
+        alpha forms a weighted geometric mean of the corner profiles, whose
+        area is smaller than theirs (up to 14% midway between density nodes,
+        where the Doppler core and the Stark wings trade places). The
+        interpolated profile is therefore rescaled to the same bilinear
+        weighting of the corner areas, so the line's integrated opacity varies
+        smoothly between nodes and is unchanged on them.
         """
 
         if not np.isfinite(temperature) or temperature <= 0.0:
@@ -66,6 +85,7 @@ class StarkLine:
         ne_lower, ne_fraction = _bracket(self.log_electron_density, log_ne)
         t_lower, t_fraction = _bracket(self.log_temperature, log_t)
         local_log_profile = np.zeros_like(self.log_alpha)
+        corner_area = 0.0
         for ne_index, ne_weight in (
             (ne_lower, 1.0 - ne_fraction),
             (ne_lower + 1, ne_fraction),
@@ -78,6 +98,17 @@ class StarkLine:
                     ne_weight
                     * t_weight
                     * self.log_profile[ne_index, t_index]
+                )
+                corner_area += (
+                    ne_weight * t_weight * self._node_area[ne_index, t_index]
+                )
+        if 0.0 < ne_fraction < 1.0 or 0.0 < t_fraction < 1.0:
+            interpolated_area = float(
+                _log_profile_area(self.log_alpha, local_log_profile)
+            )
+            if interpolated_area > 0.0 and np.isfinite(corner_area):
+                local_log_profile = local_log_profile + np.log10(
+                    corner_area / interpolated_area
                 )
         # The tables already include thermal Doppler broadening. Scaling
         # their lowest-density shape with a smaller, out-of-table ne would
@@ -163,6 +194,38 @@ class StarkLine:
         )
         profile = np.power(10.0, log_values) / field_strength
         return profile.reshape(query_shape)
+
+
+def _log_profile_area(log_alpha: FloatArray, log_profile: FloatArray) -> FloatArray:
+    """Return the two-sided area of profiles as :meth:`detuning_profile` evaluates them.
+
+    The profile is piecewise linear in log alpha/log S, so each interval is a
+    power law integrated exactly. Below the first node the profile is held
+    constant; beyond the last node it continues with the final slope, which
+    is integrable when steeper than alpha**-1. Rows padded to the tables'
+    1e-37 floor end with a flat slope and contribute no wing. The last axis of
+    ``log_profile`` is alpha; leading axes are kept.
+    """
+
+    alpha = np.power(10.0, log_alpha)
+    profile = np.power(10.0, log_profile)
+    slope = np.diff(log_profile, axis=-1) / np.diff(log_alpha)
+    ratio = alpha[1:] / alpha[:-1]
+    exponent = slope + 1.0
+    near_log = np.abs(exponent) < 1.0e-8
+    safe_exponent = np.where(near_log, 1.0, exponent)
+    with np.errstate(over="ignore", invalid="ignore"):
+        power_law = (np.power(ratio, safe_exponent) - 1.0) / safe_exponent
+    segment = profile[..., :-1] * alpha[:-1] * np.where(
+        near_log, np.log(ratio), power_law
+    )
+    wing_slope = slope[..., -1]
+    wing = np.where(
+        wing_slope < -1.0,
+        -profile[..., -1] * alpha[-1] / np.where(wing_slope < -1.0, wing_slope + 1.0, -1.0),
+        0.0,
+    )
+    return 2.0 * (profile[..., 0] * alpha[0] + segment.sum(axis=-1) + wing)
 
 
 def _bracket(grid: FloatArray, value: float) -> tuple[int, float]:
