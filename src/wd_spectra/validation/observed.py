@@ -488,6 +488,28 @@ def gaussian_smooth(values: ArrayLike, sigma_pixels: float) -> FloatArray:
     return np.convolve(padded, kernel, mode="same")[radius:-radius]
 
 
+def _merge_coincident_log_samples(
+    log_wavelength: FloatArray, values: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    """Drop samples whose log wavelength repeats the previous one.
+
+    Composite diagnostic grids can contain distinct floating-point
+    wavelengths that collapse to the same logarithm (for example where a
+    0.05-A line-core grid overlaps a 0.5-A broad grid).  Taking the literal
+    minimum spacing would then request an infinite or petabyte-sized
+    uniform grid.  Merge only numerically coincident samples; 1e-10 in
+    ln(lambda) is orders of magnitude finer than any supported LSF.
+    """
+
+    separated = np.concatenate((
+        np.asarray((True,)),
+        np.diff(log_wavelength) > 1.0e-10,
+    ))
+    if np.all(separated):
+        return log_wavelength, values
+    return log_wavelength[separated], values[separated]
+
+
 def convolve_constant_resolving_power(
     wavelength_angstrom: ArrayLike,
     flux: ArrayLike,
@@ -505,13 +527,18 @@ def convolve_constant_resolving_power(
         raise ValueError("wavelength must be positive and strictly increasing")
     if not np.isfinite(resolving_power) or resolving_power <= 0.0:
         raise ValueError("resolving_power must be finite and positive")
-    log_wavelength = np.log(wavelength)
-    log_step = float(np.min(np.diff(log_wavelength)))
+    log_wavelength, values = _merge_coincident_log_samples(
+        np.log(wavelength), values
+    )
+    sigma_log = 1.0 / (2.354_820_045 * resolving_power)
+    # Never coarser than a third of the LSF sigma, so a coarse source grid is
+    # interpolated before smoothing instead of being sampled by the kernel.
+    log_step = min(float(np.min(np.diff(log_wavelength))), sigma_log / 3.0)
     uniform_log = np.arange(
         log_wavelength[0], log_wavelength[-1] + 0.5 * log_step, log_step
     )
     uniform_flux = np.interp(uniform_log, log_wavelength, values)
-    sigma_pixels = 1.0 / (2.354_820_045 * resolving_power * log_step)
+    sigma_pixels = sigma_log / log_step
     smoothed = gaussian_smooth(uniform_flux, sigma_pixels)
     output = (
         wavelength
@@ -549,21 +576,12 @@ def convolve_variable_log_gaussian(
     if np.any(sigma <= 0.0) or np.any(~np.isfinite(sigma)):
         raise ValueError("sigma_log_wavelength must be finite and positive")
 
-    source_log = np.log(wavelength)
-    # Composite diagnostic grids can contain distinct floating-point
-    # wavelengths that collapse to the same logarithm (for example where a
-    # 0.05-A line-core grid overlaps a 0.5-A broad grid).  Taking the literal
-    # minimum spacing would then request an infinite or petabyte-sized
-    # uniform grid.  Merge only numerically coincident samples; 1e-10 in
-    # ln(lambda) is orders of magnitude finer than any supported LSF.
-    separated = np.concatenate((
-        np.asarray((True,)),
-        np.diff(source_log) > 1.0e-10,
-    ))
-    if not np.all(separated):
-        source_log = source_log[separated]
-        values = values[separated]
-    step = float(np.min(np.diff(source_log)))
+    source_log, values = _merge_coincident_log_samples(
+        np.log(wavelength), values
+    )
+    # Never coarser than a third of the narrowest LSF sigma: on a coarser
+    # grid a +/-4 sigma window can hold no sample and the weights underflow.
+    step = min(float(np.min(np.diff(source_log))), float(np.min(sigma)) / 3.0)
     uniform_log = np.arange(source_log[0], source_log[-1] + 0.5 * step, step)
     uniform_flux = np.interp(uniform_log, source_log, values)
     output_log = np.log(output)

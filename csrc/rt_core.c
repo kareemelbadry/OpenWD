@@ -2506,9 +2506,38 @@ stark_profile_at_detuning(
     return pow(10.0, local_log_profile) / field_strength;
 }
 
+static double
+clip_double(double value, double lower, double upper)
+{
+    return value < lower ? lower : (value > upper ? upper : value);
+}
+
+/* Merge two ascending arrays into ``out`` (which must not alias them). */
+static Py_ssize_t
+merge_ascending(
+    const double *left, Py_ssize_t n_left,
+    const double *right, Py_ssize_t n_right,
+    double *out)
+{
+    Py_ssize_t i = 0, j = 0, k = 0;
+    while (i < n_left && j < n_right) {
+        out[k++] = left[i] <= right[j] ? left[i++] : right[j++];
+    }
+    while (i < n_left) {
+        out[k++] = left[i++];
+    }
+    while (j < n_right) {
+        out[k++] = right[j++];
+    }
+    return k;
+}
+
 /*
  * Convolve a locally interpolated hydrogen Stark profile with the same
- * cusp-split, Gauss-Legendre Cauchy integral used by the Python reference.
+ * Stark-split, Gauss-Legendre Cauchy integral used by the Python reference.
+ * The angle interval is broken at the kernel limits, the cusp, every
+ * tabulated Stark node on both sides of the cusp, the impact taper start and
+ * at fixed interior angles; the supplied short rule integrates each piece.
  * The calculation streams over output wavelengths and quadrature nodes,
  * avoiding the large temporary arrays and repeated table interpolation that
  * dominate hydrogen-bearing production spectra.
@@ -2516,8 +2545,8 @@ stark_profile_at_detuning(
 static PyObject *
 hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
 {
-    PyObject *objects[5] = {NULL};
-    Py_buffer views[5] = {{0}};
+    PyObject *objects[6] = {NULL};
+    Py_buffer views[6] = {{0}};
     PyObject *result = NULL;
     double *output = NULL;
     double field_strength;
@@ -2527,20 +2556,28 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
     double maximum_shift;
     double taper_start;
     double unresolved_probability;
-    Py_ssize_t n_output, n_alpha, n_quadrature;
+    double maximum_angle_interval;
+    double *breaks = NULL;
+    double *scratch = NULL;
+    double *fixed_angle = NULL;
+    Py_ssize_t n_breaks = 0;
+    Py_ssize_t n_fixed_pieces = 1;
+    Py_ssize_t n_output, n_alpha, n_quadrature, n_offset;
     Py_ssize_t output_index, quadrature_index, index;
     const double pi = 3.1415926535897932384626433832795;
 
     (void)self;
     if (!PyArg_ParseTuple(
             args,
-            "OOOOOddddddd:hydrogen_stark_lorentz_convolution",
-            &objects[0], &objects[1], &objects[2], &objects[3], &objects[4],
+            "OOOOOOdddddddd:hydrogen_stark_lorentz_convolution",
+            &objects[0], &objects[1], &objects[2], &objects[5],
+            &objects[3], &objects[4],
             &field_strength, &gamma, &angle_limit, &kernel_normalization,
-            &maximum_shift, &taper_start, &unresolved_probability)) {
+            &maximum_shift, &taper_start, &unresolved_probability,
+            &maximum_angle_interval)) {
         return NULL;
     }
-    for (index = 0; index < 5; ++index) {
+    for (index = 0; index < 6; ++index) {
         if (PyObject_GetBuffer(
                 objects[index], &views[index],
                 PyBUF_FORMAT | PyBUF_ND | PyBUF_STRIDES) < 0) {
@@ -2572,6 +2609,7 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
     n_output = views[0].shape[0];
     n_alpha = views[1].shape[0];
     n_quadrature = views[3].shape[0];
+    n_offset = views[5].shape[0];
     if (n_alpha < 2 || views[2].shape[0] != n_alpha ||
         n_quadrature < 1 || views[4].shape[0] != n_quadrature) {
         PyErr_SetString(
@@ -2588,7 +2626,8 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
         !isfinite(taper_start) || taper_start < 0.0 ||
         (maximum_shift > 0.0 && taper_start >= maximum_shift) ||
         !isfinite(unresolved_probability) || unresolved_probability < 0.0 ||
-        unresolved_probability > 1.0) {
+        unresolved_probability > 1.0 ||
+        !isfinite(maximum_angle_interval) || maximum_angle_interval <= 0.0) {
         PyErr_SetString(
             PyExc_ValueError,
             "hydrogen Stark-convolution scalar inputs are invalid"
@@ -2626,12 +2665,52 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
                 goto cleanup_hydrogen_stark_lorentz;
             }
         }
+        {
+            const double *break_offset = (const double *)views[5].buf;
+            for (index = 0; index < n_offset; ++index) {
+                if (!isfinite(break_offset[index]) ||
+                    break_offset[index] <= 0.0 ||
+                    (index > 0 &&
+                     break_offset[index] <= break_offset[index - 1])) {
+                    PyErr_SetString(
+                        PyExc_ValueError,
+                        "Stark break offsets must be positive and increase strictly"
+                    );
+                    goto cleanup_hydrogen_stark_lorentz;
+                }
+            }
+        }
     }
 
     output = PyMem_Malloc((size_t)n_output * sizeof(double));
     if (output == NULL && n_output > 0) {
         PyErr_NoMemory();
         goto cleanup_hydrogen_stark_lorentz;
+    }
+    {
+        /* Fixed interior angles: enough equal pieces of the kernel interval
+         * that none exceeds the requested maximum (the Python reference
+         * passes pi/8, giving the same nine fixed breaks). */
+        n_fixed_pieces = (Py_ssize_t)ceil(
+            2.0 * angle_limit / maximum_angle_interval - 1.0e-12
+        );
+        if (n_fixed_pieces < 1) {
+            n_fixed_pieces = 1;
+        }
+        n_breaks = (n_fixed_pieces + 1) + 1 + 2 * n_offset +
+            (maximum_shift > 0.0 ? 2 : 0);
+        breaks = PyMem_Malloc((size_t)n_breaks * sizeof(double));
+        scratch = PyMem_Malloc((size_t)n_breaks * sizeof(double));
+        fixed_angle = PyMem_Malloc(
+            (size_t)(n_fixed_pieces + 1) * sizeof(double));
+        if (breaks == NULL || scratch == NULL || fixed_angle == NULL) {
+            PyErr_NoMemory();
+            goto cleanup_hydrogen_stark_lorentz;
+        }
+        for (index = 0; index <= n_fixed_pieces; ++index) {
+            fixed_angle[index] = angle_limit *
+                (-1.0 + 2.0 * (double)index / (double)n_fixed_pieces);
+        }
     }
     {
         const double *detuning = (const double *)views[0].buf;
@@ -2654,20 +2733,65 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
             inverse_uniform_step = 1.0 / first_alpha_step;
         }
 
+        const double *break_offset = (const double *)views[5].buf;
+        const double taper_angle =
+            maximum_shift > 0.0 ? atan(taper_start / gamma) : 0.0;
         Py_BEGIN_ALLOW_THREADS
         for (output_index = 0; output_index < n_output; ++output_index) {
             const double local_detuning = detuning[output_index];
-            double cusp_angle = atan(local_detuning / gamma);
             double value = 0.0;
-            int half;
-            if (cusp_angle < -angle_limit) {
-                cusp_angle = -angle_limit;
-            } else if (cusp_angle > angle_limit) {
-                cusp_angle = angle_limit;
+            Py_ssize_t n_filled = 0;
+            Py_ssize_t n_small = 0;
+            Py_ssize_t piece;
+            double small[3];
+            /* The Stark-node breaks form two ascending runs: x - F0 alpha_k
+             * falls and x + F0 alpha_k rises with k.  Merge them, then the
+             * fixed angles, then the cusp and taper breaks, instead of
+             * sorting every output wavelength from scratch. */
+            for (index = 0; index < n_offset; ++index) {
+                scratch[index] = clip_double(
+                    atan((local_detuning - break_offset[n_offset - 1 - index]) /
+                         gamma),
+                    -angle_limit, angle_limit);
+                scratch[n_offset + index] = clip_double(
+                    atan((local_detuning + break_offset[index]) / gamma),
+                    -angle_limit, angle_limit);
             }
-            for (half = 0; half < 2; ++half) {
-                const double lower = half == 0 ? -angle_limit : cusp_angle;
-                const double upper = half == 0 ? cusp_angle : angle_limit;
+            n_filled = merge_ascending(
+                scratch, n_offset, scratch + n_offset, n_offset, breaks);
+            n_filled = merge_ascending(
+                breaks, n_filled, fixed_angle, n_fixed_pieces + 1, scratch);
+            memcpy(breaks, scratch, (size_t)n_filled * sizeof(double));
+            small[n_small++] = clip_double(
+                atan(local_detuning / gamma), -angle_limit, angle_limit);
+            if (maximum_shift > 0.0) {
+                /* taper_angle >= 0, so the cusp is the only unsorted one. */
+                const double cusp = small[0];
+                const double low = clip_double(
+                    -taper_angle, -angle_limit, angle_limit);
+                const double high = clip_double(
+                    taper_angle, -angle_limit, angle_limit);
+                n_small = 0;
+                if (cusp <= low) {
+                    small[n_small++] = cusp;
+                    small[n_small++] = low;
+                    small[n_small++] = high;
+                } else if (cusp <= high) {
+                    small[n_small++] = low;
+                    small[n_small++] = cusp;
+                    small[n_small++] = high;
+                } else {
+                    small[n_small++] = low;
+                    small[n_small++] = high;
+                    small[n_small++] = cusp;
+                }
+            }
+            n_filled = merge_ascending(
+                breaks, n_filled, small, n_small, scratch);
+            memcpy(breaks, scratch, (size_t)n_filled * sizeof(double));
+            for (piece = 0; piece + 1 < n_filled; ++piece) {
+                const double lower = breaks[piece];
+                const double upper = breaks[piece + 1];
                 const double midpoint = 0.5 * (lower + upper);
                 const double half_width = 0.5 * (upper - lower);
                 for (
@@ -2734,7 +2858,10 @@ hydrogen_stark_lorentz_convolution(PyObject *self, PyObject *args)
 
 cleanup_hydrogen_stark_lorentz:
     PyMem_Free(output);
-    for (index = 0; index < 5; ++index) {
+    PyMem_Free(breaks);
+    PyMem_Free(scratch);
+    PyMem_Free(fixed_angle);
+    for (index = 0; index < 6; ++index) {
         if (views[index].obj != NULL) {
             PyBuffer_Release(&views[index]);
         }
@@ -3083,7 +3210,7 @@ static PyMethodDef module_methods[] = {
     {"hydrogen_stark_lorentz_convolution",
      hydrogen_stark_lorentz_convolution,
      METH_VARARGS,
-     PyDoc_STR("hydrogen_stark_lorentz_convolution(detuning, log_alpha, log_profile, nodes, weights, field, gamma, angle_limit, normalization, maximum_shift, taper_start, unresolved) -> list")},
+     PyDoc_STR("hydrogen_stark_lorentz_convolution(detuning, log_alpha, log_profile, break_offsets, nodes, weights, field, gamma, angle_limit, normalization, maximum_shift, taper_start, unresolved, maximum_angle_interval) -> list")},
     {NULL, NULL, 0, NULL}
 };
 

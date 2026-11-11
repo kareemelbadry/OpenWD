@@ -498,12 +498,93 @@ def test_structure_order_lorentz_quadrature_matches_full_synthesis_order():
         0.75,
         quadrature_order=32,
     )
-    assert np.max(np.abs(structure - full)) < 5.0e-4 * np.max(full)
+    # The structure order breaks at every fourth Stark-table node, a
+    # deliberately coarser rule than synthesis: a 50 per cent far-wing error
+    # moved a 7000 K DA structure by under 1 K.  It must still track the
+    # synthesis profile closely in the core and conserve line strength.
+    assert np.max(np.abs(structure - full)) < 3.0e-3 * np.max(full)
     np.testing.assert_allclose(
         trapezoid(structure, wavelength),
         trapezoid(full, wavelength),
-        rtol=8.0e-3,
+        rtol=1.0e-2,
     )
+
+
+def _dense_cauchy_reference(line, detuning, temperature, density, gamma):
+    """Brute-force (1/pi) integral S(x - gamma tan theta) dtheta.
+
+    A uniform angle grid resolves the Lorentz core; a geometric grid centred
+    on the cusp resolves the shifted Stark core, whose angular width is about
+    gamma F0 / (gamma**2 + x**2).  No Stark-table breaks are used, so this is
+    independent of the production quadrature.
+    """
+
+    field, _ = line._local_profile_state(temperature, density)
+    values = []
+    for x in detuning:
+        cusp = np.arctan(x / gamma)
+        scale = gamma * field / (gamma**2 + x**2)
+        steps = scale * np.geomspace(1.0e-5, 1.0e4, 6001)
+        theta = np.unique(
+            np.clip(
+                np.concatenate(
+                    (
+                        np.linspace(-0.5 * np.pi, 0.5 * np.pi, 200_001),
+                        cusp - steps,
+                        cusp + steps,
+                    )
+                ),
+                -0.5 * np.pi,
+                0.5 * np.pi,
+            )
+        )
+        profile = line.detuning_profile(
+            x - gamma * np.tan(theta), temperature, density
+        )
+        values.append(trapezoid(profile, theta) / np.pi)
+    return np.asarray(values)
+
+
+@pytest.mark.parametrize("order", [32, 128])
+@pytest.mark.parametrize(
+    "transition,temperature,density,gamma",
+    [
+        ((2, 3), 6_235.0, 8.67e14, 2.518),
+        ((2, 4), 6_235.0, 8.67e14, 1.283),
+        ((2, 3), 8_314.0, 7.79e15, 0.301),
+    ],
+)
+def test_lorentz_convolution_far_wing_matches_dense_reference(
+    order, transition, temperature, density, gamma
+):
+    """Cool-DA tau_R=1 states where the old two-interval rule lost ~half.
+
+    The shifted Stark core is narrower than the node spacing next to the cusp
+    in the far wing; splitting at the Stark-table nodes must recover the
+    Lorentz-wing times Stark-area term on both the structure and the
+    synthesis quadrature orders.
+    """
+
+    line = default_balmer_stark_table()[transition]
+    center = 6564.636 if transition == (2, 3) else 4862.68
+    detuning = np.asarray([-400.0, -100.0, -10.0, 0.3, 3.0, 30.0, 200.0])
+    calculated = _lorentz_convolved_stark_profile(
+        line,
+        center + detuning,
+        center,
+        temperature,
+        density,
+        gamma,
+        quadrature_order=order,
+        truncation_closure="stark-core",
+    )
+    reference = _dense_cauchy_reference(
+        line, detuning, temperature, density, gamma
+    )
+    # Synthesis order breaks at every Stark node; the structure order at every
+    # fourth (see _cauchy_break_stride).  The old rule was ~50 per cent low.
+    tolerance = {128: 6.0e-3, 32: 0.1}[order]
+    np.testing.assert_allclose(calculated, reference, rtol=tolerance)
 
 
 @pytest.mark.skipif(
@@ -578,6 +659,7 @@ def test_compiled_hydrogen_nonuniform_endpoint_uses_last_profile_node():
         detuning,
         log_alpha_buffer[:-1],
         log_profile_buffer[:-1],
+        field_strength * 10.0 ** log_alpha,
         np.array([0.0], dtype=np.float64),
         np.array([0.0], dtype=np.float64),
         field_strength,
@@ -587,6 +669,7 @@ def test_compiled_hydrogen_nonuniform_endpoint_uses_last_profile_node():
         0.0,
         0.0,
         1.0,
+        0.125 * np.pi,
     )
     expected = np.array([10.0 ** log_profile[-1] / field_strength])
     np.testing.assert_allclose(calculated, expected, rtol=0.0, atol=0.0)

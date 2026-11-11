@@ -420,10 +420,13 @@ def _rwa_branching_fractions(
                 * (9.0 + x) * (16.0 + x) * (25.0 + x) * (36.0 + x)
                 / 11293425.0
             )
+            # 11293425/3: the l-1 branch must restore the zero-field sum
+            # rule sum_l (2l+1)(plus+minus) = n**2 (hydrogenic radial
+            # integrals give the same threshold minus/plus ratio).
             minus = (
                 2.0**13 * 7.0**10 * x**6 * (1.0 + x) * (4.0 + x)
                 * (9.0 + x) * (16.0 + x) * (25.0 + x) * (49.0 + x)
-                / 11293425.0
+                / 3764475.0
             )
     elif n == 8:
         if not 0 <= l < n:

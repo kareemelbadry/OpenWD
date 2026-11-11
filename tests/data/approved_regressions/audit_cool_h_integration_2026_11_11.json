@@ -1,0 +1,113 @@
+{
+  "reason": "Rebase PR69 audit fixes onto PR68 cool-hydrogen physics. Re-synthesize only the conflicting 5000 K fixed-spectrum control using both changes on the unchanged frozen atmosphere. No new equation, fitted parameter or tolerance change.",
+  "base_main": "d160577893a6a0d122903ccf2fa13a6fbc0b0b6b",
+  "original_pr69_head": "1843c89cc868084a91b855d394a9a44a3008a79b",
+  "rebased_runtime_source_commit": "c68caf666e9a14ef71682b0e973cb0c2ef662583",
+  "capture_recipe": "research/capture_audit_fix_controls.py::spectral",
+  "capture_recipe_sha256": "135cda06f2039c0c6fb794d03fb06d68c7d42a49224fa3f83d7134a3ae12495f",
+  "python": "3.11.9",
+  "numpy": "2.3.5",
+  "native_module_sha256": "9afadd98a3401393c81ec169d25b3d7b35e4cf80aa7f0ed286e6a82fd6e43e23",
+  "numerical_identity_during_capture": "5e00193f75825e45fc7f722489b13c1e29177e99690dcf08a85e805750154222",
+  "numerical_inputs_unchanged_during_capture": true,
+  "replaced": [
+    "da-5000"
+  ],
+  "retained_byte_for_byte": [
+    "da-3000",
+    "da-4000"
+  ],
+  "preserved_arrays": [
+    "wavelength",
+    "gas_pressure",
+    "column_mass"
+  ],
+  "frozen_atmospheres_and_grids_unchanged": true,
+  "tolerances_changed": false,
+  "comparisons": {
+    "da-3000": {
+      "output_sha256": "eaa5e2343ea49700fd0b025aad3e9f4911e66a9055cebc9b6a48471bae1aba29",
+      "frozen_structure_sha256": "eb3393a6ef5ce609ea09acad869502390f5df20ba50c1bbc96418cca0e2dbddb",
+      "comparisons": {
+        "main-pr68": {
+          "previous_sha256": "d6ac9dbe97270ea6ba1777bd14485d136b6b75fab942a71b4a6ed35b044eeb1f",
+          "maximum_relative_change": 4.1409692008720356e-08,
+          "maximum_significant_relative_change": 4.1409692008720356e-08,
+          "band_fractional_changes": {
+            "1150-3000": -4.227300283637402e-17,
+            "3500-7000": -6.317300511832884e-09,
+            "7000-300000": -1.8093779794821348e-10
+          },
+          "original_strict_comparison_passes": true
+        },
+        "pr69-original": {
+          "previous_sha256": "ef47958891e1206ab65b67021eaa12204f8e63d9d4317c44a8cc86d88dd8b987",
+          "maximum_relative_change": 14.063929255535628,
+          "maximum_significant_relative_change": 0.24723626806278443,
+          "band_fractional_changes": {
+            "1150-3000": 0.06719949880289638,
+            "3500-7000": -0.04569634652798192,
+            "7000-300000": 0.009632002792300781
+          },
+          "original_strict_comparison_passes": false
+        }
+      }
+    },
+    "da-4000": {
+      "output_sha256": "861342893832024c4745994c9c78f58b29b317fd2caf9b589f96ba2ba3686474",
+      "frozen_structure_sha256": "7edd9babda32b1ddd06844508f96940a676680af060794e28446c40c26bb25bb",
+      "comparisons": {
+        "main-pr68": {
+          "previous_sha256": "1e96bcdc58a2e26d74a8537b7748c73e0be1f30b374676466de29b61879a156e",
+          "maximum_relative_change": 1.7660143851738752e-06,
+          "maximum_significant_relative_change": 1.7660143851738752e-06,
+          "band_fractional_changes": {
+            "1150-3000": -7.928791386440573e-14,
+            "3500-7000": -2.1831398740701988e-07,
+            "7000-300000": -1.2425019511580297e-08
+          },
+          "original_strict_comparison_passes": true
+        },
+        "pr69-original": {
+          "previous_sha256": "e90130ce8e05a5eff675589547e653158069b025920ba8de46993b3762fdf56a",
+          "maximum_relative_change": 1.8946588442717327,
+          "maximum_significant_relative_change": 0.15572480444366632,
+          "band_fractional_changes": {
+            "1150-3000": 0.050973125008499785,
+            "3500-7000": 0.05938764336907054,
+            "7000-300000": 0.06610548628423965
+          },
+          "original_strict_comparison_passes": false
+        }
+      }
+    },
+    "da-5000": {
+      "output_sha256": "f141157d49708e86be34617f4425961a39debdd4fadcfb768ca5be1461ee79ad",
+      "frozen_structure_sha256": "d4b82f6f7036898ad2282eb0b36779b77028290f4a708402429a6cf1e5258777",
+      "comparisons": {
+        "main-pr68": {
+          "previous_sha256": "db72e4f52730ac0006d5be986607db3fdcfe6b0e70f1df1415f14723d4094f40",
+          "maximum_relative_change": 0.00013302816349347601,
+          "maximum_significant_relative_change": 0.00013302816349347601,
+          "band_fractional_changes": {
+            "1150-3000": -3.370114043910163e-10,
+            "3500-7000": -1.1817563288641975e-05,
+            "7000-300000": -6.554630368450998e-07
+          },
+          "original_strict_comparison_passes": false
+        },
+        "pr69-original": {
+          "previous_sha256": "ace33080206b86ad6be31222260bdd165017b35cd2d4dfd4f4036e4c889b7875",
+          "maximum_relative_change": 1.4086710557788673,
+          "maximum_significant_relative_change": 0.16253416523389097,
+          "band_fractional_changes": {
+            "1150-3000": 0.04333258907952102,
+            "3500-7000": 0.11981685760752946,
+            "7000-300000": 0.08491489461996461
+          },
+          "original_strict_comparison_passes": false
+        }
+      }
+    }
+  }
+}

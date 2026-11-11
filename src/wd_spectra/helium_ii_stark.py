@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import re
 from typing import Literal
@@ -21,6 +22,18 @@ HELIUM_II_STARK_URL = (
 HELIUM_II_STARK_SHA256 = (
     "e015e448be5b7448d498571f9475a8e6c6cbf32fcac36ef0369d8831afb3199f"
 )
+# Multiplier of the asymptotic Holtsmark wing in SYNSPEC's ``STARKA``.  Its
+# empirical core terms (``SAC`` and ``F2``) carry the same factor, and only
+# ``FAC = 2`` (the value SYNSPEC uses for hydrogen) gives a unit-area profile.
+# SYNSPEC's He II routine ``INTHE2`` passes ``FAC = 1`` and calibrates the
+# Holtsmark scale ``XK`` to the far wing of the lowest-density table, so its
+# continuation keeps that wing but only 0.48 of the line strength, and the
+# opacity drops by a factor of two where the tables end (log Ne = 17.17 for
+# the low members).  Using ``FAC = 2`` with the matching ``XK`` calibration
+# keeps the same far wing and restores unit area.  The approximate shape
+# still differs from the last tabulated profile (for 4686 its core is ~3x
+# narrower and its 30-300 A wing ~2x stronger at log Ne = 17.17).
+_HELIUM_II_HOLTSMARK_FACTOR = 2.0
 
 
 @dataclass(frozen=True)
@@ -49,8 +62,9 @@ class HeliumIIStarkLine:
         three-point quadratic interpolation in ``log10(T)`` and ``log10(Ne)``
         and linear interpolation in ``log10(abs(delta wavelength))``.  Outside
         the tabulated electron-density range it switches to its analytic
-        Doppler-plus-Holtsmark approximation; that continuation is reproduced
-        here as well.
+        Doppler-plus-Holtsmark approximation ``STARKA``.  That continuation is
+        used here too, but with SYNSPEC's hydrogen factor ``FAC = 2`` and
+        normalized to unit area (SYNSPEC's He II call keeps 0.48 of it).
         """
 
         wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
@@ -189,16 +203,19 @@ class HeliumIIStarkLine:
                     (1.0 - high_density_blend_fraction) * local
                     + high_density_blend_fraction * analytic
                 )
-        if use_analytic:
-            local = np.log10(
-                _synspec_helium_ii_analytic_profile(
-                    self,
-                    line_center_angstrom,
-                    temperature,
-                    electron_density,
-                )
-            )
         offset = np.abs(wavelength - line_center_angstrom)
+        if use_analytic:
+            # The continuation is a closed formula: evaluate it at the
+            # requested offsets.  Sampling it on the table's offset grid
+            # (<= 398 A) and extrapolating would continue the flat Holtsmark
+            # core of very broad high-density profiles indefinitely.
+            return _synspec_helium_ii_analytic_profile(
+                self,
+                line_center_angstrom,
+                temperature,
+                electron_density,
+                offset,
+            )
         log_offset_grid = np.log10(
             np.maximum(self.wavelength_offset_angstrom, 1.0e-4)
         )
@@ -274,7 +291,11 @@ def _synspec_helium_ii_stark_scales(
         - float(line.log_electron_density[0])
         - 2.0 * np.log10(line_center_angstrom)
     )
-    x_k = 10.0 ** ((2.0 / 3.0) * (x_c_log - 0.176))
+    # The tabulated far wing, 1.5*FAC*beta**-2.5, fixes XK for a given FAC.
+    x_k = 10.0 ** (
+        (2.0 / 3.0)
+        * (x_c_log - np.log10(1.5 * _HELIUM_II_HOLTSMARK_FACTOR))
+    )
     f_x_k = 1.25e-9 * electron_density ** (2.0 / 3.0) * x_k
     doppler = (
         1.0e8
@@ -292,8 +313,18 @@ def _synspec_helium_ii_analytic_profile(
     line_center_angstrom: float,
     temperature: float,
     electron_density: float,
+    offset_angstrom: FloatArray | None = None,
 ) -> FloatArray:
-    """SYNSPEC ``STARKA`` continuation evaluated on a table's offset grid."""
+    """SYNSPEC ``STARKA`` continuation, per Hz.
+
+    It is evaluated at ``offset_angstrom`` (default: the table's offset grid).
+
+    The hydrogen convention ``FAC = 2`` is used (see
+    ``_HELIUM_II_HOLTSMARK_FACTOR``); SYNSPEC's own He II call uses
+    ``FAC = 1``, which leaves the profile with 0.48 of unit area.
+    """
+
+    factor = _HELIUM_II_HOLTSMARK_FACTOR
 
     f_x_k, beta_doppler = _synspec_helium_ii_stark_scales(
         line, line_center_angstrom, temperature, electron_density
@@ -301,8 +332,14 @@ def _synspec_helium_ii_analytic_profile(
     d_beta = (
         line_center_angstrom**2 / 2.997925e18 / f_x_k
     )
-    beta = np.maximum(line.wavelength_offset_angstrom, 1.0e-4) / f_x_k
-    auxiliary = 1.5 * np.log(beta_doppler) - 0.978
+    if offset_angstrom is None:
+        offset_angstrom = line.wavelength_offset_angstrom
+    beta = (
+        np.maximum(np.asarray(offset_angstrom, dtype=np.float64), 1.0e-4)
+        / f_x_k
+    )
+    # SYNSPEC: A = 1.5 ln(betad) - 1.671 for FAC = 2, i.e. -0.978 - ln FAC.
+    auxiliary = 1.5 * np.log(beta_doppler) - 0.978 - np.log(factor)
     division = 0.0
     if beta_doppler >= 5.821:
         if auxiliary >= 1.26:
@@ -326,27 +363,64 @@ def _synspec_helium_ii_analytic_profile(
             division = next_division
 
     result = np.empty_like(beta)
-    if auxiliary > 1.26:
+    doppler_core = auxiliary > 1.26
+    if doppler_core:
         core = beta / beta_doppler <= division
         result[core] = (
             0.5641895
             * np.exp(-(beta[core] / beta_doppler) ** 2)
             / beta_doppler
         )
-        result[~core] = 1.5 * beta[~core] ** -2.5
+        result[~core] = 1.5 * factor * beta[~core] ** -2.5
     else:
         inner = beta <= 1.52
         middle = (beta > 1.52) & (beta < 8.325)
         outer = ~(inner | middle)
-        result[inner] = 0.07966 / 2.0
+        result[inner] = 0.07966 / 2.0 * factor
         logarithm = np.log(beta[middle])
         result[middle] = (
             0.07209481
             / 2.0
+            * factor
             * np.exp((-0.5758228 * logarithm + 0.4796232) * logarithm)
         )
-        result[outer] = 1.5 * beta[outer] ** -2.5
-    return np.maximum(result * d_beta, np.finfo(np.float64).tiny)
+        result[outer] = 1.5 * factor * beta[outer] ** -2.5
+    # STARKA is an approximate shape; even with FAC = 2 it integrates to
+    # about 0.95.  Divide by its exact two-sided area so the continuation
+    # carries the full line strength, as the tabulated profiles do.
+    area = _starka_area(doppler_core, beta_doppler, division, factor)
+    return np.maximum(result * d_beta / area, np.finfo(np.float64).tiny)
+
+
+def _starka_area(
+    doppler_core: bool, beta_doppler: float, division: float, factor: float
+) -> float:
+    """Two-sided area, in beta, of the ``STARKA`` shape evaluated above."""
+
+    if doppler_core:
+        # Gaussian core to |beta| = division*betad, then 1.5 FAC beta**-2.5.
+        edge = division * beta_doppler
+        return float(math.erf(division) + 2.0 * factor * edge**-1.5)
+    return 2.0 * factor * (
+        0.07966 / 2.0 * 1.52
+        + 0.07209481 / 2.0 * _STARKA_MIDDLE_INTEGRAL
+        + 8.325**-1.5
+    )
+
+
+def _starka_middle_integral() -> float:
+    """Integral of exp((F0 ln b + F1) ln b) over 1.52 < b < 8.325."""
+
+    nodes, weights = np.polynomial.legendre.leggauss(64)
+    low, high = np.log(1.52), np.log(8.325)
+    logarithm = 0.5 * (high - low) * nodes + 0.5 * (high + low)
+    integrand = np.exp(
+        (-0.5758228 * logarithm + 0.4796232) * logarithm + logarithm
+    )
+    return float(0.5 * (high - low) * np.sum(weights * integrand))
+
+
+_STARKA_MIDDLE_INTEGRAL = _starka_middle_integral()
 
 
 def _consume_values(

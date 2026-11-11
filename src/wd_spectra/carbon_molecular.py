@@ -12,10 +12,10 @@ from types import MappingProxyType
 import numpy as np
 
 from .constants import (
+    ATOMIC_MASS_UNIT,
     BOLTZMANN,
     ELECTRON_MASS,
     HELIUM_MASS,
-    HYDROGEN_MASS,
     LIGHT_SPEED,
     PLANCK,
 )
@@ -26,6 +26,9 @@ from .metals import (
 )
 
 EV = 1.602176634e-12
+# The C2 partition function is ExoMol 12C2, so the chemistry treats carbon as
+# 12C: m(12C) = 12 u exactly.
+CARBON_12_MASS = 12.0 * ATOMIC_MASS_UNIT
 # Ground X(v=0,J=0) -> two C(3P0) atoms, consistent with the zero of
 # the atomic/molecular partition sums. Borsovszky et al. (2021), PNAS
 # 118, e2113315118, measure 50390.5 +/- 2.4 cm^-1. This replaces the
@@ -206,7 +209,10 @@ def c2_dissociation_constant(
             "partition functions and temperature must be finite and positive"
         )
     return np.exp(
-        1.5 * np.log(2 * np.pi * 6 * HYDROGEN_MASS * BOLTZMANN * t / PLANCK**2)
+        # Translational factor with the C-C reduced mass m(12C)/2.
+        1.5 * np.log(
+            2 * np.pi * 0.5 * CARBON_12_MASS * BOLTZMANN * t / PLANCK**2
+        )
         + 2 * np.log(qa)
         - np.log(qm)
         - C2_DISSOCIATION_ENERGY_EV * EV / (BOLTZMANN * t)
@@ -356,7 +362,7 @@ def carbon_helium_lte_state(
     charge_error = float(np.max(np.abs(ne / np.maximum(charge, 1e-300) - 1)))
     if charge_error > 1e-9:
         raise ValueError("He/C/C2 charge neutrality failed")
-    rho = HELIUM_MASS * nhe + 12 * HYDROGEN_MASS * a * nhe
+    rho = HELIUM_MASS * nhe + CARBON_12_MASS * a * nhe
     helium = replace(
         he,
         mass_density=HELIUM_MASS * nhe,

@@ -36,13 +36,15 @@ def test_atomic_pool_preserves_nuclei_and_ionized_fraction():
 
 def test_c2_mass_action_uses_measured_ground_state_dissociation_energy():
     from wd_spectra.carbon_molecular import C2_DISSOCIATION_ENERGY_EV
-    from wd_spectra.constants import PLANCK, LIGHT_SPEED, HYDROGEN_MASS
+    from wd_spectra.constants import PLANCK, LIGHT_SPEED, ATOMIC_MASS_UNIT
 
     ev = 1.602176634e-12
     energy = 50390.5 * PLANCK * LIGHT_SPEED
     np.testing.assert_allclose(C2_DISSOCIATION_ENERGY_EV, energy / ev, rtol=1e-15)
     t = np.array([4000.0, 6000.0, 10000.0])
-    translation = (2 * np.pi * 6 * HYDROGEN_MASS * BOLTZMANN * t / PLANCK**2) ** 1.5
+    # Reduced mass of 12C2 is m(12C)/2 = 6 u (not 6 hydrogen masses).
+    reduced_mass = 6.0 * ATOMIC_MASS_UNIT
+    translation = (2 * np.pi * reduced_mass * BOLTZMANN * t / PLANCK**2) ** 1.5
     k = c2_dissociation_constant(t, 9.0, 2000.0)
     np.testing.assert_allclose(
         k, translation * 81 / 2000 * np.exp(-energy / (BOLTZMANN * t)), rtol=1e-13

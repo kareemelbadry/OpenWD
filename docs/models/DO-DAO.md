@@ -116,7 +116,11 @@ metals. `--quality standard` (40 depths) takes about 3 h in total.
   Transitions without a computed radiation field use J = B (Planck).
 - **Line profiles.** He I uses the profiles of Tremblay et al. (2026), He II
   the tables of Schöning & Butler (1989), and hydrogen the Stark profiles of
-  Tremblay & Bergeron (2009).
+  Tremblay & Bergeron (2009). Above the He II table densities (log Ne > 17.17
+  for the low series members) the profiles continue with SYNSPEC's
+  Doppler–Holtsmark approximation (`STARKA`), evaluated with the factor
+  SYNSPEC uses for hydrogen (FAC = 2) and normalized to unit area. SYNSPEC's
+  own He II call (FAC = 1) keeps only 0.48 of the line strength there.
 - **Initialization.** The calculation first converges an LTE atmosphere. It
   then increases the NLTE contribution from 0 to 1 in steps and converges the
   atmosphere at each step (Auer & Mihalas 1969; Hubeny & Lanz 2017).
