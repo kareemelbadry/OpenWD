@@ -33,17 +33,41 @@
       "guides": [
         "docs/models/DA.md"
       ],
-      "paper_source": "paper/figures/da_koester_grid.pdf",
+      "paper_source": "results/da-koester-grid-coolda-audit/current_da_vs_koester_with_uncorrected_h3plus.pdf",
       "in_manuscript": true,
-      "pdf_sha256": "3a04536c8589572339a05ff8cd9f2f7c23f600a3936cf473b7c4276b2d846554",
-      "preview_sha256": "b07e54ab710a8e77328c94b64456755a8bab27a724f68f17519aec73eea825ee",
+      "pdf_sha256": "c539dba5c074ac1131c32a810819ad7d36d0b6fd853dd6ec65463fc2cd9e47b7",
+      "preview_sha256": "227ebd150214bbfa85a4d7d105b1d17324aa97da0d79bdd93315bb0457ffcfec",
+      "note": "Updated with PR #68 (H3+ spin correction, Kowalski-Saumon H-H2 Lya wing, H2- ff, H2-H CIA). Ahead of the manuscript: paper/figures/da_koester_grid.pdf still shows the pre-PR-68 5000 K model. Only the 5000 K row was recomputed (gray start, commit 069ff4b); the five hotter rows are unchanged from 3268810, and the PR-68 fixed-spectrum controls show no change at those temperatures. The dotted 5000 K curve is the same commit with only the H3+ nuclear-spin division reverted in-process (wd_spectra.molecules.H3_PLUS_NUCLEAR_SPIN_STATES = 1).",
       "plotter_in_paper_workspace": {
-        "path": "scripts/plot_current_da_koester_six_model_grid.py",
-        "sha256": "f3ea7d074bf8efb18110993b56fd890973cf57618afd2f23d9862b11aefb6211",
-        "command": "PYTHONPATH=release/OpenWD-coolda-balmer/src python scripts/plot_current_da_koester_six_model_grid.py --plot --output <dir> --paper-output <pdf>",
+        "path": "results/da-koester-grid-coolda-audit/plot_with_no_spin_line.py",
+        "sha256": "c8eab57b6f6d4045d220d0ee36e96741b42afc111655fc5e34633a8514c49385",
+        "command": "PYTHONPATH=release/OpenWD-coolda-audit/src python results/da-koester-grid-coolda-audit/plot_with_no_spin_line.py --plot --output results/da-koester-grid-coolda-audit",
         "inputs": {
-          "models": "results/da-koester-grid-3268810/models",
-          "openwd_commit": "3268810"
+          "models": "results/da-koester-grid-coolda-audit/models (t05000_g8.00 recomputed at 069ff4b; others copied from results/da-koester-grid-3268810/models)",
+          "uncorrected_h3plus_5000K": "results/da-koester-grid-coolda-audit/no_h3plus_spin/models/t05000_g8.00",
+          "openwd_commit": "069ff4b"
+        }
+      }
+    },
+    {
+      "pdf": "da-cool-recheck.pdf",
+      "preview": "da-cool-recheck.png",
+      "guides": [
+        "docs/models/DA.md"
+      ],
+      "paper_source": "results/cool-da-section312-2026-11-10/cool_da_section312_recheck.pdf",
+      "in_manuscript": false,
+      "pdf_sha256": "644b3f439b07be5beaf548f79a73fcf6b2ab685caffe8d13aa25c3b6ed60e2b4",
+      "preview_sha256": "ec679269b7cb9dbf96e36214aac08de6eb85adabc72df1af75e1ff71824cb52b",
+      "note": "Cool-DA check for PR #68 (not a manuscript figure). OpenWD before PR #68: run_model cold starts at ec1f7ed (results/cool-da-2026-10-26). PR #68: certified cold canaries at 4d787eb (same physics as 069ff4b). Uncorrected-H3+ curves: run_model cold starts at 069ff4b with only the H3+ nuclear-spin division reverted in-process.",
+      "plotter_in_paper_workspace": {
+        "path": "results/cool-da-section312-2026-11-10/plot_312.py",
+        "sha256": "85949f17df570ffd106643a59e2d9e9091669dc0bb939536b3022f284b87029d",
+        "command": "python results/cool-da-section312-2026-11-10/compare_312.py nospin=<abs>/results/cool-da-section312-2026-11-10/nospin_t0{t}_g8.00/spectrum.txt && python results/cool-da-section312-2026-11-10/plot_312.py (run in results/cool-da-section312-2026-11-10)",
+        "inputs": {
+          "comparison": "results/cool-da-section312-2026-11-10/comparison_312.json (compare_312.py sha256 80250f4c54ded9ca561f96b3867f4f7696c80d6bf661c0fe28b3bebb73c00b6a)",
+          "tremblay_grid": ".cache/tremblay/grid_ir/800_LyA_IR",
+          "montreal_table": "results/cool-da-2026-10-26/reference/Table_DA_montreal_2021-01-13"
         }
       }
     },

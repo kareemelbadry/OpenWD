@@ -39,6 +39,8 @@ from .constants import (
 from .molecules import (
     H2H2CollisionInducedAbsorptionTable,
     LOSCHMIDT_NUMBER_DENSITY,
+    h2_h_cia_table,
+    h2_minus_free_free_coefficient_per_electron_pressure,
     molecular_hydrogen_ion_photoabsorption_cross_section,
     molecular_hydrogen_photoabsorption_cross_section,
 )
@@ -414,6 +416,14 @@ _LYMAN_ALPHA_H_H_X_B_LOG_CROSS_SECTION_PER_PERTURBER = np.array(
 # strongest in the 180--400 nm region, and remains measurable to 600 nm.
 # It is kept separate from the Allard H/H+ coverage switch because H2 is an
 # additional perturber species absent from those tables.
+#
+# Only the two points nearest the line (121.6 and 125 nm) still set the
+# opacity: from 130 nm redward the absolute KS06 curves below are used.
+# Rohrmann et al. agree with KS06 to ~0.1 dex at 200--400 nm but fall 0.3,
+# 0.66 and 0.8 dex below it at 450, 500 and 600 nm, which left cool DA
+# models too bright in the g band (g-z 0.03--0.10 mag too blue against the
+# KS06-based Tremblay 1D grid at 5000--4000 K).  The full Rohrmann curve is
+# kept for provenance and comparison.
 _LYMAN_ALPHA_H_H2_WAVELENGTH_NM = np.array(
     [
         121.6,
@@ -477,9 +487,15 @@ _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_PER_PERTURBER = np.array(
 # be held fixed in a cool atmosphere.  These two curves are a vector-path
 # digitization of the standard KS06 profiles plotted by Sahu et al. (2025,
 # their Fig. 4) at 3000 and 6000 K.  Their 4000 and 5000 K curves verify that
-# log(sigma/n_pert) is linear in 1/T to within 0.01 dex.  Only the difference
-# between the curves is used below: the absolute 6000-K normalization and
-# KG--RK wavelength dependence remain those of Rohrmann et al. above.
+# log(sigma/n_pert) is linear in 1/T to within 0.01 dex.  These are the
+# absolute Kowalski & Saumon (2006) one-perturber profiles used by the
+# Montreal and Warwick DA grids, linear in n(H2) as here.  They set the
+# opacity at 130--600 nm, interpolated in 1/T between the two curves.
+# Redward of 600 nm each curve continues along its terminal log-slope in
+# wavenumber, i.e. exponentially in detuning from Lyalpha.  That is the
+# quasi-static form exp[-E_1(r)/kT] whose energy, obtained from the 3000/6000
+# K ratio, grows steadily across 450--600 nm; it avoids the former abrupt
+# drop to zero at 600 nm (a ~3 per cent flux step with this normalization).
 _LYMAN_ALPHA_H_H2_TEMPERATURE_WAVELENGTH_NM = np.array(
     [
         130.0,
@@ -560,37 +576,76 @@ _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_6000_K = np.array(
 )
 
 
-def _h_h2_lyman_alpha_log_temperature_correction(
+def _ks06_h_h2_log_cross_section_with_red_tail(
+    wavelength_nm: FloatArray, curve: FloatArray
+) -> FloatArray:
+    """Interpolate one KS06 curve; continue it past 600 nm in wavenumber."""
+
+    grid = _LYMAN_ALPHA_H_H2_TEMPERATURE_WAVELENGTH_NM
+    result = np.interp(wavelength_nm, grid, curve)
+    red = wavelength_nm > grid[-1]
+    if np.any(red):
+        wavenumber = 1.0e7 / wavelength_nm[red]
+        terminal_wavenumber = 1.0e7 / grid[-2:]
+        slope = (curve[-1] - curve[-2]) / (
+            terminal_wavenumber[1] - terminal_wavenumber[0]
+        )
+        result[red] = curve[-1] + slope * (wavenumber - terminal_wavenumber[1])
+    return result
+
+
+def _h_h2_lyman_alpha_log_cross_section(
     wavelength_nm: FloatArray, temperature: FloatArray
 ) -> FloatArray:
-    """Return the local-temperature correction to the 6000-K H--H2 wing.
+    """Return log10(sigma / n_perturber) of the H--H2 Lyalpha wing in cm^5.
 
-    The result has shape ``(n_wavelength, n_depth)`` and is logarithmic in
-    base ten.  The measured 3000--6000 K dependence is interpolated in
-    inverse temperature, as required by the quasi-static pair probability.
-    It is conservatively held fixed outside the published temperature range.
+    The result has shape ``(n_wavelength, n_depth)``.  At 130 nm and redward
+    it is the absolute KS06 profile, interpolated in inverse temperature
+    between the 3000 and 6000 K curves of Sahu et al. (2025, Fig. 4), as the
+    quasi-static pair probability requires, and held at those curves outside
+    3000--6000 K.  Between the line and 130 nm, where those curves stop, the
+    6000-K Rohrmann et al. (2011) points at 121.6 and 125 nm are joined to the
+    local-temperature KS06 value at 130 nm by log-linear interpolation, so the
+    temperature dependence vanishes at 125 nm instead of switching off in a
+    step.  The caller fades this in from line centre.
     """
 
     wavelength = np.asarray(wavelength_nm, dtype=np.float64)
     local_temperature = np.asarray(temperature, dtype=np.float64)
-    log_difference = np.interp(
-        wavelength,
-        _LYMAN_ALPHA_H_H2_TEMPERATURE_WAVELENGTH_NM,
-        (
-            _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_3000_K
-            - _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_6000_K
-        ),
-        left=0.0,
-        right=(
-            _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_3000_K[-1]
-            - _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_6000_K[-1]
-        ),
-    )
     clipped_temperature = np.clip(local_temperature, 3000.0, 6000.0)
     inverse_temperature_fraction = (
         1.0 / clipped_temperature - 1.0 / 6000.0
     ) / (1.0 / 3000.0 - 1.0 / 6000.0)
-    return log_difference[:, np.newaxis] * inverse_temperature_fraction[np.newaxis, :]
+    hot = _ks06_h_h2_log_cross_section_with_red_tail(
+        wavelength, _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_6000_K
+    )
+    cool = _ks06_h_h2_log_cross_section_with_red_tail(
+        wavelength, _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_3000_K
+    )
+    ks06_start = _LYMAN_ALPHA_H_H2_TEMPERATURE_WAVELENGTH_NM[0]
+    near_line = wavelength < ks06_start
+    if np.any(near_line):
+        near_line_grid = np.r_[
+            _LYMAN_ALPHA_H_H2_WAVELENGTH_NM[
+                _LYMAN_ALPHA_H_H2_WAVELENGTH_NM < ks06_start
+            ],
+            ks06_start,
+        ]
+        rohrmann = _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_PER_PERTURBER[
+            _LYMAN_ALPHA_H_H2_WAVELENGTH_NM < ks06_start
+        ]
+        for values, curve in (
+            (hot, _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_6000_K),
+            (cool, _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_3000_K),
+        ):
+            values[near_line] = np.interp(
+                wavelength[near_line], near_line_grid, np.r_[rohrmann, curve[0]]
+            )
+    return (
+        hot[:, np.newaxis]
+        + (cool - hot)[:, np.newaxis] * inverse_temperature_fraction[np.newaxis, :]
+    )
+
 
 # Barklem, Piskunov & O'Mara (2000), their Table 3.  Cross sections are in
 # a0^2 at 10 km/s; alpha is the exponent sigma(v) proportional to v^-alpha;
@@ -1306,9 +1361,11 @@ def hydrogen_continuum_mass_absorption_coefficient(
     hydrogenic excited-state bound-free with Mihalas/Karzas--Latter Gaunt
     factors, electron-proton free-free with van Hoof Gaunt factors,
     H-minus bound-free and free-free following John (1988), stable H2 and H2+
-    ultraviolet photoabsorption when molecular EOS populations are present,
-    optional Borysow H2--H2 collision-induced absorption, Thomson scattering,
-    and ground-state H I Rayleigh scattering.
+    ultraviolet photoabsorption, H2-minus free-free (Bell 1980) and H2--H
+    collision-induced absorption (HITRAN 2011, Gustafsson & Frommhold 2003)
+    when molecular EOS populations are present, optional Borysow H2--H2
+    collision-induced absorption, Thomson scattering, and ground-state H I
+    Rayleigh scattering.
     Scattering is included as extinction when requested; the spectrum and
     atmosphere solvers evaluate it separately for a coherent source function.
     """
@@ -1345,6 +1402,9 @@ def hydrogen_continuum_mass_absorption_coefficient(
     extinction += bound_free
     if include_molecular_absorption:
         extinction += molecular_hydrogen_mass_absorption_coefficient(
+            atmosphere, wavelength
+        )
+        extinction += molecular_hydrogen_continuum_mass_absorption_coefficient(
             atmosphere, wavelength
         )
         if h2_h2_cia_table is not None:
@@ -1474,6 +1534,42 @@ def molecular_hydrogen_mass_absorption_coefficient(
         * stimulated_emission
         / atmosphere.mass_density[np.newaxis, :]
     )
+
+
+def molecular_hydrogen_continuum_mass_absorption_coefficient(
+    atmosphere: Atmosphere,
+    wavelength_angstrom: ArrayLike,
+) -> FloatArray:
+    """Return H2-minus free-free plus H2--H CIA opacity in cm^2 g^-1.
+
+    H2- free-free uses Bell (1980), per H2 molecule per unit electron
+    pressure, with stimulated emission included.  H2--H CIA uses the
+    HITRAN 2011 binary coefficients of Gustafsson & Frommhold (2003) times
+    n(H2) n(H); see :class:`wd_spectra.molecules.H2HCollisionInducedAbsorptionTable`
+    for its temperature and wavelength range.  Both vanish without an H2
+    population.
+    """
+
+    wavelength = np.asarray(wavelength_angstrom, dtype=np.float64)
+    if (
+        wavelength.ndim != 1
+        or np.any(~np.isfinite(wavelength))
+        or np.any(wavelength <= 0.0)
+    ):
+        raise ValueError("wavelength_angstrom must be a finite positive 1D array")
+    state = atmosphere.hydrogen_lte_state
+    if state is None or state.molecular_hydrogen_density is None:
+        return np.zeros((wavelength.size, atmosphere.n_depth), dtype=np.float64)
+    h2_density = np.asarray(state.molecular_hydrogen_density, dtype=np.float64)
+    temperature = atmosphere.temperature
+    electron_pressure = atmosphere.electron_density * BOLTZMANN * temperature
+    free_free = h2_minus_free_free_coefficient_per_electron_pressure(
+        wavelength, temperature
+    ) * (electron_pressure * h2_density)[np.newaxis, :]
+    cia = h2_h_cia_table().coefficient_for_wavelength_temperature(
+        wavelength, temperature
+    ) * (h2_density * atmosphere.neutral_h_density)[np.newaxis, :]
+    return (free_free + cia) / atmosphere.mass_density[np.newaxis, :]
 
 
 def h2_h2_cia_mass_absorption_coefficient(
@@ -2551,10 +2647,12 @@ def lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient(
     al. (2011).  They capture the 1623 Angstrom satellite/cutoff and the long
     red wing needed near the cool edge of the current DA milestone.  The
     opacity is intentionally separate from the Stark profile.  If the EOS
-    contains molecular hydrogen, the angle-averaged 6000-K H--H2 ``E1-E3``
-    plus ``E1-E4`` curve from Fig. 8 of the same paper is included with its
-    physical ``n(H) n(H2) / rho`` scaling.  The local 3000--6000 K dependence
-    follows the standard KS06 profile family in Sahu et al. (2025, Fig. 4).
+    contains molecular hydrogen, the H--H2 wing is included with its
+    physical ``n(H) n(H2) / rho`` scaling: the absolute Kowalski & Saumon
+    (2006) profile at the local 3000--6000 K temperature (Sahu et al. 2025,
+    Fig. 4) from 130 nm redward, continued past its 600 nm end along its
+    terminal log-slope, and the 6000-K Rohrmann et al. (2011) ``E1-E3`` plus
+    ``E1-E4`` curve only between the line and 130 nm.
     When
     ``allard_table`` is supplied, the H--H approximation is used only in the
     smoothly complementary region outside the finite Allard wavelength
@@ -2610,23 +2708,14 @@ def lyman_alpha_neutral_hydrogen_wing_mass_absorption_coefficient(
 
     state = atmosphere.hydrogen_lte_state
     if state is not None and state.molecular_hydrogen_density is not None:
-        molecular_valid = (
-            (wavelength_nm >= _LYMAN_ALPHA_H_H2_WAVELENGTH_NM[0])
-            & (wavelength_nm <= _LYMAN_ALPHA_H_H2_WAVELENGTH_NM[-1])
-        )
+        molecular_valid = wavelength_nm >= _LYMAN_ALPHA_H_H2_WAVELENGTH_NM[0]
         molecular_cross_section_per_perturber = np.zeros(
             (wavelength.size, atmosphere.n_depth), dtype=np.float64
         )
-        base_log_cross_section = np.interp(
-            wavelength_nm[molecular_valid],
-            _LYMAN_ALPHA_H_H2_WAVELENGTH_NM,
-            _LYMAN_ALPHA_H_H2_LOG_CROSS_SECTION_PER_PERTURBER,
-        )
-        temperature_correction = _h_h2_lyman_alpha_log_temperature_correction(
-            wavelength_nm[molecular_valid], atmosphere.temperature
-        )
         molecular_cross_section_per_perturber[molecular_valid, :] = 10.0 ** (
-            base_log_cross_section[:, np.newaxis] + temperature_correction
+            _h_h2_lyman_alpha_log_cross_section(
+                wavelength_nm[molecular_valid], atmosphere.temperature
+            )
         )
         # The first point was digitized from a broad far-wing figure and is
         # not a resolved unified line-core calculation.  Applying its finite

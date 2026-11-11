@@ -402,3 +402,71 @@ def test_compute_db_exact_fingerprint_controls_direct_resume(monkeypatch, tmp_pa
         captured["initial_rosseland_optical_depth"],
         checkpoint.rosseland_optical_depth,
     )
+
+
+def _save_cool_hydrogen_checkpoint(path, metadata):
+    import json
+
+    temperature = np.geomspace(3500.0, 7000.0, 12)
+    pressure = np.geomspace(1.0e3, 1.0e7, 12)
+    np.savez(
+        path,
+        effective_temperature=5000.0,
+        logg=8.0,
+        temperature=temperature,
+        gas_pressure=pressure,
+        column_mass=pressure / 1.0e8,
+        rosseland_optical_depth=np.geomspace(1.0e-5, 1.0e2, 12),
+        atmosphere_metadata_json=json.dumps(metadata),
+    )
+
+
+def test_hydrogen_checkpoint_reload_keeps_recorded_molecular_chemistry(tmp_path):
+    path = tmp_path / "cool-da.npz"
+    _save_cool_hydrogen_checkpoint(path, {
+        "includes_molecular_equilibrium": True,
+        "negative_hydrogen_in_charge_equilibrium": True,
+        "trihydrogen_ion_partition_model": "neale-tennyson-1995",
+    })
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        restored = load_atmosphere_checkpoint(path, 5000.0, 8.0, "hydrogen")
+    state = restored.hydrogen_lte_state
+    assert state.molecular_hydrogen_density is not None
+    assert np.all(state.molecular_hydrogen_density > 0.0)
+    assert state.trihydrogen_ion_density is not None
+    assert np.any(state.trihydrogen_ion_density > 0.0)
+    assert "checkpoint_changed_requires_relaxation" not in restored.metadata
+
+    # An explicit choice still overrides the record and invalidates it.
+    atomic = load_atmosphere_checkpoint(
+        path, 5000.0, 8.0, "hydrogen", include_molecules=False,
+        include_negative_hydrogen=False, trihydrogen_ion_partition_model=None,
+    )
+    assert atomic.hydrogen_lte_state.molecular_hydrogen_density is None
+    assert atomic.metadata["checkpoint_changed_requires_relaxation"]
+
+
+def test_hydrogen_checkpoint_without_chemistry_record_warns(tmp_path):
+    path = tmp_path / "unrecorded.npz"
+    _save_cool_hydrogen_checkpoint(path, {})
+    with pytest.warns(RuntimeWarning, match="does not record its molecular chemistry"):
+        restored = load_atmosphere_checkpoint(path, 5000.0, 8.0, "hydrogen")
+    assert restored.hydrogen_lte_state.molecular_hydrogen_density is None
+
+
+def test_hydrogen_checkpoint_reload_reads_saved_run_chemistry_keys(tmp_path):
+    # atmosphere.npz written by run_model records the chemistry under these
+    # radiative-equilibrium keys, with DAConfig.include_molecules=None.
+    path = tmp_path / "run-model-da.npz"
+    _save_cool_hydrogen_checkpoint(path, {
+        "includes_molecular_equilibrium": True,
+        "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium": True,
+        "radiative_equilibrium_h3plus_partition_model": "neale-tennyson-1995",
+        "model_request_fingerprint": {"config": {"include_molecules": None}},
+    })
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        restored = load_atmosphere_checkpoint(path, 5000.0, 8.0, "hydrogen")
+    assert np.any(restored.hydrogen_lte_state.trihydrogen_ion_density > 0.0)
+    assert "checkpoint_changed_requires_relaxation" not in restored.metadata

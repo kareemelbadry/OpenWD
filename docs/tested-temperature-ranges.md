@@ -19,7 +19,7 @@ Paper range: 3000–40,000 K. See the [DA guide](models/DA.md).
 | Points | Settings | Evidence |
 | --- | --- | --- |
 | 3000, 4000, 5000, 20000 / 8.0 | production | Canaries `da-3000`, `da-4000`, `da-5000`, `da-20000` |
-| 6000, 8000, 10000, 12000, 14000 / 8.0 | production | Cold starts, 8–31 min |
+| 4500, 6000, 8000, 10000, 12000, 14000 / 8.0 | production | Cold starts, 8–31 min |
 | 4250/6.0, 4500/7.0, 4750/7.75, 5000/7.25, 6500/6.0, 3000/9.5 | production | Cold starts |
 | 30000/5.0, 32000/6.0, 34000/6.25, 38000/6.0 | production | Cold starts, one lower-boundary extension |
 | G 76−48: 6680/7.96, convection off | production and standard | Canaries `da-radiative-g76-48`, `da-radiative-g76-48-standard` |

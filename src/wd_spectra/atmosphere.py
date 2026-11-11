@@ -1920,8 +1920,8 @@ def radiative_equilibrium_hydrogen_atmosphere(
                 trihydrogen_ion_partition_model
             ),
             "radiative_equilibrium_h_h2_lyman_alpha_temperature_dependence": (
-                "Sahu-et-al-2025 inverse-temperature correction to "
-                "Rohrmann-et-al-2011 6000-K profile"
+                "absolute Kowalski-Saumon-2006 profile interpolated in "
+                "inverse temperature (Sahu-et-al-2025 Fig. 4)"
                 if include_molecules and include_lyman_lines
                 else None
             ),

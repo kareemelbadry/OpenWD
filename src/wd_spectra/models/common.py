@@ -38,17 +38,17 @@ ConvergenceStatus = Literal[
 _MODEL_REQUEST_FINGERPRINT_SCHEMA = 2
 _MODEL_PHYSICS_REVISION = "openwd-0.1.3-qmhd-undoubled-v5-flux-conserving"
 _MODEL_FAMILY_PHYSICS_REVISIONS = {
-    "DA": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DA": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
     "DB": "helium-reos3-c1-2026-10-23",
-    "DAB": "hydrogen-stark-density-floor-2026-10-05:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:helium-reos3-c1-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DAB": "hydrogen-stark-density-floor-2026-10-05:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:helium-reos3-c1-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
     "DQ": "dq-shared-solver-v1:helium-reos3-ideal-excess:carbon-red-wing-boltzmann:rogers-young-he-minus:partial-wave-he-minus-2026-10-29",
-    "DAO": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
-    "DAH": "dah-rwa-magnetic-eos-v5:hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27",
+    "DAO": "hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
+    "DAH": "dah-rwa-magnetic-eos-v5:hydrogen-stark-density-floor-2026-10-05:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
     # Shared metal physics revised by the 2026-09-30 DZ audit: ground-term
     # bound-free populations, 1/Z^2 Unsold radii, frequency Voigt profiles,
     # structure line identity and continuous dense-He ionization.
-    "DZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:cool-dz-release-2026-10-23:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:nist-asd-strong-lines-2026-11-02",
-    "DAZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:barklem-neutral-h-2026-10-12:si-ii-kurucz-transitions-2026-10-12:default-feii-kurucz-uv-2026-10-12:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:nist-asd-strong-lines-2026-11-02",
+    "DZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:si-ii-he-unified-2026-10-11:si-ii-kurucz-transitions-2026-10-12:metal-microfield-hosts-2026-10-12:default-feii-kurucz-uv-2026-10-12:neutral-trace-h-metal-widths-2026-10-12:cool-dz-release-2026-10-23:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:nist-asd-strong-lines-2026-11-02:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
+    "DAZ": "metal-audit-2026-09-30:hydrogen-stark-density-floor-2026-10-05:default-crii-kurucz-2026-10-08:kurucz-electron-stark-2026-10-11:barklem-neutral-h-2026-10-12:si-ii-kurucz-transitions-2026-10-12:default-feii-kurucz-uv-2026-10-12:normalized-metal-levels-2026-10-24:montreal-h-radius-ali-griem-2026-10-27:hydrogen-full-dissolution-2026-10-27:nist-asd-strong-lines-2026-11-02:cool-h-h3plus-spin-ks06-h2opacity-2026-11-10",
     "D6": "metal-audit-2026-09-30:default-feii-kurucz-uv-2026-10-12:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:excited-parent-series-o-i-2026-10-25",
 }
 
@@ -520,6 +520,16 @@ def validate_wavelength(wavelength: ArrayLike | None) -> FloatArray:
     return np.ascontiguousarray(result)
 
 
+class _FromCheckpoint:
+    """Sentinel: use the chemistry setting recorded in the checkpoint."""
+
+    def __repr__(self) -> str:
+        return "FROM_CHECKPOINT"
+
+
+FROM_CHECKPOINT: Any = _FromCheckpoint()
+
+
 def load_atmosphere_checkpoint(
     path: str | Path,
     effective_temperature: float,
@@ -527,9 +537,9 @@ def load_atmosphere_checkpoint(
     composition: AtmosphereComposition,
     *,
     log_hydrogen_to_helium: float | None = None,
-    include_molecules: bool = False,
-    include_negative_hydrogen: bool = False,
-    trihydrogen_ion_partition_model: str | None = None,
+    include_molecules: bool = FROM_CHECKPOINT,
+    include_negative_hydrogen: bool = FROM_CHECKPOINT,
+    trihydrogen_ion_partition_model: str | None = FROM_CHECKPOINT,
 ) -> Atmosphere:
     """Restore a validation/one-shot atmosphere from the common NPZ schemas.
 
@@ -537,6 +547,13 @@ def load_atmosphere_checkpoint(
     arrays carry a ``thermal_`` prefix.  EOS populations are always rebuilt
     from the requested current composition rather than trusted from a stale
     checkpoint.
+
+    By default the chemistry options (molecules, H- charge equilibrium, H3+
+    partition model) follow what the checkpoint records, so a reloaded cool
+    DA keeps its H2/H3+ chemistry.  A checkpoint that does not record a
+    setting falls back to atomic chemistry with a warning.  Passing a value
+    explicitly overrides the record; a mismatch then invalidates the stored
+    convergence claim as before.
 
     For mixed composition, ``include_molecules=True`` selects the complete
     molecular-H/He closure (including H- and Neale--Tennyson H3+). The separate
@@ -619,6 +636,52 @@ def load_atmosphere_checkpoint(
     old_config = request.get("config", {}) if isinstance(request, Mapping) else {}
     if not isinstance(old_config, Mapping):
         old_config = {}
+    recorded_molecules = old_config.get("include_molecules")
+    if recorded_molecules is None:
+        recorded_molecules = stored_metadata.get(
+            "includes_molecular_equilibrium",
+            stored_metadata.get(
+                "radiative_equilibrium_includes_molecular_equilibrium_and_opacity"))
+    recorded_negative = stored_metadata.get(
+        "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium",
+        stored_metadata.get("negative_hydrogen_in_charge_equilibrium"))
+    # Saved runs record the H3+ model as radiative_equilibrium_h3plus_partition_model.
+    partition_keys = ("trihydrogen_ion_partition_model",
+                      "radiative_equilibrium_h3plus_partition_model")
+    partition_recorded = "h3plus_partition_model" in old_config or any(
+        key in stored_metadata for key in partition_keys)
+    recorded_partition = old_config.get("h3plus_partition_model", next(
+        (stored_metadata[key] for key in partition_keys if key in stored_metadata),
+        None))
+    if recorded_partition == "none":
+        recorded_partition = None
+    unrecorded = []
+    if include_molecules is FROM_CHECKPOINT:
+        if recorded_molecules is None and composition != "helium":
+            unrecorded.append("molecular chemistry")
+        include_molecules = bool(recorded_molecules)
+    if composition == "hydrogen":
+        if include_negative_hydrogen is FROM_CHECKPOINT:
+            if recorded_negative is None:
+                unrecorded.append("H- charge equilibrium")
+            include_negative_hydrogen = bool(recorded_negative)
+        if trihydrogen_ion_partition_model is FROM_CHECKPOINT:
+            if not partition_recorded and include_molecules:
+                unrecorded.append("H3+ partition model")
+            trihydrogen_ion_partition_model = recorded_partition
+    else:
+        if include_negative_hydrogen is FROM_CHECKPOINT:
+            include_negative_hydrogen = False
+        if trihydrogen_ion_partition_model is FROM_CHECKPOINT:
+            trihydrogen_ion_partition_model = None
+    if unrecorded:
+        warnings.warn(
+            f"{source} does not record its {', '.join(unrecorded)}; "
+            "restoring with atomic defaults for those settings. Pass them "
+            "explicitly to load_atmosphere_checkpoint.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     old_kind = request.get("spectral_type") if isinstance(request, Mapping) else None
     old_composition = ({"DA": "hydrogen", "DB": "helium", "DZ": "helium", "DAB": "mixed"}.get(old_kind)
                        or stored_metadata.get("checkpoint_composition"))
@@ -635,21 +698,11 @@ def load_atmosphere_checkpoint(
         if old_abundance != log_hydrogen_to_helium:
             changed.append("H/He abundance changed or unrecorded")
     if composition == "hydrogen":
-        old_molecules = old_config.get("include_molecules")
-        if old_molecules is None:
-            old_molecules = stored_metadata.get("includes_molecular_equilibrium", False)
-        if bool(old_molecules) != include_molecules:
+        if bool(recorded_molecules) != include_molecules:
             changed.append("molecular chemistry changed")
-        old_negative = stored_metadata.get(
-            "radiative_equilibrium_includes_negative_hydrogen_charge_equilibrium",
-            stored_metadata.get("negative_hydrogen_in_charge_equilibrium"))
-        if old_negative is None or bool(old_negative) != include_negative_hydrogen:
+        if recorded_negative is None or bool(recorded_negative) != include_negative_hydrogen:
             changed.append("H- charge equilibrium changed or unrecorded")
-        old_partition = old_config.get("h3plus_partition_model",
-            stored_metadata.get("trihydrogen_ion_partition_model"))
-        if old_partition == "none":
-            old_partition = None
-        if old_partition != trihydrogen_ion_partition_model:
+        if recorded_partition != trihydrogen_ion_partition_model:
             changed.append("H3+ partition changed or unrecorded")
     if changed:
         metadata["radiative_equilibrium_converged"] = False
