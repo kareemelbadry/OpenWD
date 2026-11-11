@@ -559,6 +559,33 @@ def _partial_wave_log_coefficient(wavelength_micron, theta):
     )
 
 
+_HELIUM_MINUS_FREE_FREE_DESCRIPTIONS = {
+    "automatic": (
+        "John-1994 inside tabulated T/lambda domain; "
+        "Carbon-1969 fit to John-1968 elsewhere"
+    ),
+    "john1968": "Carbon-1969 fit to John-1968 everywhere",
+    "john1994": "John-1994 table everywhere (tapered below 0.5063 micron)",
+    "partial-wave": (
+        "John-1994 inside tabulated T/lambda domain; John edge value times "
+        "partial-wave shape below 0.5063 micron within John's temperatures; "
+        "Carbon-1969 fit to John-1968 elsewhere"
+    ),
+}
+
+
+def helium_minus_free_free_description(prescription: str) -> str:
+    """Metadata wording for a ``helium_minus_free_free_coefficient`` choice."""
+
+    try:
+        return _HELIUM_MINUS_FREE_FREE_DESCRIPTIONS[prescription]
+    except KeyError:
+        raise ValueError(
+            "prescription must be 'automatic', 'john1968', 'john1994', or "
+            "'partial-wave'"
+        ) from None
+
+
 def helium_minus_free_free_coefficient(
     wavelength_micron: ArrayLike,
     temperature: ArrayLike,
@@ -1242,12 +1269,24 @@ def helium_ii_dissolved_level_pseudocontinuum_mass_absorption_coefficient(
             * effective_upper_level[:, np.newaxis] ** 2
             / 2.0
         )
+        hydrogen_neutral_radius = (
+            atmosphere.hydrogen_lte_state.neutral_radius_scale * BOHR_RADIUS
+            if atmosphere.hydrogen_lte_state is not None
+            else BOHR_RADIUS
+        )
+        # Same excluded-volume perturbers (neutral He and neutral H) as the
+        # lower-level occupation in _helium_ii_level_distribution.
         neutral = np.exp(
             -state.neutral_he_density[np.newaxis, :]
             * 4.0
             / 3.0
             * PI
             * (upper_radius + state.neutral_radius_scale * BOHR_RADIUS) ** 3
+            - atmosphere.neutral_h_density[np.newaxis, :]
+            * 4.0
+            / 3.0
+            * PI
+            * (upper_radius + hydrogen_neutral_radius) ** 3
         )
         upper_probability = charged * neutral
         lower_probability = occupation[:, lower_level - 1]

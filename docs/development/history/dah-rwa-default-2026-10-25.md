@@ -49,6 +49,12 @@ published parameters, standard quality, on certified nonmagnetic structures:
 | J1351+5419 | 369 | 4.82 | 3.03 | 2.68 |
 | J2247+1456 | 437 | 2.99 | 4.22 | – |
 
+Correction (2026-11-10): GH Leo has no published errors, and the noise
+estimate divided the high-pass scatter by 0.8, which is the variance kept
+about a 3-pixel smooth, not the sigma (0.91). Its three χ² values above are
+therefore 1.29× too low; corrected they are 5.98, 5.27 and 3.74. The ranking
+is unchanged, and the other objects use survey errors.
+
 The default improves eight objects, ties J2149, and worsens J2247, whose
 4100–4450 Å region it over-absorbs. With one flux scale only (no continuum
 freedom) J1034, J1154, J0732 and GH Leo are slightly worse; J1034's

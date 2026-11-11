@@ -484,6 +484,13 @@ def synthesize_balmer_spectrum(
             )
         elif continuum_absorption.shape != (wavelength.size, atmosphere.n_depth):
             raise ValueError("continuum_opacity must be scalar or have shape (wavelength, depth)")
+        elif h2_line_data is not None:
+            # The H2 source functions need J on their own radiation grid,
+            # where a per-wavelength opacity array has no defined values.
+            raise ValueError(
+                "h2_line_data needs a scalar continuum_opacity; an array "
+                "is defined only on the output wavelength grid"
+            )
         if np.any(~np.isfinite(continuum_absorption)) or np.any(continuum_absorption <= 0.0):
             raise ValueError("continuum_opacity must contain finite positive values")
         scattering = np.zeros((1, atmosphere.n_depth), dtype=np.float64)
@@ -1170,6 +1177,7 @@ def synthesize_helium_spectrum(
 
     from .helium import (
         helium_continuum_mass_absorption_coefficient,
+        helium_minus_free_free_description,
         helium_i_line_mass_absorption_coefficient,
         helium_i_resonance_line_mass_absorption_coefficient,
         helium_ii_line_mass_absorption_coefficient,
@@ -1653,9 +1661,17 @@ def synthesize_helium_spectrum(
                 include_helium_three_body_cia
             ),
             "helium_rydberg_bound_free": bool(include_rydberg_bound_free),
-            "helium_minus_free_free": (
-                "John-1994 inside tabulated T/lambda domain; "
-                "Carbon-1969 fit to John-1968 elsewhere"
+            "helium_minus_free_free": helium_minus_free_free_description(
+                helium_minus_prescription
+            ),
+            "helium_minus_free_free_prescription": helium_minus_prescription,
+            "dense_helium_minus_free_free": (
+                {
+                    "table_sha256": helium_minus_correction_table.sha256,
+                    "metadata": helium_minus_correction_table.metadata,
+                }
+                if helium_minus_correction_table is not None
+                else None
             ),
             "stark_profiles": "explicit Tremblay-2026/Beauchamp-2025 table",
             "line_occupation_probability": bool(include_occupation_probability),
