@@ -1,0 +1,86 @@
+{
+  "maximum_relative_difference": 0.0032266986325784064,
+  "integrated_flux_change": -6.14574569772417e-05,
+  "strongest_changes": [
+    {
+      "wavelength_A": 3560.7999999998538,
+      "relative_change": 0.0032266986325784064
+    },
+    {
+      "wavelength_A": 3560.8999999998537,
+      "relative_change": 0.003225956744900449
+    },
+    {
+      "wavelength_A": 3559.7999999998547,
+      "relative_change": 0.0032254978823580416
+    },
+    {
+      "wavelength_A": 3559.8999999998546,
+      "relative_change": 0.0032253738538523535
+    },
+    {
+      "wavelength_A": 3560.699999999854,
+      "relative_change": 0.0032248758484791917
+    },
+    {
+      "wavelength_A": 3559.6999999998548,
+      "relative_change": 0.003224817677680347
+    },
+    {
+      "wavelength_A": 3559.9999999998545,
+      "relative_change": 0.0032236152507547633
+    },
+    {
+      "wavelength_A": 3559.299999999855,
+      "relative_change": 0.003222991966363553
+    },
+    {
+      "wavelength_A": 3559.199999999855,
+      "relative_change": 0.003222114225694961
+    },
+    {
+      "wavelength_A": 3560.9999999998536,
+      "relative_change": 0.003221925610083387
+    },
+    {
+      "wavelength_A": 3559.399999999855,
+      "relative_change": 0.003220619901841415
+    },
+    {
+      "wavelength_A": 3561.1999999998534,
+      "relative_change": 0.003219767480180158
+    },
+    {
+      "wavelength_A": 3559.0999999998553,
+      "relative_change": 0.0032194689746189997
+    },
+    {
+      "wavelength_A": 3560.0999999998544,
+      "relative_change": 0.0032182494551331597
+    },
+    {
+      "wavelength_A": 3560.599999999854,
+      "relative_change": 0.003217595925190997
+    },
+    {
+      "wavelength_A": 3558.9999999998554,
+      "relative_change": 0.003216365384673292
+    },
+    {
+      "wavelength_A": 3559.599999999855,
+      "relative_change": 0.003215623376932486
+    },
+    {
+      "wavelength_A": 3558.399999999856,
+      "relative_change": 0.003209938878297791
+    },
+    {
+      "wavelength_A": 3558.299999999856,
+      "relative_change": 0.003208346812712648
+    },
+    {
+      "wavelength_A": 3558.199999999856,
+      "relative_change": 0.0032043104326415772
+    }
+  ]
+}
