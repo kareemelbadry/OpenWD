@@ -44,7 +44,7 @@ import numpy as np
 from scipy.special import exp1
 
 from .light_metal_nlte import ConstantEffectiveCollisionStrength, TmadLTEBoundBoundCoupling
-from .metals import AtomicLevel, AtomicTransition
+from .metals import AtomicDatabase, AtomicLevel, AtomicTransition
 
 _RYDBERG_WAVENUMBER = 109737.316
 _EV_TO_WAVENUMBER = 8065.54429
@@ -90,11 +90,19 @@ def _principal_quantum_number(label: str) -> int | None:
 
 
 def _with_ion(database, key, ion):
+    """Return a new database with ``ion`` at ``key`` and empty runtime caches.
+
+    ``dataclasses.replace`` would hand the new database the original's
+    line-selection and Unsold caches (init fields copied by reference), so a
+    structure solve that already warmed them would make the upgraded atom
+    report the old lines.
+    """
+
     ions = dict(database.ions)
     ions[key] = ion
-    return replace(
-        database,
-        ions=MappingProxyType(ions) if isinstance(database.ions, MappingProxyType) else ions,
+    return AtomicDatabase(
+        MappingProxyType(ions) if isinstance(database.ions, MappingProxyType) else ions,
+        source=database.source,
     )
 
 

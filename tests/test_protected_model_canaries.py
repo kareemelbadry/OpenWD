@@ -229,9 +229,11 @@ def test_standard_db_22000_enters_exact_flux_verification(capsys):
     _assert_solver_control(result, "db-22000-standard", 3e-4, caught)
     assert metadata["maximum_all_depth_total_flux_residual"] < 3.0e-3
     # Work guard, not a physical tolerance: the column-mass default
-    # (DB-production-v5, 2026-10-13) took 66 iterations here.
+    # (DB-production-v5, 2026-10-13) took 66 iterations here. On CI, identical
+    # code and library versions took 76 on a faster runner (PR 69) and 82 on
+    # two slower ones (PR 70), so the count depends on the runner CPU.
     assert (
-        metadata["radiative_equilibrium_iterations_including_domain_adaptation"] <= 80
+        metadata["radiative_equilibrium_iterations_including_domain_adaptation"] <= 90
     )
     assert metadata["nonlinear_solver_segments"][-1]["phase"] in (
         "formal-radiative-flux-completion",

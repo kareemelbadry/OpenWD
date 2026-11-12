@@ -18,6 +18,7 @@ from .light_metal_nlte import (
     read_tmad_structure_model_atom,
     rydberg_angular_momentum_mixing_collision_data,
     rydberg_quadrupole_angular_momentum_mixing_collision_data,
+    tmap_seaton_gbar,
 )
 from .pg1159 import PG1159NLTEModel
 
@@ -26,6 +27,32 @@ EXTENDED_OVI_LEVELS_PER_CHARGE = MappingProxyType(
     {2: 47, 3: 83, 4: 105, 5: 54, 6: 1}
 )
 _TLUSTY_RESOLVED_HIGH_L_INDICES = (9, 13, 14)  # O VI 4f, 5f, 5g.
+_OXYGEN_VI_CHARGE = 5
+
+
+def _threshold_cross_sections_for(
+    target: TlustyPhotoionizationThresholdData,
+    source: TlustyPhotoionizationThresholdData,
+    indices: np.ndarray,
+) -> np.ndarray:
+    """Return ``source`` threshold cross sections in ``target``'s g-bar convention.
+
+    TLUSTY continuum records store the Seaton product g-bar * sigma_0, while
+    TOPbase and NORAD tables store sigma_0 and the rate applies g-bar.  An
+    appended entry must follow the convention of the table it joins, which
+    carries a single flag; otherwise g-bar is applied twice (or never).  For
+    the TLUSTY O VI 4f/5f/5g terms the radiative cross section comes from
+    their formula-2 parameters, so this value enters only the collisional
+    ionization rate.
+    """
+
+    values = np.asarray(source.threshold_cross_section_cm2[indices], dtype=np.float64)
+    gbar = tmap_seaton_gbar(_OXYGEN_VI_CHARGE)
+    if source.threshold_cross_section_includes_gbar and not target.threshold_cross_section_includes_gbar:
+        return values / gbar
+    if target.threshold_cross_section_includes_gbar and not source.threshold_cross_section_includes_gbar:
+        return values * gbar
+    return values
 
 
 def _resolved_oxygen_vi_bound_free_hybrid(
@@ -50,7 +77,7 @@ def _resolved_oxygen_vi_bound_free_hybrid(
         ),
         threshold_cross_section_cm2=np.ascontiguousarray(np.concatenate((
             topbase.threshold_cross_section_cm2,
-            tlusty.threshold_cross_section_cm2[indices],
+            _threshold_cross_sections_for(topbase, tlusty, indices),
         ))),
         log_frequency_ratio=topbase.log_frequency_ratio + tuple(
             tlusty.log_frequency_ratio[index] for index in indices
@@ -121,7 +148,7 @@ def _supplement_oxygen_vi_bound_free(
         ),
         threshold_cross_section_cm2=np.ascontiguousarray(np.concatenate((
             primary.threshold_cross_section_cm2,
-            supplement.threshold_cross_section_cm2[indices],
+            _threshold_cross_sections_for(primary, supplement, indices),
         ))),
         log_frequency_ratio=primary.log_frequency_ratio + tuple(
             supplement.log_frequency_ratio[index] for index in indices
