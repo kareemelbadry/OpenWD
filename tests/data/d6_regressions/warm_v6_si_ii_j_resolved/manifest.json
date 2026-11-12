@@ -30,10 +30,8 @@
       "C"
     ],
     "include_linear_stark_quasistatic": true,
-    "linear_stark_profile": "manifold",
     "include_oxygen_i_series_stark": true,
-    "microturbulent_velocity_kms": 0.0,
-    "line_profile_edge_optical_depth": 0.001
+    "microturbulent_velocity_kms": 0.0
   },
   "source_name": "d6-j1637-openwd-v5-coldstart/atmosphere.npz",
   "source_sha256": "86e963f5ab7178065264fa18a43d6e2a29a132fd1659e317f7b0d80868ddb932",
@@ -127,16 +125,14 @@
         "C"
       ],
       "include_linear_stark_quasistatic": true,
-      "linear_stark_profile": "manifold",
       "include_oxygen_i_series_stark": true,
-      "microturbulent_velocity_kms": 0.0,
-      "line_profile_edge_optical_depth": 0.001
+      "microturbulent_velocity_kms": 0.0
     }
   },
-  "reference_commit": "ef04c543aebbb7ea175f8785e4ab24f46aee78b1",
-  "physics_revision": "openwd-0.1.3-qmhd-undoubled-v5-flux-conserving:metal-audit-2026-09-30:default-feii-kurucz-uv-2026-10-12:rap-absolute-grid-2026-10-23:excited-parent-series-o-i-2026-10-25",
-  "data_sha256": "700058a18ccda7a0b9bae0e70b111addfb7876377e0bb64488f0a26ba050561a",
-  "code_sha256": "a2902c1bb615a8c2e7adacf514dafff729f2d6678e4ad674eff160ce0a874c50",
+  "reference_commit": "5f074d32b4abf8cf8b88d67fdac90b88c82644ca",
+  "physics_revision": "openwd-0.1.3-qmhd-undoubled-v5-flux-conserving:metal-audit-2026-09-30:default-feii-kurucz-uv-2026-10-12:rap-absolute-grid-2026-10-23:normalized-metal-levels-2026-10-24:excited-parent-series-o-i-2026-10-25",
+  "data_sha256": "879ab1fa0f143a19eaa3fd6817078b22991f8ae77ab8759146ea29262d3187e4",
+  "code_sha256": "0e9fc88ed6bd22b40356de10de563ac805cf70f50770fcf925c707953b60ef44",
   "python": "3.11.9 | packaged by conda-forge | (main, Apr 19 2024, 18:34:54) [Clang 16.0.6 ]",
   "numpy": "2.3.5",
   "platform": "macOS-26.6.2-arm64-arm-64bit",
@@ -147,32 +143,32 @@
     "maximum_log_temperature_correction",
     "scattering_source_maximum_relative_residual"
   ],
-  "output_sha256": "bf9c797f6b42f8f95c7c0c8322becb3ed85e0f06930e732e703b2cd2b2b7b9b7",
+  "output_sha256": "9226cd41810313fbd7810a8a808e7ef654136d8f459b4298e9ac3de8cc23c6ff",
   "seed_sha256": "70574a3c78a74f55e4c6c75c2b4f2b0d16b7d61a1ef398891de93a1aac8cb338",
   "timings_seconds": {
-    "trajectory": 2570.8445459159557,
-    "fixed_spectrum": 129.96689199993853
+    "trajectory": 2304.809353208635,
+    "fixed_spectrum": 135.5974961668253
   },
   "independent_kurucz_manifest_sha256": "f0efa3b6012e25c4888722a154455e519e9a4857575e583e70004739b112226e",
   "archived_reference": {
-    "name": "warm_v4_rap_absolute",
-    "manifest_sha256": "0af0fcde0b481f09846bd8d5e6c83234ae23733738eada9a8316be7fc83cb091",
-    "output_sha256": "2d8824478e829d0492ebe7dfd62e07ad66cff9b6421a95d5e0ff17b0f96049c4",
+    "name": "warm_v5_excited_parent_o_i",
+    "manifest_sha256": "635949d198fa0617a962728c4fc6dd014b3fd0f8851d75def53908ec8a72397a",
+    "output_sha256": "bf9c797f6b42f8f95c7c0c8322becb3ed85e0f06930e732e703b2cd2b2b7b9b7",
     "seed_sha256": "70574a3c78a74f55e4c6c75c2b4f2b0d16b7d61a1ef398891de93a1aac8cb338",
-    "reference_commit": "10a5e708071336c8588c68d052fdcb7332c6fadc"
+    "reference_commit": "ef04c543aebbb7ea175f8785e4ab24f46aee78b1"
   },
   "difference_from_previous": {
     "profiles": {
       "temperature": {
-        "maximum_absolute": 467.84667468360567,
-        "maximum_relative": 0.013928520003099853,
+        "maximum_absolute": 8.430800233865739,
+        "maximum_relative": 0.00025380608991065756,
         "maximum_relative_by_step": [
-          0.01364999185449256,
-          0.013928520003099853
+          0.00025380608991065756,
+          0.00024845676310158993
         ],
         "maximum_relative_location": [
-          1,
-          43
+          0,
+          42
         ]
       },
       "gas_pressure": {
@@ -188,27 +184,27 @@
         ]
       },
       "mass_density": {
-        "maximum_absolute": 3.6506565208687723e-08,
-        "maximum_relative": 0.027488532086156092,
+        "maximum_absolute": 6.87585072361617e-10,
+        "maximum_relative": 0.0005324277136427025,
         "maximum_relative_by_step": [
-          0.027433771356537684,
-          0.027488532086156092
+          0.0005324277136427025,
+          0.0005212053611047818
         ],
         "maximum_relative_location": [
-          1,
+          0,
           42
         ]
       },
       "electron_density": {
-        "maximum_absolute": 1041671915396096.0,
-        "maximum_relative": 0.008468548333971704,
+        "maximum_absolute": 17404539778784.0,
+        "maximum_relative": 0.0001436713027609393,
         "maximum_relative_by_step": [
-          0.007976555422922638,
-          0.008468548333971704
+          0.0001436713027609393,
+          0.00014102826138406854
         ],
         "maximum_relative_location": [
-          1,
-          44
+          0,
+          43
         ]
       }
     },
@@ -219,20 +215,6 @@
       "scattering_source_maximum_relative_residual"
     ],
     "previous_metrics": [
-      [
-        0.006500833180771437,
-        3.0246566238837965e-05,
-        0.013974520424943293,
-        1.722195056608127e-15
-      ],
-      [
-        2.1527118993169836e-05,
-        1.1300192172516317e-07,
-        0.0007549419187391493,
-        1.6844138216669627e-15
-      ]
-    ],
-    "current_metrics": [
       [
         0.0012324049853227326,
         3.098290430451359e-05,
@@ -245,29 +227,20 @@
         0.000459926138397293,
         1.7308237779683805e-15
       ]
+    ],
+    "current_metrics": [
+      [
+        0.0012645434108264908,
+        3.0894777190771076e-05,
+        0.014385842718521502,
+        1.7621454356170928e-15
+      ],
+      [
+        2.9678490671702917e-06,
+        1.3104098545365593e-07,
+        0.0004580059107901491,
+        1.5799815049628857e-15
+      ]
     ]
-  },
-  "spectral_approval": {
-    "date": "2026-10-25",
-    "authorization": "User request (2026-10-25) to commit the O I excited-parent changes and open a PR after a certified J1637 cold start; subject to PR review.",
-    "maximum_relative_change": 0.46,
-    "observed_maximum_relative_change": 0.4584157808022533,
-    "integrated_flux_change": -0.005066020624805105,
-    "spectrum_rtol": 2e-06,
-    "tolerances_changed": false,
-    "approved_output_sha256": "bf9c797f6b42f8f95c7c0c8322becb3ed85e0f06930e732e703b2cd2b2b7b9b7",
-    "reason": "Excited-parent series (levels above the first limit) take classical electron widths and linear-Stark n-manifolds from their parent limit; the D6 atom gains the OP-normalized O I 2p3(2D)3p -> 4d, 5s 3Do multiplets.",
-    "cold_start_qualification": false,
-    "separate_cold_start": {
-      "iterations": 17,
-      "wall_minutes": 138.7,
-      "all_depth_flux": 1.0297111496804234e-08,
-      "local_energy": 6.977163820049079e-05,
-      "temperature_stationarity": 5.335322830113398e-05,
-      "maximum_relative_temperature_difference_from_seed_logtau_-4_to_1": 0.001,
-      "gtc_chi2_previous_physics": 12716.2,
-      "gtc_chi2": 11975.5,
-      "gtc_pixels": 5151
-    }
   }
 }

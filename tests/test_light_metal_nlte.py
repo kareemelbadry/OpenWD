@@ -2156,3 +2156,19 @@ def test_compiled_bound_free_rejects_mismatched_output():
     with pytest.raises(ValueError, match='wavelength/depth arrays must match'):
         metal._rt.accumulate_bound_free_nlte(np.ones(3), *[np.ones(2) for _ in range(4)],
             np.ones((3, 2)), np.ones((3, 2)), np.zeros((3, 1)), np.zeros((3, 2)))
+
+
+def test_hydrogenic_kramers_threshold_cross_section_carries_the_level_gaunt_factor():
+    from wd_spectra.gaunt import hydrogen_bound_free_gaunt_factor
+    from wd_spectra.light_metal_nlte import hydrogenic_kramers_threshold_cross_section
+
+    rydberg_ev = 13.605_693_122_994
+    for n in (2, 3, 4, 6):
+        threshold_ev = rydberg_ev / n**2
+        frequency = threshold_ev * 2.417_989_242e14 * (1.0 + 1e-9)
+        exact = 7.907e-18 * n * float(hydrogen_bound_free_gaunt_factor(n, frequency))
+        assert hydrogenic_kramers_threshold_cross_section(threshold_ev, 0) == pytest.approx(exact, rel=0.015)
+    # Z scaling: sigma ~ n*/Z**2 at fixed n*.
+    assert hydrogenic_kramers_threshold_cross_section(9.0 * rydberg_ev / 9.0, 2) == pytest.approx(
+        hydrogenic_kramers_threshold_cross_section(rydberg_ev / 9.0, 0) / 9.0, rel=1e-12
+    )

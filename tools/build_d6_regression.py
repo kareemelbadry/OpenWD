@@ -226,8 +226,12 @@ def main():
         cold_start_qualification=False, steps=STEPS, config=asdict(config),
         source_name=source_name, source_sha256=source_sha256,
         source_cold_certificate=certificate,
-        source_request={key: source_request[key] for key in
-                        ("physics_revision", "code_sha256", "data_sha256", "config")},
+        # Retired D6Config fields (recorded at the values the model now fixes)
+        # are dropped, so the source request matches ``config`` as
+        # frozen_source requires when this capsule is itself a source.
+        source_request={**{key: source_request[key] for key in
+                           ("physics_revision", "code_sha256", "data_sha256")},
+                        "config": current_config(source_request["config"])},
         reference_commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         physics_revision=fingerprint["physics_revision"],
         data_sha256=fingerprint["data_sha256"], code_sha256=fingerprint["code_sha256"],

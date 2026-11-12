@@ -1,14 +1,8 @@
 {
-  "source_commit": "ed95a103172c5d6559c84e02cee1ab831a9864ca",
+  "source_commit": "254cd74c212f00c1cdd128cab20ddce48e0ae335",
   "source_changes": [
-    "docs/development/README.md",
-    "docs/models/sdB.md",
-    "src/wd_spectra/models/sdb.py",
-    "src/wd_spectra/models/selection.py",
-    "tests/test_sdb_public.py",
-    "tests/test_validation_workflow.py",
-    "tools/validate.py",
-    "tools/validation_policy.py"
+    "tests/data/approved_regressions/README.md",
+    "tests/test_protected_model_canaries.py"
   ],
   "recipe": "separate sdb_lte_hhe.py + sdb_hybrid_nlte.py, no compute_sdb call",
   "driver_sha256": {
@@ -32,7 +26,7 @@
     "verified": true,
     "checks": {
       "all_depth_flux": {
-        "value": 3.3115074016265567e-08,
+        "value": 3.147402338754546e-10,
         "tolerance": 0.003,
         "passed": true,
         "measured": true
@@ -50,25 +44,25 @@
         "measured": false
       },
       "local_energy": {
-        "value": 0.00017669297876510843,
+        "value": 0.00014842409572547112,
         "tolerance": 0.003,
         "passed": true,
         "measured": true
       },
       "temperature_stationarity": {
-        "value": 5.0451892152025835e-05,
+        "value": 1.2568722354444617e-05,
         "tolerance": 0.0003,
         "passed": true,
         "measured": true
       },
       "source_closure": {
-        "value": 1.2646568170534123e-15,
+        "value": 1.3073935379340933e-15,
         "tolerance": 1e-06,
         "passed": true,
         "measured": true
       },
       "boundary_screening": {
-        "value": 1.0954720250367241e-20,
+        "value": 1.095412119717459e-20,
         "tolerance": 0.003,
         "passed": true,
         "measured": true
@@ -86,11 +80,22 @@
     "full_physics_validation": false
   },
   "nlte_populations_converged": true,
-  "nlte_population_iterations": 140,
-  "nlte_population_change": 9.980316259869244e-05,
-  "control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
-  "fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
+  "nlte_population_iterations": 295,
+  "nlte_population_change": 9.72407299658518e-05,
+  "control_sha256": "db9a1cc5ce4001d83c06ba2d2641c97a15a15545117542223bc9787d4afc62c4",
+  "fixed_state_sha256": "133de220ef29ec4e24a3a2932de767c2a149a6cef9dc9c3e9f33f10157218cf6",
   "absolute_flux_rtol": 0.001,
   "fixed_spectrum_rtol": 1e-07,
-  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification."
+  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification.",
+  "supersedes": {
+    "reason": "hydrogen Stark-table interpolation rescaled to the bilinear weighting of corner-profile areas (known_bugs #26); recipe re-run 2026-11-12",
+    "previous_source_commit": "ed95a103172c5d6559c84e02cee1ab831a9864ca",
+    "previous_control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
+    "previous_fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
+    "withdrawn_interim_control_sha256": "e0fe25f1a8c37e7da54c75c506e4595ad658f1960562b16b61a4e36400f12490",
+    "withdrawn_interim_note": "fixed-state re-synthesis that kept the old NLTE populations; a fresh cold start differed from it by 1.15% at H-alpha",
+    "max_relative_change_from_previous": 0.00669,
+    "max_change_wavelength_angstrom": 6564.0,
+    "continuum_relative_change_from_previous": 0.00064
+  }
 }

@@ -1,10 +1,10 @@
 # J1637 warm trajectory and fixed spectrum
 
-`warm_v5_excited_parent_o_i/j1637.npz` is the full-resolution regression
+`warm_v6_si_ii_j_resolved/j1637.npz` is the full-resolution regression
 reference for the standard J1637 request: 48 layers, 25,000-line budgets for
 structure and synthesis, and the normal optical spectrum grid.
 `manifest.json` records its hashes, equations, configuration, archived source
-certificate, and measured build timings. `warm_v5_excited_parent_o_i-seed.npz`
+certificate, and measured build timings. `warm_v6_si_ii_j_resolved-seed.npz`
 contains the corresponding input; both hashes are checked, and its arrays must
 exactly match those in the reference. The version's own README describes the
 physics change it records.
@@ -43,7 +43,7 @@ certificate:
 
 ```bash
 PYTHONPATH=src python tools/build_d6_regression.py \
-  tests/data/d6_regressions/warm_v5_excited_parent_o_i NEW_DIRECTORY \
+  tests/data/d6_regressions/warm_v6_si_ii_j_resolved NEW_DIRECTORY \
   --from-frozen-reference --spectrum-first
 ```
 

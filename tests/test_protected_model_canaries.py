@@ -38,7 +38,10 @@ MONTREAL_H_RADIUS_COLD = (
 COOL_H_CHEMISTRY_COLD = (
     Path(__file__).parent / "data/approved_regressions/cool_h_chemistry_2026_11_10/cold"
 )
-REVIEWED_COLD = (COOL_H_CHEMISTRY_COLD, MONTREAL_H_RADIUS_COLD)
+STARK_AREA_COLD = (
+    Path(__file__).parent / "data/approved_regressions/stark_area_2026_11_11/cold"
+)
+REVIEWED_COLD = (STARK_AREA_COLD, COOL_H_CHEMISTRY_COLD, MONTREAL_H_RADIUS_COLD)
 _FORMAL_WAVELENGTH = np.unique(
     np.r_[np.geomspace(900.0, 300000.0, 1100), np.arange(3700.0, 7000.0, 2.0)]
 )

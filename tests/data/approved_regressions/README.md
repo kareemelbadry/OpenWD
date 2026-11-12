@@ -38,8 +38,27 @@ byte. [Integration provenance](audit_cool_h_integration_2026_11_11.json)
 records both predecessor hashes, the capture inputs and the band changes.
 All comparison tolerances are unchanged.
 
-`cold/`, `montreal_h_radius_2026_10_27/cold/` and
-`cool_h_chemistry_2026_11_10/cold/` (newest first) supply comparison outputs for
+On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
+in electron density and temperature is rescaled to the bilinear weighting of
+the corner-profile areas; midway between density nodes it had kept only
+86-88% of the Lyman-alpha and Balmer area at log ne <= 13) re-approved
+`da-3000`, `da-4000`, `da-5000`, `da-20000`, `db-22000`, `dab-9000`,
+`dab-20000`, `dz-pg1225`, `dz-j0738` and `public-da-12000-public`. Largest
+changes in significant flux: 5.3% in the trace-hydrogen Lyalpha wing of
+`dz-pg1225`, 1.1-2.8% at Lyalpha in the warm DA/DAB/DZ cases, 0.52% at the
+`da-5000` Halpha core; integrated flux at most 4e-4.
+`research/capture_stark_area_controls.py` wrote them (and measures without
+`--write`). The DAZ and DAH controls stay within their tolerances and are
+retained byte for byte.
+In the first full validation of that fix only the `da-5000` cold canary moved
+beyond tolerance: its structure matched the previous reviewed reference to
+4e-9 and its Halpha core deepened by 0.37% (3.27e-3 on the energy scale against
+the 3e-3 bound). `stark_area_2026_11_11/cold/da-5000.npz` is the CI cold start,
+verified and re-synthesized by `research/capture_stark_area_cold_controls.py`;
+its manifest records the source certificate and the change.
+
+`stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium
 check; the Montreal copies replace the DA references moved by the 2026-10-27

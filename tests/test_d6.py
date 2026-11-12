@@ -1264,3 +1264,38 @@ def test_o_i_series_stark_effective_n_cutoff_preserves_lower_members():
         temperature,
         minimum_effective_n=7.5,
     ) is not None
+
+
+def test_j_resolved_tlusty_ground_term_starts_at_the_stout_zero_point():
+    # TLUSTY's si2_36+4lev atom lists the 2Po ground term once per J. Its
+    # first level is the lowest J level, so the 0.024 eV Stout ground-term
+    # centroid must not be added (that put every Si II edge 0.024 eV low).
+    data = ModelData.default()
+    atom = data.tlusty_atoms / "si2_36+4lev.dat"
+    if not atom.is_file() or not data.stout.exists():
+        pytest.skip("TLUSTY Si II atom not installed")
+    database = read_stout_atomic_database(data.stout, elements=("Si",), maximum_charge=2)
+    ion = database.ions[("Si", 1)]
+    sections = read_tlusty_topbase_lte_photoionization([(atom, "Si", 1)], database).sections
+    by_level = {section.level_index: section for section in sections}
+    assert by_level[1].excitation_energy_ev == 0.0
+    assert by_level[1].threshold_energy_ev == pytest.approx(ion.ionization_energy_ev, abs=1e-12)
+    # The J = 3/2 level keeps its own (theoretical) splitting near Stout's 287 cm^-1.
+    stout_3_2 = 287.231 / 8065.544
+    assert by_level[2].excitation_energy_ev == pytest.approx(stout_3_2, abs=0.002)
+
+
+def test_ls_tlusty_ground_term_is_measured_from_the_stout_centroid():
+    data = ModelData.default()
+    atom = data.tlusty_atoms / "si1_16+6lev.dat"
+    if not atom.is_file() or not data.stout.exists():
+        pytest.skip("TLUSTY Si I atom not installed")
+    from wd_spectra.d6 import stout_ground_term_centroid_ev
+
+    database = read_stout_atomic_database(data.stout, elements=("Si",), maximum_charge=2)
+    ion = database.ions[("Si", 0)]
+    sections = read_tlusty_topbase_lte_photoionization([(atom, "Si", 0)], database).sections
+    ground = next(section for section in sections if section.level_index == 1)
+    centroid = stout_ground_term_centroid_ev(ion)
+    assert centroid > 0.01
+    assert ground.excitation_energy_ev == pytest.approx(centroid, abs=1e-12)

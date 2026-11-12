@@ -4501,13 +4501,9 @@ def light_metal_bound_free_nlte_coefficients(
                         continue
                     cross_section = fit.cross_section(photon_energy_ev)
                 elif cross_section is None:
-                    effective_charge = ion.charge + 1.0
-                    effective_n = np.sqrt(
-                        13.605_693_122_994
-                        * effective_charge**2
-                        / threshold_ev
+                    sigma0 = hydrogenic_kramers_threshold_cross_section(
+                        threshold_ev, ion.charge
                     )
-                    sigma0 = 6.30e-18 * effective_n / effective_charge**2
                     if kramers_cumulative:
                         cross_section = sigma0
                     else:
@@ -5019,6 +5015,28 @@ def _fractions_from_log_ratios(log_ratios: FloatArray) -> FloatArray:
     maximum = np.max(cumulative, axis=0, keepdims=True)
     weight = np.exp(np.clip(cumulative - maximum, -745.0, 0.0))
     return weight / np.sum(weight, axis=0, keepdims=True)
+
+
+def hydrogenic_kramers_threshold_cross_section(
+    threshold_ev: float, ion_charge: int
+) -> float:
+    """Return the hydrogenic threshold photoionization cross section (cm^2).
+
+    ``sigma = 7.907e-18 n* / Z**2 g_bf`` for an effective principal quantum
+    number ``n* = Z sqrt(13.606 eV / threshold)`` and residual charge
+    ``Z = ion_charge + 1``. The threshold Gaunt factor is the Menzel--Pekeris
+    expansion ``1 - 0.1728 n*^(-2/3)`` (Menzel & Pekeris 1935), 0.89--0.96
+    for the excited levels this approximation serves. The former 6.30e-18
+    coefficient carried hydrogen's ground-state Gaunt factor (0.797) to every
+    level.
+    """
+
+    effective_charge = float(ion_charge) + 1.0
+    effective_n = float(
+        np.sqrt(13.605_693_122_994 * effective_charge**2 / threshold_ev)
+    )
+    gaunt = 1.0 - 0.1728 * effective_n ** (-2.0 / 3.0)
+    return 7.907e-18 * effective_n / effective_charge**2 * gaunt
 
 
 def _photoionization_rates_python(
@@ -6434,11 +6452,9 @@ def solve_reduced_light_metal_levels_nlte(
                 source = "Verner ground-state fit"
                 threshold_cross_section_includes_gbar = False
             else:
-                effective_charge = charge + 1.0
-                effective_n = np.sqrt(
-                    13.605_693_122_994 * effective_charge**2 / threshold_ev
+                sigma0 = hydrogenic_kramers_threshold_cross_section(
+                    threshold_ev, charge
                 )
-                sigma0 = 6.30e-18 * effective_n / effective_charge**2
                 threshold_cross_section = sigma0
                 source = "hydrogenic Kramers excited-level approximation"
                 cross_section = None if kramers_cumulative else np.where(

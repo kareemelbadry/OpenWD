@@ -18,7 +18,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 BUILDER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILDER)
-SOURCE = ROOT / "tests" / "data" / "d6_regressions" / "warm_v5_excited_parent_o_i"
+SOURCE = ROOT / "tests" / "data" / "d6_regressions" / "warm_v6_si_ii_j_resolved"
 SOURCE_SEED = SOURCE.with_name(SOURCE.name + "-seed.npz")
 
 
@@ -59,7 +59,7 @@ def test_original_immutable_capsule_decodes_without_trajectory():
         "70574a3c78a74f55e4c6c75c2b4f2b0d16b7d61a1ef398891de93a1aac8cb338"
     )
     assert BUILDER.digest(SOURCE / "j1637.npz") == (
-        "bf9c797f6b42f8f95c7c0c8322becb3ed85e0f06930e732e703b2cd2b2b7b9b7"
+        "9226cd41810313fbd7810a8a808e7ef654136d8f459b4298e9ac3de8cc23c6ff"
     )
     arrays, manifest, archive = BUILDER.frozen_source(SOURCE, asdict(D6Config()))
     assert set(arrays) == {
