@@ -18,14 +18,18 @@ recorded in `manifest.json`, together with the driver and control checksums.
   1e-7 and which forbids structure and population iterations. This state is
   never read by the cold test.
 
-On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
-in electron density and temperature is rescaled to the bilinear weighting of
-the corner-profile areas) re-approved `hd4539-hhe.npz`. Its flux was
-re-synthesized with `sdb._emergent_flux` on the unchanged
-`hd4539-fixed-state.npz` and wavelength grid; the research drivers were not
-re-run. The largest change is -1.16% at the H-alpha core (H-beta -0.66%,
-H-gamma -0.34%); integrated flux changes by -1.6e-5. `manifest.json` records
-the previous checksum under `control_reapprovals`. Tolerances are unchanged.
+On 2026-11-12 both controls were rebuilt with the recipe below for the
+hydrogen Stark-table fix (the log-bilinear interpolation in electron density
+and temperature is rescaled to the bilinear weighting of the corner-profile
+areas). The NLTE populations converged in 295 iterations (change 9.7e-5).
+Against the previous control the H-alpha core is 0.67% higher, H-beta 0.48%
+and the continuum 0.064%: the LTE structure and the re-solved populations
+both respond to the restored line area. A fresh public cold start on CI
+agrees with the new control to 1e-6 at every wavelength it reported. An
+interim control that only re-synthesized the old fixed state (keeping the old
+populations) missed that cold start by 1.15% at H-alpha and was withdrawn.
+`manifest.json` records the previous checksums under `supersedes`.
+Tolerances are unchanged.
 
 For an explicitly reviewed new control, use new output directories:
 

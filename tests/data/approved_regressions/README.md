@@ -50,9 +50,15 @@ changes in significant flux: 5.3% in the trace-hydrogen Lyalpha wing of
 `research/capture_stark_area_controls.py` wrote them (and measures without
 `--write`). The DAZ and DAH controls stay within their tolerances and are
 retained byte for byte.
+In the first full validation of that fix only the `da-5000` cold canary moved
+beyond tolerance: its structure matched the previous reviewed reference to
+4e-9 and its Halpha core deepened by 0.37% (3.27e-3 on the energy scale against
+the 3e-3 bound). `stark_area_2026_11_11/cold/da-5000.npz` is the CI cold start,
+verified and re-synthesized by `research/capture_stark_area_cold_controls.py`;
+its manifest records the source certificate and the change.
 
-`cold/`, `montreal_h_radius_2026_10_27/cold/` and
-`cool_h_chemistry_2026_11_10/cold/` (newest first) supply comparison outputs for
+`stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium
 check; the Montreal copies replace the DA references moved by the 2026-10-27
