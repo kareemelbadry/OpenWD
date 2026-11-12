@@ -88,9 +88,20 @@
   "nlte_populations_converged": true,
   "nlte_population_iterations": 140,
   "nlte_population_change": 9.980316259869244e-05,
-  "control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
+  "control_sha256": "e0fe25f1a8c37e7da54c75c506e4595ad658f1960562b16b61a4e36400f12490",
   "fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
   "absolute_flux_rtol": 0.001,
   "fixed_spectrum_rtol": 1e-07,
-  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification."
+  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification.",
+  "control_reapprovals": [
+    {
+      "date": "2026-11-11",
+      "reason": "hydrogen Stark-table interpolation rescaled to the bilinear weighting of corner-profile areas (known_bugs #26)",
+      "method": "flux re-synthesized with sdb._emergent_flux on the unchanged hd4539-fixed-state.npz and wavelength grid; research drivers not re-run",
+      "previous_control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
+      "max_relative_change": -0.011565,
+      "max_change_wavelength_angstrom": 6564.95,
+      "integrated_relative_change": -1.6e-05
+    }
+  ]
 }

@@ -18,6 +18,15 @@ recorded in `manifest.json`, together with the driver and control checksums.
   1e-7 and which forbids structure and population iterations. This state is
   never read by the cold test.
 
+On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
+in electron density and temperature is rescaled to the bilinear weighting of
+the corner-profile areas) re-approved `hd4539-hhe.npz`. Its flux was
+re-synthesized with `sdb._emergent_flux` on the unchanged
+`hd4539-fixed-state.npz` and wavelength grid; the research drivers were not
+re-run. The largest change is -1.16% at the H-alpha core (H-beta -0.66%,
+H-gamma -0.34%); integrated flux changes by -1.6e-5. `manifest.json` records
+the previous checksum under `control_reapprovals`. Tolerances are unchanged.
+
 For an explicitly reviewed new control, use new output directories:
 
 ```bash
