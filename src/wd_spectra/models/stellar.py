@@ -131,8 +131,11 @@ class DAConfig:
     # temperature stationarity only) is re-solved warm, up to this many
     # times: first with the stuck layers on the stable frozen-field roots
     # their residuals point to, then with the largest radiative inversion
-    # moved one layer (deeper, then shallower).  Within the two-root band the
-    # front stays where it is seeded.  Certification is unchanged.  0 disables.
+    # moved one layer (deeper, then shallower), then after one exact
+    # (finite-difference) Newton step of the radiative cell energies around
+    # the worst cell: 4750/7.5 stalls beside that block's root, which its
+    # full-system step cannot reach.  Within the two-root band the front
+    # stays where it is seeded.  Certification is unchanged.  0 disables.
     thermal_branch_restarts: int = 4
 
 
@@ -705,7 +708,8 @@ def compute_da(
         # end an unfinished solve between them. Re-solve the SAME equations
         # warm from a reseeded structure: first the stuck layers on the
         # frozen-field stable roots their residuals point to, then the
-        # largest radiative inversion moved one layer. Each attempt starts
+        # largest radiative inversion moved one layer, then one exact local
+        # Newton step of the radiative cells around the worst. Each attempt starts
         # from the previous unfinished structure and must earn its own
         # complete equilibrium certificate.
         relocated_iterations = 0
@@ -733,6 +737,14 @@ def compute_da(
                         (front[1],) if direction == "deeper" else (front[0],),
                         _da_thermal_front_seed(latest.temperature, front, direction),
                     ))
+            local = latest.metadata.get("local_newton_thermal_seed")
+            if local is not None:
+                candidates.append((
+                    ("local-newton", tuple(local["layers"])),
+                    "local-newton",
+                    tuple(local["layers"]),
+                    np.asarray(local["temperature"], dtype=np.float64),
+                ))
             choice = next(
                 (candidate for candidate in candidates if candidate[0] not in tried_seeds),
                 None,

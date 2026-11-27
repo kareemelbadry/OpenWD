@@ -63,6 +63,68 @@ def stable_branch_temperature(
     return max(below) if below else None
 
 
+def local_newton_seed(
+    temperature,
+    cell_residual,
+    radiative,
+    residual_at: Callable[[np.ndarray], np.ndarray],
+    *,
+    half_width: int = 3,
+    logarithmic_step: float = 1.0e-4,
+    required_reduction: float = 2.0,
+) -> tuple[np.ndarray, list[int]] | None:
+    """One exact Newton step of the radiative cell energies around the worst cell.
+
+    ``residual_at(T)`` returns the relative cell energy residuals (one per
+    cell, cell i belonging to layer i) of the same discretization as
+    ``cell_residual``.  The block is the radiative cells within
+    ``half_width`` of the worst radiative cell; its Jacobian is measured by
+    centered differences in ln T with all other layers fixed.  The step is
+    returned only if it lowers the block's largest residual by
+    ``required_reduction``; otherwise None.  A trust-region solve can stall
+    next to the root of such a block when other equations (for example an
+    onset of convection below it) spoil its full-system step.
+    """
+
+    temperature = np.asarray(temperature, dtype=np.float64)
+    residual = np.asarray(cell_residual, dtype=np.float64)
+    radiative = np.asarray(radiative, dtype=bool)
+    n_cell = temperature.size - 1
+    if residual.shape != (n_cell,) or radiative.shape != (temperature.size,):
+        raise ValueError("residual has one value per cell and radiative one per layer")
+    cells = np.flatnonzero(radiative[:-1])
+    if cells.size == 0:
+        return None
+    worst = int(cells[np.argmax(np.abs(residual[cells]))])
+    block = [
+        cell for cell in range(worst - half_width, worst + half_width + 1)
+        if 0 <= cell < n_cell and radiative[cell]
+    ]
+    base = np.asarray(residual_at(temperature), dtype=np.float64)[block]
+    jacobian = np.empty((len(block), len(block)))
+    for column, layer in enumerate(block):
+        hotter = temperature.copy()
+        colder = temperature.copy()
+        hotter[layer] *= np.exp(logarithmic_step)
+        colder[layer] *= np.exp(-logarithmic_step)
+        jacobian[:, column] = (
+            np.asarray(residual_at(hotter), dtype=np.float64)[block]
+            - np.asarray(residual_at(colder), dtype=np.float64)[block]
+        ) / (2.0 * logarithmic_step)
+    try:
+        step = np.linalg.solve(jacobian, -base)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(np.isfinite(step)):
+        return None
+    seed = temperature.copy()
+    seed[block] *= np.exp(step)
+    after = np.asarray(residual_at(seed), dtype=np.float64)[block]
+    if not np.max(np.abs(after)) * required_reduction <= np.max(np.abs(base)):
+        return None
+    return seed, [int(layer) for layer in block]
+
+
 def frozen_field_branch_seed(
     temperature,
     wavelength,

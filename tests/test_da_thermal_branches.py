@@ -31,7 +31,7 @@ def _front_temperature():
     return t
 
 
-def _atmosphere(temperature, failures, *, convective=None, worst=None, branch=None):
+def _atmosphere(temperature, failures, *, convective=None, worst=None, branch=None, local=None):
     atmosphere = gray_hydrogen_atmosphere(4_500.0, 7.5, n_depth=_N)
     if convective is None:
         convective = np.zeros(_N)
@@ -45,6 +45,7 @@ def _atmosphere(temperature, failures, *, convective=None, worst=None, branch=No
         "cell_energy_balance_relative_residual": residual,
         "lower_boundary_absorption_escape_bound": 1e-6,
         **({} if branch is None else {"frozen_field_thermal_branch_seed": branch}),
+        **({} if local is None else {"local_newton_thermal_seed": local}),
     })
 
 
@@ -94,9 +95,10 @@ def _run(monkeypatch, config, results):
     calls = []
 
     def solve(teff, logg, *, n_depth, tau_max, **kwargs):
-        temperature, failures, *branch = results[min(len(calls), len(results) - 1)]
+        temperature, failures, *seeds = results[min(len(calls), len(results) - 1)]
         calls.append(dict(kwargs, n_depth=n_depth, tau_max=tau_max))
-        return _atmosphere(temperature, failures, branch=branch[0] if branch else None)
+        seeds = (seeds + [None, None])[:2]
+        return _atmosphere(temperature, failures, branch=seeds[0], local=seeds[1])
 
     def finish(atmosphere, kind):
         raise _Done(atmosphere)
@@ -233,3 +235,52 @@ def test_frozen_field_seed_moves_only_stuck_layers():
     assert changed == [0]
     assert seed[0] == pytest.approx(3600.0, abs=50.0)
     assert np.array_equal(seed[1:], temperature[1:])
+
+
+def test_local_newton_seed_is_the_last_candidate(monkeypatch):
+    t = _front_temperature()
+    local_t = t.copy()
+    local_t[3:7] *= 1.0001
+    local = {"temperature": local_t, "layers": [3, 4, 5, 6]}
+    failing = ["solver_completion", "temperature_stationarity"]
+    calls, atmosphere = _run(monkeypatch, DAConfig(**_COOL), [
+        (t, failing, None, local), (t, failing, None, local),
+        (t, failing, None, local), (t, []),
+    ])
+    records = atmosphere.metadata["thermal_branch_restarts"]
+    assert [r["kind"] for r in records] == ["deeper", "shallower", "local-newton"]
+    assert np.array_equal(calls[3]["initial_temperature"], local_t)
+    assert records[-1]["failures"] == []
+
+
+def test_local_newton_seed_solves_a_coupled_block():
+    from wd_spectra._thermal_branches import local_newton_seed
+
+    root = np.array([3000.0, 3100.0, 3300.0, 3500.0, 3600.0, 5000.0])
+
+    def residual_at(values):
+        x = np.log(values / root)
+        # Nonlinear, neighbour-coupled cells; the last cell is convective.
+        r = -4.0 * x[:-1] + 0.5 * np.roll(x, -1)[:-1] + 30.0 * x[:-1] ** 2
+        return r
+
+    temperature = root * np.exp([0.0, 0.0, 4e-4, -3e-4, 0.0, 0.0])
+    radiative = np.array([True, True, True, True, True, False])
+    seed, layers = local_newton_seed(
+        temperature, residual_at(temperature), radiative, residual_at, half_width=1)
+    assert layers == [1, 2, 3]
+    assert np.max(np.abs(residual_at(seed))) < 1e-2 * np.max(np.abs(residual_at(temperature)))
+    assert seed[0] == temperature[0] and seed[4] == temperature[4]
+
+
+def test_local_newton_seed_requires_a_real_reduction():
+    from wd_spectra._thermal_branches import local_newton_seed
+
+    temperature = np.array([3000.0, 3100.0, 3200.0])
+
+    def residual_at(values):
+        # A residual minimum with no root: Newton cannot halve it.
+        return 1e-3 + (np.log(values[:-1] / 3000.0)) ** 2
+
+    assert local_newton_seed(temperature, residual_at(temperature),
+                             np.array([True, True, True]), residual_at) is None
