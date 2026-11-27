@@ -52,9 +52,16 @@ canaries `db-22000` and `db-22000-standard` move by -0.65% in that band
 (-0.69% from the line opacity, the rest backwarming), over their 3e-3 bound.
 `he_i_infrared_2026_11_27/cold/` holds `db-10000`, `db-22000` and
 `db-22000-standard` from verified local cold starts of the canary models on
-the canary grid (`research/capture_he_i_infrared_cold_controls.py`). Their gas
-pressure and column mass equal the previous references; band fluxes move by
-at most 4.6e-4 outside the infrared, and the He I 5876 core by 2.3% at 22,000 K.
+the canary grid (`research/capture_he_i_infrared_cold_controls.py`). The
+22,000 K gas pressure and column mass equal the previous references; their band
+fluxes move by at most 4.6e-4 outside the infrared, and the He I 5876 core by
+2.3%. `db-10000` also includes the column-mass Rosseland remesh of the same
+date: its nodes moved onto the intended Rosseland mesh, and its UV, optical
+and infrared band fluxes fall by 0.62%, 0.22% and 0.18% (the previous mesh
+over-predicted the bolometric flux by 0.6%). Its nodes come from a macOS cold
+start; if a Linux canary moves them by more than the 2e-5 node tolerance, take
+the gas pressure and column mass from that certified candidate, as on
+2026-11-19.
 
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of
