@@ -1,21 +1,20 @@
-"""Move the DB 22000 cold-canary references by the infrared He I lines alone.
+"""Capture DB cold-canary references for the infrared He I lines.
 
-The infrared He I lines (wd_spectra.helium_impact) enter the helium synthesis
-but not the default structure solve, so a cold DB start converges to the same
-atmosphere as before and only its spectrum changes.  For each case this script
-reads a ``ratio.npz`` written for that canary model (a local cold start of the
-same configuration on the canary formal grid, synthesized with and without the
-new lines on its converged structure), checks that the local structure matches
-the approved reference at the canary tolerance, and writes a reference whose
-flux is the approved flux times the with/without ratio.  Wavelength, gas
-pressure and column mass are copied unchanged from the approved reference.
+The infrared He I lines (wd_spectra.helium_impact) now enter the DB structure
+and spectrum.  Each case reads a ``ratio.npz`` written by a local cold start of
+the canary model (the configuration and formal wavelength grid of
+tests/test_protected_model_canaries.py) whose equilibrium certificate was
+verified, and stores its surface flux, gas pressure and column mass as the new
+reference.  ``ratio.npz`` also holds the flux re-synthesized on the same
+structure without the new lines, so the manifest separates the line opacity
+itself from the structural response.
 
 The script refuses an existing output directory and is never run by tests or
 CI.  Copy the written files into
 tests/data/approved_regressions/he_i_infrared_2026_11_27/cold/.
 
 usage: python research/capture_he_i_infrared_cold_controls.py OUTDIR \\
-           db-22000=PATH/ratio.npz db-22000-standard=PATH/ratio.npz
+           CASE=PATH/ratio.npz [CASE=PATH/ratio.npz ...]
 """
 from __future__ import annotations
 
@@ -31,16 +30,32 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from wd_spectra._compat import trapezoid  # noqa: E402
-APPROVED = ROOT / "tests/data/approved_regressions/cold"
+
+REVIEWED = (
+    ROOT / "tests/data/approved_regressions/heh_mixed_heminus_2026_11_19/cold",
+    ROOT / "tests/data/approved_regressions/cold",
+)
 SOURCES = (
     "src/wd_spectra/helium_impact.py",
     "src/wd_spectra/spectrum.py",
+    "src/wd_spectra/atmosphere.py",
+    "src/wd_spectra/models/stellar.py",
     "research/capture_he_i_infrared_cold_controls.py",
 )
 
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def bands(wave, new, old):
+    result = {}
+    for lo, hi in ((1150, 3000), (3500, 7000), (7000, 300000)):
+        take = (wave >= lo) & (wave <= hi)
+        result[f"{lo}-{hi}"] = float(
+            trapezoid(new[take] - old[take], wave[take]) / trapezoid(old[take], wave[take])
+        )
+    return result
 
 
 def main() -> None:
@@ -50,49 +65,49 @@ def main() -> None:
     for argument in sys.argv[2:]:
         case, ratio_path = argument.split("=", 1)
         ratio_path = Path(ratio_path).resolve()
-        previous = APPROVED / (case + ".npz")
+        done = json.loads((ratio_path.parent / "model.done").read_text())
+        assert done["verified"] and done["status"] == "converged", done
+        previous = next(folder / (case + ".npz") for folder in REVIEWED
+                        if (folder / (case + ".npz")).exists())
         with np.load(previous) as old, np.load(ratio_path) as local:
             wave = old["wavelength"]
             np.testing.assert_array_equal(wave, local["wavelength"])
-            # The structure is not moved by the new lines: the local cold start
-            # matches the approved one at the canary's structure tolerance.
-            for name in ("gas_pressure", "column_mass"):
-                np.testing.assert_allclose(
-                    local[name][: len(old[name])], old[name], rtol=2e-5, atol=0.0
-                )
-            ratio = local["with_lines"] / local["without_lines"]
-            assert np.all(np.isfinite(ratio)) and np.all(ratio > 0.0) and np.all(ratio <= 1.0 + 1e-12)
-            flux = old["surface_flux"] * ratio
+            flux = local["with_lines"]
             target = out / (case + ".npz")
             np.savez_compressed(
                 target, wavelength=wave, surface_flux=flux,
-                gas_pressure=old["gas_pressure"], column_mass=old["column_mass"],
+                gas_pressure=local["gas_pressure"], column_mass=local["column_mass"],
             )
-            bands = {}
-            for lo, hi in ((1150, 3000), (3500, 7000), (7000, 300000)):
-                take = (wave >= lo) & (wave <= hi)
-                bands[f"{lo}-{hi}"] = float(
-                    trapezoid(flux[take] - old["surface_flux"][take], wave[take])
-                    / trapezoid(old["surface_flux"][take], wave[take])
-                )
+            n = min(len(old["gas_pressure"]), len(local["gas_pressure"]))
             records[case] = dict(
                 previous_control=str(previous.relative_to(ROOT)),
                 previous_control_sha256=sha256(previous),
                 new_control_sha256=sha256(target),
-                local_ratio_sha256=sha256(ratio_path),
-                structure_matches_previous_at_rtol_2e_5=True,
-                minimum_ratio=float(np.min(ratio)),
-                minimum_ratio_wavelength_angstrom=float(wave[np.argmin(ratio)]),
-                maximum_change_below_7300_angstrom=float(np.max(1.0 - ratio[wave < 7300.0])),
-                integrated_relative_change=bands,
+                local_run_sha256=sha256(ratio_path),
+                local_run=done,
+                maximum_gas_pressure_change=float(
+                    np.max(np.abs(local["gas_pressure"][:n] / old["gas_pressure"][:n] - 1.0))
+                ),
+                maximum_column_mass_change=float(
+                    np.max(np.abs(local["column_mass"][:n] / old["column_mass"][:n] - 1.0))
+                ),
+                maximum_flux_change_below_7300_angstrom=float(
+                    np.max(np.abs(flux[wave < 7300.0] / old["surface_flux"][wave < 7300.0] - 1.0))
+                ),
+                integrated_relative_change=bands(wave, flux, old["surface_flux"]),
+                integrated_change_from_line_opacity_alone=bands(
+                    wave, local["with_lines"], local["without_lines"]
+                ),
             )
             print(case, json.dumps(records[case]), flush=True)
     manifest = dict(
-        reason="helium synthesis includes the infrared He I lines (HELIUM_I_IMPACT_LINES) by default",
-        capture="approved flux times the local with/without-lines ratio on the same converged cold structure",
+        reason=("infrared He I lines (HELIUM_I_IMPACT_LINES) in the DB structure opacity "
+                "and spectrum"),
+        capture="local verified cold start of each canary model on the canary formal grid",
         git_commit=subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
                                   text=True).stdout.strip(),
         source_sha256={name: sha256(ROOT / name) for name in SOURCES},
+        platform=platform.platform(),
         python=platform.python_version(),
         numpy=np.__version__,
         cases=records,

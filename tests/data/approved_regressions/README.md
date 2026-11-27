@@ -47,13 +47,14 @@ previous control at the test tolerance with the new lines switched off.
 Below 7300 Å no pixel moves by more than 1.3e-5; the 7000–300000 Å band
 changes by at most 0.69% (`db-22000`). The
 [manifest](he_i_infrared_2026_11_27.json) records the hashes and band changes.
-The cold-start canaries `db-22000` and `db-22000-standard` move by the same
-0.69% in that band, over their 3e-3 bound, so
-`he_i_infrared_2026_11_27/cold/` holds their approved fluxes times the
-with/without-lines ratio on local cold starts of the same models, whose
-structures match the approved ones at the canary tolerance
-(`research/capture_he_i_infrared_cold_controls.py`). `db-10000` moves by 8e-5
-and keeps its reference.
+The DB, DAB and DZ structure solves include the same lines. The cold-start
+canaries `db-22000` and `db-22000-standard` move by -0.65% in that band
+(-0.69% from the line opacity, the rest backwarming), over their 3e-3 bound.
+`he_i_infrared_2026_11_27/cold/` holds `db-10000`, `db-22000` and
+`db-22000-standard` from verified local cold starts of the canary models on
+the canary grid (`research/capture_he_i_infrared_cold_controls.py`). Their gas
+pressure and column mass equal the previous references; band fluxes move by
+at most 4.6e-4 outside the infrared, and the He I 5876 core by 2.3% at 22,000 K.
 
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of

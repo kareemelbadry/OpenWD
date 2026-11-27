@@ -1,43 +1,88 @@
 {
- "reason": "helium synthesis includes the infrared He I lines (HELIUM_I_IMPACT_LINES) by default",
- "capture": "approved flux times the local with/without-lines ratio on the same converged cold structure",
- "git_commit": "7bfdbbc0b468add4b9c103fa419d6ff94ab1b409",
+ "reason": "infrared He I lines (HELIUM_I_IMPACT_LINES) in the DB structure opacity and spectrum",
+ "capture": "local verified cold start of each canary model on the canary formal grid",
+ "git_commit": "4a7a446ee49c134ad832118eca2a3129e697d8d9",
  "source_sha256": {
   "src/wd_spectra/helium_impact.py": "5842a1023c3b91223bb87e4f13e6f8bd83a34afd649f87c96aa1deeca830276f",
   "src/wd_spectra/spectrum.py": "dd32bcd3aaa5ca3c33154cc004e175aa966399125ce062dc7bc10446e29c161e",
-  "research/capture_he_i_infrared_cold_controls.py": "6e8d9623f78be55e6bb3f9747f5ba553287ddadbaa99217e2cf29b208806dbbc"
+  "src/wd_spectra/atmosphere.py": "a1ff45dff72f5029b7363a2e16e9225d8308b5504c9d8e5b409233737297ab94",
+  "src/wd_spectra/models/stellar.py": "966af1236d52dac82c74d35d2cd6fc27843e0a81977eeecf745649047c30c4e3",
+  "research/capture_he_i_infrared_cold_controls.py": "00ebae34bde798938299cd2ca4e39705a46b7ed1a2a8596fac6ab95cf0d86174"
  },
+ "platform": "macOS-27.2.1-arm64-arm-64bit",
  "python": "3.11.9",
  "numpy": "2.3.5",
  "cases": {
+  "db-10000": {
+   "previous_control": "tests/data/approved_regressions/heh_mixed_heminus_2026_11_19/cold/db-10000.npz",
+   "previous_control_sha256": "2c543531fc8f3f395deedc9c5d992e481105ffddb5312e2f93034b570837d630",
+   "new_control_sha256": "53d9d35dca03fd88a32070fb71df7495e850a5e3cca677d1d3a43f562e755239",
+   "local_run_sha256": "e9ff1ba1471bff1aa29ca3f136bd7232bd4a693ce4e2c0e347141d9fcc7fd6ce",
+   "local_run": {
+    "seconds": 1189.9884569644928,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 1.1102230246251565e-15,
+   "maximum_column_mass_change": 1.1102230246251565e-15,
+   "maximum_flux_change_below_7300_angstrom": 0.0036138174713342686,
+   "integrated_relative_change": {
+    "1150-3000": -0.00028454848801275773,
+    "3500-7000": 0.0004598666999976066,
+    "7000-300000": -0.0003794794366928443
+   },
+   "integrated_change_from_line_opacity_alone": {
+    "1150-3000": 0.0,
+    "3500-7000": -5.574820349102898e-12,
+    "7000-300000": -8.12123760852221e-05
+   }
+  },
   "db-22000": {
    "previous_control": "tests/data/approved_regressions/cold/db-22000.npz",
    "previous_control_sha256": "5796b62501d18ac19548a770e840b465715f8fd6dcd89890a49af3bf984e4586",
-   "new_control_sha256": "3a11d553778f0a6cc0974aac89c92f5e6a00a443ecd2e5216430e0f0711ad848",
-   "local_ratio_sha256": "5bf9928480d74b5f6326713a9fe6b4afebe3e94e0463fa75a37e30241b084fb1",
-   "structure_matches_previous_at_rtol_2e_5": true,
-   "minimum_ratio": 0.8285183121271427,
-   "minimum_ratio_wavelength_angstrom": 17006.046683308195,
-   "maximum_change_below_7300_angstrom": 1.3042794854700723e-05,
+   "new_control_sha256": "b49d1c5284e6cac43317130b41f1b144fba1b6e6a2f00fff5b8d274d275e9c1d",
+   "local_run_sha256": "7a749df293ce5cfac9e8ea24afdd27f29d96e665dd82a9e544f79b0d796e3e1b",
+   "local_run": {
+    "seconds": 698.1797308921814,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 0.0,
+   "maximum_column_mass_change": 0.0,
+   "maximum_flux_change_below_7300_angstrom": 0.022838812131177888,
    "integrated_relative_change": {
+    "1150-3000": 0.00041006671478170827,
+    "3500-7000": 0.00044230365647172145,
+    "7000-300000": -0.006529899389128817
+   },
+   "integrated_change_from_line_opacity_alone": {
     "1150-3000": 0.0,
-    "3500-7000": -1.9978373733430179e-07,
-    "7000-300000": -0.006894791866342068
+    "3500-7000": -1.9999849593497724e-07,
+    "7000-300000": -0.00692438384694993
    }
   },
   "db-22000-standard": {
    "previous_control": "tests/data/approved_regressions/cold/db-22000-standard.npz",
    "previous_control_sha256": "b78d4de5cfdfa36f259e8e8fc59a3978bb087af6375ff92e751b2ceda29c0103",
-   "new_control_sha256": "43d32e0e0501d3d721f34c1e22eb8821a386eaa209d7e1b6f922b4cc3a37dffc",
-   "local_ratio_sha256": "e80674e00d3206324432cd1daf5f8021da5a34a7dd1b47990181f6256ab625d5",
-   "structure_matches_previous_at_rtol_2e_5": true,
-   "minimum_ratio": 0.8297134011620255,
-   "minimum_ratio_wavelength_angstrom": 17006.046683308195,
-   "maximum_change_below_7300_angstrom": 1.3064378084015615e-05,
+   "new_control_sha256": "6a18f6504ebc1f689e73e6212a2c656b6d37ecb7752ce69ba75a3827f6411b00",
+   "local_run_sha256": "727bc74d7293aed2c034a321005bab2ca69725b6e9395b81e4ff2ddcccea64e0",
+   "local_run": {
+    "seconds": 175.0803120136261,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 0.0,
+   "maximum_column_mass_change": 0.0,
+   "maximum_flux_change_below_7300_angstrom": 0.02255913239918761,
    "integrated_relative_change": {
+    "1150-3000": 0.00044553385991703885,
+    "3500-7000": 0.000462228454197327,
+    "7000-300000": -0.0065217451835741765
+   },
+   "integrated_change_from_line_opacity_alone": {
     "1150-3000": 0.0,
-    "3500-7000": -2.0004211167381412e-07,
-    "7000-300000": -0.0068934856851135835
+    "3500-7000": -2.0018250858721528e-07,
+    "7000-300000": -0.00692490440264333
    }
   }
  }
