@@ -49,6 +49,17 @@ If a production model fails its stationarity check, try
 `photospheric_depth_concentration=2`. This fixed the model at 27,000 K and
 log g = 9.25.
 
+With column-mass cells the depth points are fixed in column mass. They start
+at the gray seed's Rosseland depths, which put too many of them below the
+photosphere of a cool DB once the He⁻ free–free opacity has relaxed. After the
+lower boundary is settled, the solver moves the points onto the intended
+Rosseland-depth distribution of the relaxed model and solves again, until no
+point is more than half an interval from its target. At 7500 K and log g = 6
+this gives 28 points across 0.01 < τ < 10 instead of 13; the bolometric
+flux of the spectrum falls from 1.018 to 1.0025 σT⁴ (refinement 4) and
+agrees with depth refinement 1 to 0.2%. The UV and optical flux drop by
+3.7% and 1.5%. These cool models take about 50% longer.
+
 ## Physics
 
 ### Warm DBs
