@@ -136,7 +136,7 @@ class DAConfig:
     # the worst cell: 4750/7.5 stalls beside that block's root, which its
     # full-system step cannot reach.  Within the two-root band the front
     # stays where it is seeded.  Certification is unchanged.  0 disables.
-    thermal_branch_restarts: int = 4
+    thermal_branch_restarts: int = 6
 
 
 @dataclass(frozen=True)
