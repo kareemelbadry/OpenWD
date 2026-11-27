@@ -125,12 +125,15 @@ class DAConfig:
     # layers, so the switch is a front within one layer.  For some front
     # positions the straddling layer's discrete energy equation has no root:
     # its optical-depth cell width carries the hot neighbour's H- extinction.
-    # Newton then sits on that fold and the solve ends unconverged.  Such a
-    # failure (solver completion, local energy and/or temperature
-    # stationarity only) is re-solved warm, up to this many times, from the
-    # same structure with the front moved by one layer, deeper first; the
+    # Layers can also be left between the two roots during the solve.
+    # Newton then sits where a root has merged away and the solve ends
+    # unconverged.  Such a failure (solver completion, local energy and/or
+    # temperature stationarity only) is re-solved warm, up to this many
+    # times: first with the stuck layers on the stable frozen-field roots
+    # their residuals point to, then with the largest radiative inversion
+    # moved one layer (deeper, then shallower).  Within the two-root band the
     # front stays where it is seeded.  Certification is unchanged.  0 disables.
-    thermal_front_relocations: int = 4
+    thermal_branch_restarts: int = 4
 
 
 @dataclass(frozen=True)
@@ -319,9 +322,9 @@ def _radiative_refinement_depth(n_depth: int) -> int:
     return _DA_RADIATIVE_REFINEMENT_SEED_DEPTH if n_depth < _DA_RADIATIVE_REFINEMENT_SEED_DEPTH else 2 * n_depth
 
 
-# Certificate failures that a thermal-front relocation can address. Anything
+# Certificate failures that a thermal-branch restart can address. Anything
 # else (flux, source closure, lower boundary) is left to its own remedy.
-_DA_THERMAL_FRONT_FAILURES = frozenset(
+_DA_THERMAL_BRANCH_FAILURES = frozenset(
     ("solver_completion", "local_energy", "temperature_stationarity")
 )
 
@@ -565,11 +568,11 @@ def compute_da(
     ):
         raise ValueError("lower_boundary_extensions must be a nonnegative integer")
     if (
-        isinstance(config.thermal_front_relocations, bool)
-        or not isinstance(config.thermal_front_relocations, int)
-        or config.thermal_front_relocations < 0
+        isinstance(config.thermal_branch_restarts, bool)
+        or not isinstance(config.thermal_branch_restarts, int)
+        or config.thermal_branch_restarts < 0
     ):
-        raise ValueError("thermal_front_relocations must be a nonnegative integer")
+        raise ValueError("thermal_branch_restarts must be a nonnegative integer")
     self_broadening_prescription = _da_self_broadening_prescription(
         config.effective_temperature, config.balmer_self_broadening_prescription
     )
@@ -600,6 +603,7 @@ def compute_da(
                 config.balmer_self_broadening_truncation_closure
             ),
             convective_seed=config.convective_seed,
+            thermal_branch_seed=config.thermal_branch_restarts > 0,
         )
         full_depth = (
             100 if config.quality == "production" else resolution.n_depth
@@ -619,7 +623,7 @@ def compute_da(
             full_depth = max(full_depth, atmosphere.n_depth)
         iteration_offset = 0
         depth_refinements = 0
-        front_relocations = []
+        branch_restarts = []
 
         def full_callback(iteration, current_atmosphere, status):
             if iteration_callback is None:
@@ -629,7 +633,7 @@ def compute_da(
             record["depth_points"] = current_atmosphere.n_depth
             record["radiative_depth_refinements"] = depth_refinements
             record["domain_expansion"] = len(domain_segments)
-            record["thermal_front_relocations"] = len(front_relocations)
+            record["thermal_branch_restarts"] = len(branch_restarts)
             iteration_callback(iteration + iteration_offset, current_atmosphere, record)
 
         cold_full_solve = initial_atmosphere is None
@@ -697,36 +701,48 @@ def compute_da(
                     domain_iterations
                 ),
             })
-        # A hot/cold upper-atmosphere thermal front that straddles one layer
-        # can leave that layer without a discrete root (DAConfig comment).
-        # Re-solve the SAME equations warm with the front moved one layer;
-        # each attempt starts from the previous unfinished structure and must
-        # earn its own complete equilibrium certificate.
+        # Thin upper layers with two thermal branches (DAConfig comment) can
+        # end an unfinished solve between them. Re-solve the SAME equations
+        # warm from a reseeded structure: first the stuck layers on the
+        # frozen-field stable roots their residuals point to, then the
+        # largest radiative inversion moved one layer. Each attempt starts
+        # from the previous unfinished structure and must earn its own
+        # complete equilibrium certificate.
         relocated_iterations = 0
-        tried_fronts = set()
+        tried_seeds = set()
         latest = atmosphere
-        while len(front_relocations) < config.thermal_front_relocations:
+        while len(branch_restarts) < config.thermal_branch_restarts:
             failures = set(latest.metadata["equilibrium_certificate"]["failures"])
-            front = _da_upper_thermal_front(latest)
-            if (
-                not failures
-                or not failures <= _DA_THERMAL_FRONT_FAILURES
-                or front is None
-            ):
+            if not failures or not failures <= _DA_THERMAL_BRANCH_FAILURES:
                 break
-            direction = next(
-                (
-                    candidate_direction
-                    for candidate_direction in ("deeper", "shallower")
-                    if (front, candidate_direction) not in tried_fronts
-                ),
+            candidates = []
+            branch = latest.metadata.get("frozen_field_thermal_branch_seed")
+            if branch is not None:
+                candidates.append((
+                    ("branch", tuple(branch["layers"])),
+                    "branch",
+                    tuple(branch["layers"]),
+                    np.asarray(branch["temperature"], dtype=np.float64),
+                ))
+            front = _da_upper_thermal_front(latest)
+            if front is not None:
+                for direction in ("deeper", "shallower"):
+                    candidates.append((
+                        (front, direction),
+                        direction,
+                        (front[1],) if direction == "deeper" else (front[0],),
+                        _da_thermal_front_seed(latest.temperature, front, direction),
+                    ))
+            choice = next(
+                (candidate for candidate in candidates if candidate[0] not in tried_seeds),
                 None,
             )
-            if direction is None:
+            if choice is None:
                 break
-            tried_fronts.add((front, direction))
+            key, kind, layers, seed_temperature = choice
+            tried_seeds.add(key)
             iteration_offset = domain_iterations + relocated_iterations
-            relocated = radiative_equilibrium_hydrogen_atmosphere(
+            restarted = radiative_equilibrium_hydrogen_atmosphere(
                 config.effective_temperature,
                 config.logg,
                 n_depth=latest.n_depth,
@@ -738,43 +754,42 @@ def compute_da(
                     else resolution.maximum_iterations
                 ),
                 n_angle=min(resolution.n_angle, 3),
-                initial_temperature=_da_thermal_front_seed(
-                    latest.temperature, front, direction
-                ),
+                initial_temperature=seed_temperature,
                 initial_column_mass=latest.column_mass,
                 iteration_callback=full_callback,
                 **relaxation_kwargs,
             )
-            relocated_failures = list(
-                relocated.metadata["equilibrium_certificate"]["failures"]
+            restarted_failures = list(
+                restarted.metadata["equilibrium_certificate"]["failures"]
             )
             iterations = int(
-                relocated.metadata["radiative_equilibrium_iterations"]
+                restarted.metadata["radiative_equilibrium_iterations"]
             )
             relocated_iterations += iterations
-            front_relocations.append(dict(
-                upper_layer=front[0],
-                lower_layer=front[1],
-                direction=direction,
-                upper_rosseland_depth=float(
-                    latest.rosseland_optical_depth[front[0]]
-                ),
+            branch_restarts.append(dict(
+                kind=kind,
+                layers=[int(layer) for layer in layers],
+                rosseland_depths=[
+                    float(latest.rosseland_optical_depth[layer]) for layer in layers
+                ],
                 temperatures_before=[
-                    float(latest.temperature[front[0]]),
-                    float(latest.temperature[front[1]]),
+                    float(latest.temperature[layer]) for layer in layers
+                ],
+                temperatures_seeded=[
+                    float(seed_temperature[layer]) for layer in layers
                 ],
                 failures_before=sorted(failures),
                 iterations=iterations,
-                failures=relocated_failures,
+                failures=restarted_failures,
             ))
-            latest = relocated
-            if not relocated_failures:
-                atmosphere = relocated
+            latest = restarted
+            if not restarted_failures:
+                atmosphere = restarted
                 break
-        if front_relocations:
+        if branch_restarts:
             adaptation_metadata.update({
-                "thermal_front_relocations": front_relocations,
-                "radiative_equilibrium_iterations_including_front_relocations": (
+                "thermal_branch_restarts": branch_restarts,
+                "radiative_equilibrium_iterations_including_thermal_branch_restarts": (
                     domain_iterations + relocated_iterations
                 ),
             })

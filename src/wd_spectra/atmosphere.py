@@ -1223,6 +1223,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
     maximum_metal_lines: int | None = 1_000,
     metal_line_opacity_sampling_resolution: float | None = None,
     depth_concentration: float = 0.0,
+    thermal_branch_seed: bool = False,
     iteration_callback: Callable[
         [int, Atmosphere, Mapping[str, object]], None
     ]
@@ -1779,7 +1780,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
         )
 
     adaptive_seed = with_temperature(temperature)
-    return solve_adaptive_lte_structure(
+    solved = solve_adaptive_lte_structure(
         adaptive_seed,
         wavelength,
         reuse_material_probe_rosseland=True,
@@ -1935,6 +1936,62 @@ def radiative_equilibrium_hydrogen_atmosphere(
             ),
         },
     )
+    if not thermal_branch_seed or not solved.metadata[
+        "equilibrium_certificate"
+    ]["failures"]:
+        return solved
+    # An unfinished solve can leave thin layers between, or beside a merged
+    # pair of, the roots of their own radiative energy balance (cool upper
+    # atmospheres: H- heating versus H2 collision-induced cooling).  Record
+    # the frozen-field stable roots those layers' residuals point to, as a
+    # restart seed for the caller.  The returned structure is unchanged.
+    from ._stable_feautrier import cancellation_safe_field
+    from ._thermal_branches import frozen_field_branch_seed, radiative_layers
+    from .opacity import optical_depth_from_mass_opacity
+    from .spectrum import planck_lambda_angstrom
+
+    final = with_temperature(solved.temperature)
+    absorption = true_absorption(final)
+    scattering = scattering_opacity(final)
+    optical_depth = optical_depth_from_mass_opacity(
+        final.column_mass, absorption + scattering
+    )
+    _, field = cancellation_safe_field(
+        optical_depth,
+        planck_lambda_angstrom(wavelength[:, np.newaxis], final.temperature[np.newaxis, :]),
+        absorption,
+        scattering,
+        n_angle=n_angle,
+    )
+    cell_residual = np.asarray(
+        solved.metadata["cell_energy_balance_relative_residual"], dtype=np.float64
+    )
+    stuck = radiative_layers(
+        solved.metadata["convective_flux_fraction_by_interface"], solved.n_depth
+    )
+    stuck[:-1] &= np.abs(cell_residual) > flux_tolerance
+    stuck[-1] = False
+    branch_temperature, branch_layers = frozen_field_branch_seed(
+        solved.temperature,
+        wavelength,
+        field.mean_intensity,
+        cell_residual,
+        stuck,
+        np.geomspace(0.25, 1.5, 64) * effective_temperature,
+        lambda values: true_absorption(with_temperature(values)),
+        lambda lam, values: planck_lambda_angstrom(
+            lam[:, np.newaxis], values[np.newaxis, :]
+        ),
+    )
+    if not branch_layers:
+        return solved
+    return replace(solved, metadata={
+        **solved.metadata,
+        "frozen_field_thermal_branch_seed": {
+            "temperature": branch_temperature,
+            "layers": branch_layers,
+        },
+    })
 
 
 def radiative_equilibrium_helium_atmosphere(

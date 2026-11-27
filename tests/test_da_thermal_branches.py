@@ -1,4 +1,4 @@
-"""DA upper-atmosphere thermal-front relocation.
+"""DA upper-atmosphere thermal-branch restarts.
 
 The structure solver is stubbed: these tests check which failed solves are
 re-solved, from what seed, and what the result records.
@@ -31,7 +31,7 @@ def _front_temperature():
     return t
 
 
-def _atmosphere(temperature, failures, *, convective=None, worst=None):
+def _atmosphere(temperature, failures, *, convective=None, worst=None, branch=None):
     atmosphere = gray_hydrogen_atmosphere(4_500.0, 7.5, n_depth=_N)
     if convective is None:
         convective = np.zeros(_N)
@@ -44,6 +44,7 @@ def _atmosphere(temperature, failures, *, convective=None, worst=None):
         "convective_flux_fraction_by_interface": convective,
         "cell_energy_balance_relative_residual": residual,
         "lower_boundary_absorption_escape_bound": 1e-6,
+        **({} if branch is None else {"frozen_field_thermal_branch_seed": branch}),
     })
 
 
@@ -89,13 +90,13 @@ class _Done(Exception):
 
 
 def _run(monkeypatch, config, results):
-    """Each solver call returns the next (temperature, failures) entry."""
+    """Each solver call returns the next (temperature, failures[, branch]) entry."""
     calls = []
 
     def solve(teff, logg, *, n_depth, tau_max, **kwargs):
-        temperature, failures = results[min(len(calls), len(results) - 1)]
+        temperature, failures, *branch = results[min(len(calls), len(results) - 1)]
         calls.append(dict(kwargs, n_depth=n_depth, tau_max=tau_max))
-        return _atmosphere(temperature, failures)
+        return _atmosphere(temperature, failures, branch=branch[0] if branch else None)
 
     def finish(atmosphere, kind):
         raise _Done(atmosphere)
@@ -123,14 +124,16 @@ def test_front_failure_is_resolved_warm_one_layer_deeper(monkeypatch):
     # Same mesh as the unfinished structure (the stub always returns _N layers).
     assert calls[1]["n_depth"] == _N
     assert calls[1]["tau_max"] == calls[0]["tau_max"]
-    record, = atmosphere.metadata["thermal_front_relocations"]
-    assert record["direction"] == "deeper"
-    assert (record["upper_layer"], record["lower_layer"]) == (4, 5)
+    record, = atmosphere.metadata["thermal_branch_restarts"]
+    assert record["kind"] == "deeper"
+    assert record["layers"] == [5]
+    assert record["temperatures_seeded"] == [t[4]]
     assert record["failures"] == []
     assert atmosphere.metadata["equilibrium_certificate"]["failures"] == []
     assert atmosphere.metadata[
-        "radiative_equilibrium_iterations_including_front_relocations"
+        "radiative_equilibrium_iterations_including_thermal_branch_restarts"
     ] == 20
+    assert calls[0]["thermal_branch_seed"] is True
 
 
 def test_unmoved_front_is_tried_shallower_then_stops(monkeypatch):
@@ -140,8 +143,8 @@ def test_unmoved_front_is_tried_shallower_then_stops(monkeypatch):
     # Same front after each attempt: deeper, then shallower, then nothing left.
     assert len(calls) == 3
     assert calls[2]["initial_temperature"][4] == t[5]
-    records = atmosphere.metadata["thermal_front_relocations"]
-    assert [r["direction"] for r in records] == ["deeper", "shallower"]
+    records = atmosphere.metadata["thermal_branch_restarts"]
+    assert [r["kind"] for r in records] == ["deeper", "shallower"]
     # No attempt certified: the original unfinished solve is returned.
     assert atmosphere.metadata["equilibrium_certificate"]["failures"] == failing
 
@@ -149,11 +152,12 @@ def test_unmoved_front_is_tried_shallower_then_stops(monkeypatch):
 def test_relocation_budget_and_disable(monkeypatch):
     t = _front_temperature()
     failing = ["local_energy"]
-    calls, _ = _run(monkeypatch, DAConfig(**_COOL, thermal_front_relocations=1), [(t, failing)])
+    calls, _ = _run(monkeypatch, DAConfig(**_COOL, thermal_branch_restarts=1), [(t, failing)])
     assert len(calls) == 2
-    calls, atmosphere = _run(monkeypatch, DAConfig(**_COOL, thermal_front_relocations=0), [(t, failing)])
+    calls, atmosphere = _run(monkeypatch, DAConfig(**_COOL, thermal_branch_restarts=0), [(t, failing)])
     assert len(calls) == 1
-    assert "thermal_front_relocations" not in atmosphere.metadata
+    assert "thermal_branch_restarts" not in atmosphere.metadata
+    assert calls[0]["thermal_branch_seed"] is False
 
 
 @pytest.mark.parametrize("failures", [
@@ -164,10 +168,68 @@ def test_relocation_budget_and_disable(monkeypatch):
 def test_other_outcomes_are_not_relocated(monkeypatch, failures):
     calls, atmosphere = _run(monkeypatch, DAConfig(**_COOL), [(_front_temperature(), failures)])
     assert len(calls) == 1
-    assert "thermal_front_relocations" not in atmosphere.metadata
+    assert "thermal_branch_restarts" not in atmosphere.metadata
 
 
 @pytest.mark.parametrize("bad", [-1, 1.5, True])
 def test_relocation_count_is_validated(bad):
-    with pytest.raises(ValueError, match="thermal_front_relocations"):
-        compute_da(DAConfig(**_COOL, thermal_front_relocations=bad))
+    with pytest.raises(ValueError, match="thermal_branch_restarts"):
+        compute_da(DAConfig(**_COOL, thermal_branch_restarts=bad))
+
+
+def test_frozen_field_branch_seed_is_tried_before_moving_the_front(monkeypatch):
+    t = _front_temperature()
+    branch_t = t.copy()
+    branch_t[:5] = 4000.0
+    branch = {"temperature": branch_t, "layers": [0, 1, 2, 3, 4]}
+    failing = ["solver_completion", "local_energy"]
+    calls, atmosphere = _run(monkeypatch, DAConfig(**_COOL), [
+        (t, failing, branch), (t, failing, branch), (t, []),
+    ])
+    assert np.array_equal(calls[1]["initial_temperature"], branch_t)
+    # The same branch seed is not repeated; the front move comes next.
+    assert calls[2]["initial_temperature"][5] == t[4]
+    records = atmosphere.metadata["thermal_branch_restarts"]
+    assert [r["kind"] for r in records] == ["branch", "deeper"]
+    assert records[0]["layers"] == [0, 1, 2, 3, 4]
+    assert records[0]["temperatures_seeded"] == [4000.0] * 5
+    assert records[-1]["failures"] == []
+
+
+def test_stable_branch_root_follows_the_residual_sign():
+    from wd_spectra._thermal_branches import stable_branch_temperature
+
+    grid = np.linspace(2000.0, 5000.0, 31)
+    # Heating below 2800 K, cooling to 3200 K, heating again to 3800 K:
+    # stable roots at 2800 and 3800 K, unstable at 3200 K.
+    balance = -(grid - 2800.0) * (grid - 3200.0) * (grid - 3800.0)
+    assert stable_branch_temperature(grid, balance, 3000.0, True) == pytest.approx(3800.0)
+    assert stable_branch_temperature(grid, balance, 3500.0, False) == pytest.approx(2800.0)
+    assert stable_branch_temperature(grid, balance, 3900.0, True) is None
+    assert stable_branch_temperature(grid, balance, 2500.0, False) is None
+
+
+def test_frozen_field_seed_moves_only_stuck_layers():
+    from wd_spectra._thermal_branches import frozen_field_branch_seed, radiative_layers
+
+    wavelength = np.array([1.0, 2.0])
+    temperature = np.array([3000.0, 3000.0, 3000.0, 6000.0])
+    # Two-level toy: J is fixed, kappa switches on above 3400 K, and the
+    # Planck function is linear in T, so the balance is J - T in each band.
+    mean = np.full((2, 4), 3600.0)
+
+    def absorption_at(values):
+        return np.where(values > 3400.0, 1.0, 0.01)[np.newaxis, :].repeat(2, axis=0)
+
+    def planck(lam, values):
+        return np.repeat(np.asarray(values, float)[np.newaxis, :], lam.size, axis=0)
+
+    stuck = radiative_layers(np.array([0.0, 0.0, 0.0, 0.5]), 4)
+    assert stuck.tolist() == [True, True, False, False]
+    stuck[1] = False  # layer 1 already balanced
+    seed, changed = frozen_field_branch_seed(
+        temperature, wavelength, mean, np.array([0.3, 0.0, 0.3]), stuck,
+        np.linspace(2000.0, 5000.0, 61), absorption_at, planck)
+    assert changed == [0]
+    assert seed[0] == pytest.approx(3600.0, abs=50.0)
+    assert np.array_equal(seed[1:], temperature[1:])
