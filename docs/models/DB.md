@@ -74,6 +74,19 @@ log g = 9.25.
   update [Beauchamp et al. (1997)](https://doi.org/10.1086/312961). Unsöld
   (1955) van der Waals broadening. The He I resonance series is included in
   the blanketing.
+- **Infrared He I lines.** 31 lines redward of the tables (8361 Å–7.4 µm):
+  He I 10830 and 20581 and the lines from the n = 3 terms (12528, 12785/90,
+  17002, 18686/97, 19089, 21120/32 Å and others). NIST ASD wavelengths and
+  oscillator strengths, Voigt profiles with the electron (and, for 10830,
+  20581 and 21120, He⁺) impact widths and shifts of STARK-B
+  ([Dimitrijević & Sahal-Bréchot 1990](https://ui.adsabs.harvard.edu/abs/1990A%26AS...82..519D);
+  [Terzi et al. 1998](https://doi.org/10.1051/aas:1998320)), Ali–Griem
+  resonance broadening of the np ¹P levels and Unsöld van der Waals
+  broadening. They enter the final spectrum only; their effect on the
+  structure is below the convergence tolerance. Lines to the n = 4–6 nd/nf
+  levels are not isolated above Ne ≈ 10¹⁶ cm⁻³, so their profiles are
+  approximate (see `wd_spectra.helium_impact`). He I lines from n ≥ 4 terms
+  (the 3–30 µm Rydberg lines) and 3s ³S–3p ³P (4.3 µm) are not included.
 - **He II lines.** Schöning–Butler tables from SYNSPEC, with a smooth join
   to the analytic Doppler–Holtsmark profiles at high electron density.
   Other members use hydrogenic profiles.

@@ -72,8 +72,8 @@ The command-line equivalent is
   charged-particle profiles and Ali–Griem self broadening, plus an
   approximate neutral-He impact width. Lyα uses the Allard tables at all
   Teff; the 9000 K table is used for cooler gas.
-- **Helium lines.** B25 He I profiles with Unsöld broadening, and
-  Schöning–Butler He II profiles, as in the DB module.
+- **Helium lines.** B25 He I profiles with Unsöld broadening, the infrared
+  He I lines and Schöning–Butler He II profiles, as in the DB module.
 
 ## Validation
 

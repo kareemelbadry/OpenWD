@@ -128,7 +128,8 @@ class HotNLTEModel:
             he.remap_coupled_helium_state(atmosphere, state.helium),
             None if state.hydrogen is None else h.remap_multilevel_hydrogen_state(atmosphere, state.hydrogen))
 
-    def transfer_coefficients(self, atmosphere, wavelength, state, *, lines=True, _cache=None):
+    def transfer_coefficients(self, atmosphere, wavelength, state, *, lines=True, _cache=None,
+                              helium_i_impact_lines=False):
         # Stimulated continuum terms may be negative for a single ion/species.
         # Combine all material contributions before transfer_field validates
         # the positive total extinction. Do not clip or discard signed terms.
@@ -138,7 +139,8 @@ class HotNLTEModel:
             helium_i_stark_table=self.helium_i_stark_table,
             helium_ii_stark_table=self.helium_ii_stark_table,
             include_helium_i_lines=lines, include_helium_i_resonance_lines=lines,
-            include_helium_ii_lines=lines)
+            include_helium_ii_lines=lines,
+            include_helium_i_impact_lines=lines and helium_i_impact_lines)
         if state.hydrogen is None:
             return helium
         hydrogen = h.hydrogen_nlte_transfer_coefficients(

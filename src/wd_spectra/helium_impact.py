@@ -835,3 +835,18 @@ def helium_i_impact_line_structure_screen(
         if depth >= threshold:
             retained.append(line)
     return tuple(retained)
+
+
+def helium_i_impact_line_term_indices(line: HeliumImpactLine, atom) -> tuple[int, int]:
+    """Lower and upper NLTE model-atom terms (superlevels where collapsed)."""
+
+    def term(label: str) -> int:
+        configuration, multiplet = label.split()
+        outer = configuration.split(".")[1]
+        principal = int(outer[:-1])
+        orbital = "spdfghik".index(outer[-1])
+        return atom.term_index(principal, int(multiplet[0]), orbital)
+
+    lower = line.lower_term_index if line.lower_term_index is not None else term(line.lower_term)
+    return lower, term(line.upper_term)
+

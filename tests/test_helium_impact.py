@@ -174,3 +174,18 @@ def test_opacity_is_local_finite_and_absent_from_the_optical():
     core = opacity[np.searchsorted(wavelength, 10833.306)]
     wing = opacity[np.searchsorted(wavelength, 10900.0)]
     assert np.all(core[photospheric] > 10.0 * wing[photospheric])
+
+
+def test_nlte_term_mapping_uses_the_tlusty_superlevels():
+    from wd_spectra.helium_impact import helium_i_impact_line_term_indices
+    from wd_spectra.helium_nlte import HELIUM_I_14
+
+    expected = {
+        "HeI10830": (1, 3),   # 2s 3S - 2p 3P
+        "HeI20581": (2, 4),   # 2s 1S - 2p 1P
+        "HeI12528": (5, 7),   # n=3 triplet - n=4 triplet
+        "HeI18697": (6, 8),   # n=3 singlet - n=4 singlet
+        "HeI8362": (5, 11),   # n=3 triplet - n=6 shell
+    }
+    for name, indices in expected.items():
+        assert helium_i_impact_line_term_indices(LINES[name], HELIUM_I_14) == indices
