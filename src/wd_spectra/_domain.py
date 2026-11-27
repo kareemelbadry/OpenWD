@@ -98,6 +98,83 @@ def append_lower_domain(
     )
 
 
+# A node may sit at most half a target interval from its target Rosseland
+# depth: beyond that it belongs to a neighbouring interval of the intended mesh.
+ROSSELAND_MESH_TOLERANCE = 0.5
+
+
+def _rosseland_mesh_target(atmosphere, depth_concentration):
+    from .atmosphere import photosphere_concentrated_optical_depths
+
+    tau = np.asarray(atmosphere.rosseland_optical_depth, dtype=float)
+    return np.log(
+        photosphere_concentrated_optical_depths(
+            float(tau[0]), float(tau[-1]), tau.size, depth_concentration
+        )
+    )
+
+
+def rosseland_mesh_deviation(atmosphere, depth_concentration):
+    """Largest node offset from the intended Rosseland mesh, in target intervals.
+
+    The intended mesh is the photosphere-concentrated distribution of the
+    seed (:func:`~wd_spectra.atmosphere.photosphere_concentrated_optical_depths`)
+    between the current top and bottom Rosseland depths.
+    """
+
+    log_tau = np.log(np.asarray(atmosphere.rosseland_optical_depth, dtype=float))
+    target = _rosseland_mesh_target(atmosphere, depth_concentration)
+    spacing = np.diff(target)
+    local = np.r_[spacing[0], 0.5 * (spacing[1:] + spacing[:-1]), spacing[-1]]
+    return float(np.max(np.abs(log_tau - target) / local))
+
+
+def remesh_to_rosseland_depths(atmosphere, depth_concentration):
+    """Move the column-mass nodes onto the intended Rosseland mesh.
+
+    A column-mass solve keeps the nodes of its gray seed, which places them by
+    the seed's Rosseland depth.  Where the opacity depends steeply on
+    temperature (He- free-free in cool helium) the relaxed structure has a
+    very different tau(m): the seed's deep, hot layers are compressed into a
+    thin mass interval that the converged model puts below the photosphere,
+    which then has few nodes.  This maps the seed's target depths through the
+    relaxed tau(m), keeping the top and bottom column masses (the screened
+    domain), and interpolates temperature and pressure as the initial guess
+    for re-solving the same equations on the new nodes.
+    """
+
+    m, t, p, tau = (
+        np.asarray(x, dtype=float)
+        for x in (
+            atmosphere.column_mass,
+            atmosphere.temperature,
+            atmosphere.gas_pressure,
+            atmosphere.rosseland_optical_depth,
+        )
+    )
+    if (
+        m.ndim != 1
+        or m.size < 3
+        or any(x.shape != m.shape or np.any(~np.isfinite(x)) or np.any(x <= 0) for x in (t, p, tau))
+        or np.any(np.diff(m) <= 0)
+        or np.any(np.diff(tau) <= 0)
+    ):
+        raise ValueError("remeshing requires positive, strictly ordered nodes")
+    target = _rosseland_mesh_target(atmosphere, depth_concentration)
+    log_m = np.interp(target, np.log(tau), np.log(m))
+    log_m[0], log_m[-1] = np.log(m[0]), np.log(m[-1])
+    new_m = np.exp(log_m)
+    new_m[0], new_m[-1] = m[0], m[-1]
+    return dict(
+        n_depth=m.size,
+        initial_temperature=np.exp(np.interp(log_m, np.log(m), np.log(t))),
+        initial_gas_pressure=np.exp(np.interp(log_m, np.log(m), np.log(p))),
+        initial_column_mass=new_m,
+        initial_rosseland_optical_depth=np.exp(target),
+        resume_supplied_structure_in_formal_flux_phase=True,
+    )
+
+
 def solve_with_screened_boundary(
     solver,
     *args,
@@ -107,6 +184,8 @@ def solve_with_screened_boundary(
     restart_after_deepening=False,
     deepening_pressure_factor=2.0,
     early_deepening_escape_limit=None,
+    remesh_depth_concentration=None,
+    maximum_remeshes=3,
     **options,
 ):
     """Complete a cold/requested solve with bounded same-run domain adaptation.
@@ -129,6 +208,10 @@ def solve_with_screened_boundary(
     phase when the escape bound already exceeds this limit (far above the
     screening tolerance), and deepens immediately; it is not passed on the last
     allowed extension, which always completes a full solve.
+    ``remesh_depth_concentration`` (column-mass solves) then moves the nodes
+    onto the intended Rosseland mesh with that photospheric concentration and
+    re-solves, until no node is more than half a target interval from its
+    target depth or ``maximum_remeshes`` re-solves were made.
     """
     if (
         isinstance(maximum_domain_expansions, bool)
@@ -232,10 +315,55 @@ def solve_with_screened_boundary(
         )
         if restart_after_deepening:
             options["resume_supplied_structure_in_formal_flux_phase"] = False
+    mesh_deviations = []
+    if remesh_depth_concentration is not None:
+        for remesh in range(maximum_remeshes + 1):
+            deviation = rosseland_mesh_deviation(result, remesh_depth_concentration)
+            mesh_deviations.append(deviation)
+            if deviation <= ROSSELAND_MESH_TOLERANCE or remesh == maximum_remeshes:
+                break
+            _LOGGER.info(
+                "Remeshing %d column-mass nodes onto the Rosseland mesh: "
+                "largest node offset %.3g target intervals",
+                result.n_depth,
+                deviation,
+            )
+            options.update(remesh_to_rosseland_depths(result, remesh_depth_concentration))
+
+            def report(iteration, atmosphere, diagnostics, remesh=remesh):
+                if callback is not None:
+                    callback(
+                        offset + iteration,
+                        atmosphere,
+                        {**diagnostics, "rosseland_remesh": remesh + 1},
+                    )
+
+            result = solver(*args, **options, iteration_callback=report)
+            meta = result.metadata
+            iterations = int(meta.get("radiative_equilibrium_iterations", 0))
+            offset += iterations
+            segments.append(
+                dict(
+                    n_depth=result.n_depth,
+                    iterations=iterations,
+                    thermal_sweeps=(meta.get("thermal_conditioning") or {}).get(
+                        "iterations", 0
+                    ),
+                    absorption_escape_bound=meta.get(
+                        "lower_boundary_absorption_escape_bound"
+                    ),
+                    rosseland_remesh=remesh + 1,
+                    mesh_deviation_before=deviation,
+                    failures=list(
+                        meta.get("equilibrium_certificate", {}).get("failures", [])
+                    ),
+                )
+            )
     return replace(
         result,
         metadata={
             **result.metadata,
+            "rosseland_mesh_deviations": mesh_deviations,
             "cold_start": originally_cold,
             "external_atmosphere_required": False,
             "adaptive_domain_segments": segments,

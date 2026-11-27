@@ -1003,6 +1003,9 @@ def compute_db(
                 deepen_on_any_screen_failure=True,
                 restart_after_deepening=True,
                 deepening_pressure_factor=_DB_DEEPENING_PRESSURE_FACTOR,
+                # The column-mass nodes come from the gray seed's tau(m); the
+                # relaxed He- free-free opacity moves them below the photosphere.
+                remesh_depth_concentration=config.photospheric_depth_concentration,
             )
         else:
             discretization_options = {}
