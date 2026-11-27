@@ -117,6 +117,20 @@ class DAConfig:
     # convective temperature; 4250-5000 K models then stalled at ~0.75
     # sigma Teff^4.  Radiative seeds are unchanged.  False restores the gray seed.
     convective_seed: bool = True
+    # Cool upper atmospheres (about 3250-5000 K) have two locally stable LTE
+    # energy balances in the same radiation field: H- bound-free heating
+    # against free-free cooling near 0.85 Teff, and H2 collision-induced
+    # cooling against H-H2 Lyman-alpha-wing heating near 0.6 Teff.  Only the
+    # hot balance exists above, and only the cold one below, a band of a few
+    # layers, so the switch is a front within one layer.  For some front
+    # positions the straddling layer's discrete energy equation has no root:
+    # its optical-depth cell width carries the hot neighbour's H- extinction.
+    # Newton then sits on that fold and the solve ends unconverged.  Such a
+    # failure (solver completion, local energy and/or temperature
+    # stationarity only) is re-solved warm, up to this many times, from the
+    # same structure with the front moved by one layer, deeper first; the
+    # front stays where it is seeded.  Certification is unchanged.  0 disables.
+    thermal_front_relocations: int = 4
 
 
 @dataclass(frozen=True)
@@ -305,6 +319,70 @@ def _radiative_refinement_depth(n_depth: int) -> int:
     return _DA_RADIATIVE_REFINEMENT_SEED_DEPTH if n_depth < _DA_RADIATIVE_REFINEMENT_SEED_DEPTH else 2 * n_depth
 
 
+# Certificate failures that a thermal-front relocation can address. Anything
+# else (flux, source closure, lower boundary) is left to its own remedy.
+_DA_THERMAL_FRONT_FAILURES = frozenset(
+    ("solver_completion", "local_energy", "temperature_stationarity")
+)
+
+
+def _da_upper_thermal_front(atmosphere: Atmosphere) -> tuple[int, int] | None:
+    """Return the layers on either side of the largest radiative inversion step.
+
+    A thermal front is a temperature DROP with depth between adjacent layers
+    that carry no convective flux.  The pair with the largest drop in ln T is
+    returned as (upper, lower) node indices.  None means that T never
+    decreases inward in the radiative layers, or that the worst local-energy
+    layer is neither in nor next to that pair (the failure is elsewhere).
+    """
+
+    temperature = np.asarray(atmosphere.temperature, dtype=np.float64)
+    n_depth = temperature.size
+    convective = np.asarray(
+        atmosphere.metadata.get(
+            "convective_flux_fraction_by_interface", np.zeros(n_depth)
+        ),
+        dtype=np.float64,
+    )
+    if convective.shape != (n_depth,) or n_depth < 2:
+        return None
+    # Interface k is the upper face of layer k; layers i and i+1 are bounded
+    # by faces i, i+1 and i+2 (the bottom boundary after the last layer).
+    faces = np.append(np.abs(convective), 0.0)
+    radiative = np.array(
+        [np.all(faces[i:i + 3] == 0.0) for i in range(n_depth - 1)]
+    )
+    drop = np.log(temperature[:-1] / temperature[1:])
+    drop = np.where(radiative & (drop > 0.0), drop, 0.0)
+    if not np.any(drop > 0.0):
+        return None
+    upper = int(np.argmax(drop))
+    cell_residual = atmosphere.metadata.get("cell_energy_balance_relative_residual")
+    if cell_residual is not None:
+        cell_residual = np.abs(np.asarray(cell_residual, dtype=np.float64))
+        if cell_residual.size and np.all(np.isfinite(cell_residual)):
+            worst = int(np.argmax(cell_residual))
+            if not upper - 1 <= worst <= upper + 2:
+                return None
+    return upper, upper + 1
+
+
+def _da_thermal_front_seed(
+    temperature: np.ndarray, front: tuple[int, int], direction: str
+) -> np.ndarray:
+    """Temperatures with the front moved one layer ('deeper' or 'shallower')."""
+
+    upper, lower = front
+    seed = np.asarray(temperature, dtype=np.float64).copy()
+    if direction == "deeper":
+        seed[lower] = seed[upper]
+    elif direction == "shallower":
+        seed[upper] = seed[lower]
+    else:
+        raise ValueError("front direction must be 'deeper' or 'shallower'")
+    return seed
+
+
 def _metal_structure_line_budget(
     quality: Quality,
     abundances: Mapping[str, float],
@@ -486,6 +564,12 @@ def compute_da(
         or config.lower_boundary_extensions < 0
     ):
         raise ValueError("lower_boundary_extensions must be a nonnegative integer")
+    if (
+        isinstance(config.thermal_front_relocations, bool)
+        or not isinstance(config.thermal_front_relocations, int)
+        or config.thermal_front_relocations < 0
+    ):
+        raise ValueError("thermal_front_relocations must be a nonnegative integer")
     self_broadening_prescription = _da_self_broadening_prescription(
         config.effective_temperature, config.balmer_self_broadening_prescription
     )
@@ -535,6 +619,7 @@ def compute_da(
             full_depth = max(full_depth, atmosphere.n_depth)
         iteration_offset = 0
         depth_refinements = 0
+        front_relocations = []
 
         def full_callback(iteration, current_atmosphere, status):
             if iteration_callback is None:
@@ -544,6 +629,7 @@ def compute_da(
             record["depth_points"] = current_atmosphere.n_depth
             record["radiative_depth_refinements"] = depth_refinements
             record["domain_expansion"] = len(domain_segments)
+            record["thermal_front_relocations"] = len(front_relocations)
             iteration_callback(iteration + iteration_offset, current_atmosphere, record)
 
         cold_full_solve = initial_atmosphere is None
@@ -602,14 +688,100 @@ def compute_da(
             )))
             seed = None
         domain_iterations = iteration_offset + iterations
+        adaptation_metadata = {}
         if len(domain_segments) > 1:
-            atmosphere = replace(atmosphere, metadata={
-                **atmosphere.metadata,
+            adaptation_metadata.update({
                 "adaptive_domain_segments": domain_segments,
                 "adaptive_domain_expansions": len(domain_segments) - 1,
                 "radiative_equilibrium_iterations_including_domain_adaptation": (
                     domain_iterations
                 ),
+            })
+        # A hot/cold upper-atmosphere thermal front that straddles one layer
+        # can leave that layer without a discrete root (DAConfig comment).
+        # Re-solve the SAME equations warm with the front moved one layer;
+        # each attempt starts from the previous unfinished structure and must
+        # earn its own complete equilibrium certificate.
+        relocated_iterations = 0
+        tried_fronts = set()
+        latest = atmosphere
+        while len(front_relocations) < config.thermal_front_relocations:
+            failures = set(latest.metadata["equilibrium_certificate"]["failures"])
+            front = _da_upper_thermal_front(latest)
+            if (
+                not failures
+                or not failures <= _DA_THERMAL_FRONT_FAILURES
+                or front is None
+            ):
+                break
+            direction = next(
+                (
+                    candidate_direction
+                    for candidate_direction in ("deeper", "shallower")
+                    if (front, candidate_direction) not in tried_fronts
+                ),
+                None,
+            )
+            if direction is None:
+                break
+            tried_fronts.add((front, direction))
+            iteration_offset = domain_iterations + relocated_iterations
+            relocated = radiative_equilibrium_hydrogen_atmosphere(
+                config.effective_temperature,
+                config.logg,
+                n_depth=latest.n_depth,
+                tau_max=tau_max,
+                n_continuum_wavelength=resolution.n_continuum,
+                max_iterations=(
+                    min(40, resolution.maximum_iterations)
+                    if refine_radiative_grid and latest.n_depth == 100
+                    else resolution.maximum_iterations
+                ),
+                n_angle=min(resolution.n_angle, 3),
+                initial_temperature=_da_thermal_front_seed(
+                    latest.temperature, front, direction
+                ),
+                initial_column_mass=latest.column_mass,
+                iteration_callback=full_callback,
+                **relaxation_kwargs,
+            )
+            relocated_failures = list(
+                relocated.metadata["equilibrium_certificate"]["failures"]
+            )
+            iterations = int(
+                relocated.metadata["radiative_equilibrium_iterations"]
+            )
+            relocated_iterations += iterations
+            front_relocations.append(dict(
+                upper_layer=front[0],
+                lower_layer=front[1],
+                direction=direction,
+                upper_rosseland_depth=float(
+                    latest.rosseland_optical_depth[front[0]]
+                ),
+                temperatures_before=[
+                    float(latest.temperature[front[0]]),
+                    float(latest.temperature[front[1]]),
+                ],
+                failures_before=sorted(failures),
+                iterations=iterations,
+                failures=relocated_failures,
+            ))
+            latest = relocated
+            if not relocated_failures:
+                atmosphere = relocated
+                break
+        if front_relocations:
+            adaptation_metadata.update({
+                "thermal_front_relocations": front_relocations,
+                "radiative_equilibrium_iterations_including_front_relocations": (
+                    domain_iterations + relocated_iterations
+                ),
+            })
+        domain_iterations += relocated_iterations
+        if adaptation_metadata:
+            atmosphere = replace(atmosphere, metadata={
+                **atmosphere.metadata, **adaptation_metadata,
             })
         while (
             refine_radiative_grid
