@@ -45,7 +45,17 @@ STARK_AREA_COLD = (
 HELIUM_MINUS_COLD = (
     Path(__file__).parent / "data/approved_regressions/heh_mixed_heminus_2026_11_19/cold"
 )
-REVIEWED_COLD = (HELIUM_MINUS_COLD, STARK_AREA_COLD, COOL_H_CHEMISTRY_COLD, MONTREAL_H_RADIUS_COLD)
+# Reviewed 2026-11-27: infrared He I lines in the helium synthesis (structure unchanged).
+HELIUM_I_INFRARED_COLD = (
+    Path(__file__).parent / "data/approved_regressions/he_i_infrared_2026_11_27/cold"
+)
+REVIEWED_COLD = (
+    HELIUM_I_INFRARED_COLD,
+    HELIUM_MINUS_COLD,
+    STARK_AREA_COLD,
+    COOL_H_CHEMISTRY_COLD,
+    MONTREAL_H_RADIUS_COLD,
+)
 _FORMAL_WAVELENGTH = np.unique(
     np.r_[np.geomspace(900.0, 300000.0, 1100), np.arange(3700.0, 7000.0, 2.0)]
 )

@@ -47,6 +47,13 @@ previous control at the test tolerance with the new lines switched off.
 Below 7300 Å no pixel moves by more than 1.3e-5; the 7000–300000 Å band
 changes by at most 0.69% (`db-22000`). The
 [manifest](he_i_infrared_2026_11_27.json) records the hashes and band changes.
+The cold-start canaries `db-22000` and `db-22000-standard` move by the same
+0.69% in that band, over their 3e-3 bound, so
+`he_i_infrared_2026_11_27/cold/` holds their approved fluxes times the
+with/without-lines ratio on local cold starts of the same models, whose
+structures match the approved ones at the canary tolerance
+(`research/capture_he_i_infrared_cold_controls.py`). `db-10000` moves by 8e-5
+and keeps its reference.
 
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of
@@ -107,7 +114,7 @@ and retains the previous wavelength and flux arrays. The maximum spectral
 change on the stellar energy scale is 0.111%, within the existing 0.3% limit.
 [Cold-start provenance](heh_mixed_heminus_2026_11_19/cold/manifest.json).
 
-`heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
 `montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium

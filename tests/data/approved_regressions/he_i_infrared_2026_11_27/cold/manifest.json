@@ -1,0 +1,44 @@
+{
+ "reason": "helium synthesis includes the infrared He I lines (HELIUM_I_IMPACT_LINES) by default",
+ "capture": "approved flux times the local with/without-lines ratio on the same converged cold structure",
+ "git_commit": "7bfdbbc0b468add4b9c103fa419d6ff94ab1b409",
+ "source_sha256": {
+  "src/wd_spectra/helium_impact.py": "5842a1023c3b91223bb87e4f13e6f8bd83a34afd649f87c96aa1deeca830276f",
+  "src/wd_spectra/spectrum.py": "dd32bcd3aaa5ca3c33154cc004e175aa966399125ce062dc7bc10446e29c161e",
+  "research/capture_he_i_infrared_cold_controls.py": "6e8d9623f78be55e6bb3f9747f5ba553287ddadbaa99217e2cf29b208806dbbc"
+ },
+ "python": "3.11.9",
+ "numpy": "2.3.5",
+ "cases": {
+  "db-22000": {
+   "previous_control": "tests/data/approved_regressions/cold/db-22000.npz",
+   "previous_control_sha256": "5796b62501d18ac19548a770e840b465715f8fd6dcd89890a49af3bf984e4586",
+   "new_control_sha256": "3a11d553778f0a6cc0974aac89c92f5e6a00a443ecd2e5216430e0f0711ad848",
+   "local_ratio_sha256": "5bf9928480d74b5f6326713a9fe6b4afebe3e94e0463fa75a37e30241b084fb1",
+   "structure_matches_previous_at_rtol_2e_5": true,
+   "minimum_ratio": 0.8285183121271427,
+   "minimum_ratio_wavelength_angstrom": 17006.046683308195,
+   "maximum_change_below_7300_angstrom": 1.3042794854700723e-05,
+   "integrated_relative_change": {
+    "1150-3000": 0.0,
+    "3500-7000": -1.9978373733430179e-07,
+    "7000-300000": -0.006894791866342068
+   }
+  },
+  "db-22000-standard": {
+   "previous_control": "tests/data/approved_regressions/cold/db-22000-standard.npz",
+   "previous_control_sha256": "b78d4de5cfdfa36f259e8e8fc59a3978bb087af6375ff92e751b2ceda29c0103",
+   "new_control_sha256": "43d32e0e0501d3d721f34c1e22eb8821a386eaa209d7e1b6f922b4cc3a37dffc",
+   "local_ratio_sha256": "e80674e00d3206324432cd1daf5f8021da5a34a7dd1b47990181f6256ab625d5",
+   "structure_matches_previous_at_rtol_2e_5": true,
+   "minimum_ratio": 0.8297134011620255,
+   "minimum_ratio_wavelength_angstrom": 17006.046683308195,
+   "maximum_change_below_7300_angstrom": 1.3064378084015615e-05,
+   "integrated_relative_change": {
+    "1150-3000": 0.0,
+    "3500-7000": -2.0004211167381412e-07,
+    "7000-300000": -0.0068934856851135835
+   }
+  }
+ }
+}
