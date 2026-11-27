@@ -57,7 +57,7 @@ saving files.
 
 Other fields control numerics (`photospheric_depth_concentration`,
 `synthesis_transfer_depth_refinement`, `lower_boundary_extensions`,
-`convective_seed`). Keep their defaults.
+`convective_seed`, `thermal_branch_restarts`). Keep their defaults.
 
 ## Physics
 
@@ -244,6 +244,14 @@ changes the structure slightly. It raises an error with
   truth below 6000 K; published grids differ by up to 0.04 mag in g − z at
   4000 K.
 - The H₂–H₂ CIA lacks the high-density corrections of Hare & Welsh (1958).
+- From about 3250 K (log g 6) to 5000 K (log g 9.5) the outer layers have
+  two stable LTE energy balances: H⁻ heating near 0.85 Teff and H₂
+  collision-induced cooling near 0.6 Teff. The models therefore have a warm
+  layer over a cool one, with the change inside one layer at τ_R ≈ 1e-9 to
+  1e-4. Where several layers allow both balances, the depth of the change
+  depends on the solution path. Heat conduction is not modeled; above
+  τ_R ≈ 1e-6 it is faster than radiative cooling and could remove the warm
+  top layer, which sets the flux below about 2000 Å.
 - A high Teff does not switch to NLTE. Above about 40,000 K use
   [DAOConfig](DO-DAO.md).
 

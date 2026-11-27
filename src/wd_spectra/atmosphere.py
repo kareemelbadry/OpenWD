@@ -1223,6 +1223,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
     maximum_metal_lines: int | None = 1_000,
     metal_line_opacity_sampling_resolution: float | None = None,
     depth_concentration: float = 0.0,
+    thermal_branch_seed: bool = False,
     iteration_callback: Callable[
         [int, Atmosphere, Mapping[str, object]], None
     ]
@@ -1779,7 +1780,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
         )
 
     adaptive_seed = with_temperature(temperature)
-    return solve_adaptive_lte_structure(
+    solved = solve_adaptive_lte_structure(
         adaptive_seed,
         wavelength,
         reuse_material_probe_rosseland=True,
@@ -1935,6 +1936,91 @@ def radiative_equilibrium_hydrogen_atmosphere(
             ),
         },
     )
+    if not thermal_branch_seed or not solved.metadata[
+        "equilibrium_certificate"
+    ]["failures"]:
+        return solved
+    # An unfinished solve can leave thin layers between, or beside a merged
+    # pair of, the roots of their own radiative energy balance (cool upper
+    # atmospheres: H- heating versus H2 collision-induced cooling).  Record
+    # restart seeds for the caller: the frozen-field stable roots those
+    # layers' residuals point to, and one exact Newton step of the radiative
+    # cell energies around the worst cell.  The returned structure is
+    # unchanged; a seed certifies nothing.
+    from ._energy_balance import discrete_radiative_cell_energy_balance
+    from ._stable_feautrier import cancellation_safe_field
+    from ._thermal_branches import (
+        frozen_field_branch_seed,
+        local_newton_seed,
+        radiative_layers,
+    )
+    from .opacity import optical_depth_from_mass_opacity
+    from .spectrum import planck_lambda_angstrom
+
+    def planck_at(lam, values):
+        return planck_lambda_angstrom(lam[:, np.newaxis], values[np.newaxis, :])
+
+    def radiation_at(values):
+        current = with_temperature(values)
+        absorption = true_absorption(current)
+        scattering = scattering_opacity(current)
+        optical_depth = optical_depth_from_mass_opacity(
+            current.column_mass, absorption + scattering
+        )
+        planck = planck_at(wavelength, current.temperature)
+        _, field = cancellation_safe_field(
+            optical_depth, planck, absorption, scattering, n_angle=n_angle
+        )
+        return absorption, scattering, optical_depth, planck, field
+
+    def radiative_cell_residual(values):
+        absorption, scattering, optical_depth, planck, field = radiation_at(values)
+        exchange, emission = discrete_radiative_cell_energy_balance(
+            wavelength,
+            optical_depth,
+            planck,
+            field.mean_intensity,
+            absorption / (absorption + scattering),
+        )
+        return exchange / emission
+
+    _, _, _, _, field = radiation_at(solved.temperature)
+    cell_residual = np.asarray(
+        solved.metadata["cell_energy_balance_relative_residual"], dtype=np.float64
+    )
+    radiative = radiative_layers(
+        solved.metadata["convective_flux_fraction_by_interface"], solved.n_depth
+    )
+    stuck = radiative.copy()
+    stuck[:-1] &= np.abs(cell_residual) > flux_tolerance
+    stuck[-1] = False
+    seeds = {}
+    branch_temperature, branch_layers = frozen_field_branch_seed(
+        solved.temperature,
+        wavelength,
+        field.mean_intensity,
+        cell_residual,
+        stuck,
+        np.geomspace(0.25, 1.5, 64) * effective_temperature,
+        lambda values: true_absorption(with_temperature(values)),
+        planck_at,
+    )
+    if branch_layers:
+        seeds["frozen_field_thermal_branch_seed"] = {
+            "temperature": branch_temperature,
+            "layers": branch_layers,
+        }
+    local = local_newton_seed(
+        solved.temperature, cell_residual, radiative, radiative_cell_residual
+    )
+    if local is not None:
+        seeds["local_newton_thermal_seed"] = {
+            "temperature": local[0],
+            "layers": local[1],
+        }
+    if not seeds:
+        return solved
+    return replace(solved, metadata={**solved.metadata, **seeds})
 
 
 def radiative_equilibrium_helium_atmosphere(
