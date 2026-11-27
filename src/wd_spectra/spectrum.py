@@ -1122,6 +1122,12 @@ def synthesize_hydrogen_spectrum(
     )
 
 
+def _helium_i_impact_lines():
+    from .helium_impact import HELIUM_I_IMPACT_LINES
+
+    return HELIUM_I_IMPACT_LINES
+
+
 def synthesize_helium_spectrum(
     atmosphere: Atmosphere,
     wavelength_angstrom: ArrayLike,
@@ -1131,6 +1137,7 @@ def synthesize_helium_spectrum(
     include_lines: bool = True,
     include_uv_resonance_lines: bool = True,
     include_helium_ii_lines: bool = True,
+    include_helium_i_impact_lines: bool = True,
     include_occupation_probability: bool = True,
     include_helium_dimer_ion: bool = True,
     include_helium_three_body_cia: bool = True,
@@ -1187,6 +1194,9 @@ def synthesize_helium_spectrum(
     ``Beauchamp25_LD.txt``.  Requiring an explicit table keeps the optional
     CC-BY profile data out of the source distribution while making the exact
     profile provenance unambiguous.
+    ``include_helium_i_impact_lines`` adds the He I lines redward of the
+    tabulated optical set (10830, 20581 and the ``n = 3`` series to 7.4 um;
+    see :mod:`wd_spectra.helium_impact`).
     """
 
     if transfer_discretization not in ("formal-linear", "formal-pchip", "optical-depth", "feautrier-optical-depth", "column-mass"):
@@ -1284,6 +1294,13 @@ def synthesize_helium_spectrum(
             atmosphere, wavelength, stark_table,
             include_occupation_probability=include_occupation_probability,
         )
+        if include_helium_i_impact_lines:
+            from .helium_impact import helium_i_impact_line_mass_absorption_coefficient
+
+            absorption += helium_i_impact_line_mass_absorption_coefficient(
+                atmosphere, wavelength,
+                include_occupation_probability=include_occupation_probability,
+            )
         if include_uv_resonance_lines:
             absorption += helium_i_resonance_line_mass_absorption_coefficient(
                 atmosphere,
@@ -1668,6 +1685,13 @@ def synthesize_helium_spectrum(
                 if include_lines and include_helium_ii_lines
                 else "36 He I transitions"
                 if include_lines
+                else "disabled"
+            ),
+            "helium_i_impact_lines": (
+                "NIST ASD 5.12 f-values; STARK-B (Dimitrijevic & Sahal-Brechot "
+                "1989/1990, Terzi et al. 1998) impact widths/shifts; "
+                f"{len(_helium_i_impact_lines())} multiplets 8361 A - 7.4 um"
+                if include_lines and include_helium_i_impact_lines
                 else "disabled"
             ),
             "helium_i_ground_resonance_series": bool(

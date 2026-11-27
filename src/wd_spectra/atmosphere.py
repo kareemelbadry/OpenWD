@@ -1952,6 +1952,7 @@ def radiative_equilibrium_helium_atmosphere(
     n_continuum_wavelength: int = 500,
     include_lines: bool = True,
     include_helium_ii_lines: bool = True,
+    include_helium_i_impact_lines: bool = False,
     correlated_microfields: bool = True,
     neutral_radius_scale: float = 0.5,
     mixing_length_alpha: float | None = 1.25,
@@ -2262,6 +2263,7 @@ def radiative_equilibrium_helium_atmosphere(
         )
     relaxation_depth = seed.rosseland_optical_depth.copy()
     structure_helium_i_lines = HELIUM_I_LINES
+    structure_helium_i_impact_lines = ()
     structure_helium_ii_lines = (
         HELIUM_II_LINES if include_helium_ii_lines else ()
     )
@@ -2322,6 +2324,14 @@ def radiative_equilibrium_helium_atmosphere(
                 if upper_optical_depth >= 1.0e-3:
                     retained_lines.append(line)
             structure_helium_i_lines = tuple(retained_lines)
+            if include_helium_i_impact_lines:
+                from .helium_impact import helium_i_impact_line_structure_screen
+
+                structure_helium_i_impact_lines = (
+                    helium_i_impact_line_structure_screen(
+                        seed, first_below_photosphere
+                    )
+                )
             if include_helium_ii_lines:
                 maximum_helium_ii_level = max(
                     line.upper_principal_quantum_number
@@ -2375,6 +2385,25 @@ def radiative_equilibrium_helium_atmosphere(
         ]
         if structure_helium_i_lines:
             line_grids.append(np.arange(2600.0, 7500.1, 10.0))
+        if structure_helium_i_impact_lines:
+            # The optical core grid (0.2 A over +-5 A at ~5000 A) at the same
+            # velocity resolution, and the 10-A optical wing grid as a
+            # logarithmic grid through the impact-line region.
+            for line in structure_helium_i_impact_lines:
+                scale = line.wavelength_vacuum_angstrom / 5000.0
+                line_grids.append(
+                    line.wavelength_vacuum_angstrom + core_offsets * scale
+                )
+            wing_grid = np.exp(np.arange(
+                np.log(7000.0), np.log(100_000.0), 10.0 / 5000.0
+            ))
+            in_wing = np.zeros(wing_grid.size, dtype=bool)
+            for line in structure_helium_i_impact_lines:
+                in_wing |= (
+                    np.abs(wing_grid / line.wavelength_vacuum_angstrom - 1.0)
+                    <= 0.1
+                )
+            line_grids.append(wing_grid[in_wing])
         uv_resonance_grid = np.arange(480.0, 700.0001, 0.5)
         uv_flux_fraction = float(
             PI
@@ -2671,6 +2700,16 @@ def radiative_equilibrium_helium_atmosphere(
                 lines=structure_helium_i_lines,
                 include_occupation_probability=True,
             )
+            if structure_helium_i_impact_lines:
+                from .helium_impact import (
+                    helium_i_impact_line_mass_absorption_coefficient,
+                )
+
+                result += helium_i_impact_line_mass_absorption_coefficient(
+                    current, wavelength,
+                    lines=structure_helium_i_impact_lines,
+                    include_occupation_probability=True,
+                )
             result += helium_i_resonance_line_mass_absorption_coefficient(
                 current,
                 wavelength,
@@ -2941,6 +2980,9 @@ def radiative_equilibrium_helium_atmosphere(
             ),
             "radiative_equilibrium_retained_helium_ii_lines": int(
                 len(structure_helium_ii_lines)
+            ),
+            "radiative_equilibrium_retained_helium_i_impact_lines": int(
+                len(structure_helium_i_impact_lines)
             ),
             "radiative_equilibrium_neutral_helium_line_broadening": (
                 "unsold" if include_lines else "disabled"
