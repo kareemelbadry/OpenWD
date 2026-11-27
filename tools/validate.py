@@ -61,7 +61,7 @@ COLD_TESTS = {
         for case in ("dz-pg1225", "pg1159-pg1424", "d6-j1637", "warm-dq-j1215")
     },
     "db-10000": CANARY
-    + "test_protected_db_cold_starts_converge_without_fallback[10000.0-90]",
+    + "test_protected_db_cold_starts_converge_without_fallback[10000.0-110]",
     "db-22000": CANARY
     + "test_protected_db_cold_starts_converge_without_fallback[22000.0-90]",
     "db-22000-standard": CANARY
