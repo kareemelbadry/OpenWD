@@ -968,6 +968,7 @@ def compute_db(
         solver_options = dict(
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
@@ -1290,6 +1291,7 @@ def compute_dab(
             molecular_h_he=molecular,
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
@@ -1735,6 +1737,7 @@ def compute_dz(
             config.logg,
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,

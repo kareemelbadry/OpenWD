@@ -82,8 +82,9 @@ log g = 9.25.
   ([Dimitrijević & Sahal-Bréchot 1990](https://ui.adsabs.harvard.edu/abs/1990A%26AS...82..519D);
   [Terzi et al. 1998](https://doi.org/10.1051/aas:1998320)), Ali–Griem
   resonance broadening of the np ¹P levels and Unsöld van der Waals
-  broadening. They enter the final spectrum only; their effect on the
-  structure is below the convergence tolerance. Lines to the n = 4–6 nd/nf
+  broadening. They are in the structure opacity too: at 20,000 K they cool
+  the layers above τ_R = 10⁻³ by up to 1.8% and move the He I 5876 core by
+  2.6%. Lines to the n = 4–6 nd/nf
   levels are not isolated above Ne ≈ 10¹⁶ cm⁻³, so their profiles are
   approximate (see `wd_spectra.helium_impact`). He I lines from n ≥ 4 terms
   (the 3–30 µm Rydberg lines) and 3s ³S–3p ³P (4.3 µm) are not included.

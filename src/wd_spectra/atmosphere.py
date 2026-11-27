@@ -2023,6 +2023,9 @@ def radiative_equilibrium_helium_atmosphere(
     species in the shared H/He/metal charge closure and in the opacity.
     ``metal_classical_electron_stark`` adds the SYNSPEC classical electron
     width to ordinary metal lines that have no tabulated Stark width.
+    ``include_helium_i_impact_lines`` adds the infrared He I lines
+    (:mod:`wd_spectra.helium_impact`) that pass the same line-centre screen
+    as the optical lines; the DB, DAB and DZ presets enable it.
     """
     if homogeneous_metal_host and (
         log_hydrogen_abundance is None
