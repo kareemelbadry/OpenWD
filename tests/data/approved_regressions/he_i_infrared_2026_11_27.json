@@ -1,0 +1,121 @@
+{
+ "reason": "helium synthesis includes the infrared He I lines (HELIUM_I_IMPACT_LINES) by default",
+ "git_commit": "298a8376bfb95493fe3e60d25ee63fc4b1e5b83b",
+ "git_dirty": false,
+ "source_sha256": {
+  "src/wd_spectra/helium_impact.py": "5842a1023c3b91223bb87e4f13e6f8bd83a34afd649f87c96aa1deeca830276f",
+  "src/wd_spectra/spectrum.py": "dd32bcd3aaa5ca3c33154cc004e175aa966399125ce062dc7bc10446e29c161e",
+  "src/wd_spectra/atmosphere.py": "70738fbc4df9abd61c0a51c32cfb473db3a6fe56dce2020cfdc4e4f7b9f4ef41",
+  "src/wd_spectra/models/stellar.py": "968f589b8ca95e186c4d7db3af3193f95669dc840ec3deba76df1dedcca69bfc",
+  "research/capture_he_i_infrared_controls.py": "a0ca78fbbb8d6a31481592c8455768712c9fd1f1536946838fbdc1d781c0dc5a"
+ },
+ "python": "3.11.9",
+ "numpy": "2.3.5",
+ "cases": {
+  "db-22000": {
+   "family": "DB",
+   "frozen_structure": "tests/data/spectral_regressions/db-22000.npz",
+   "frozen_structure_sha256": "5a173fdad17b118be448b80ad2add1004302db80b7a4de46891311395bc570f9",
+   "previous_control_sha256": "629988fa292a29a24c4dd7306fb2fa1d57f29fee25d4b21770f64bbcd8524bc2",
+   "new_control_sha256": "ec97f69f1925d0c13844a8ed65ca535b09a81c1dbc9aa2d6e3032857e989477d",
+   "wavelength_sha256": "feb7afd18871f4ad6c28acc9a636550698a4424a3e340083c66f6b9da3b876ec",
+   "previous_reproduced_at_test_tolerance": true,
+   "atmosphere_reconverged": false,
+   "significant_pixels": 2438,
+   "maximum_relative_change": -0.1628942430634156,
+   "maximum_change_wavelength_angstrom": 12783.219965898945,
+   "maximum_relative_change_below_7300_angstrom": 1.3047473733540649e-05,
+   "pixels_changed_over_0p1_percent": 91,
+   "integrated_relative_change": {
+    "1150-3000": 5.647863000771333e-11,
+    "3000-4000": 3.1504772662132527e-12,
+    "4000-7000": -2.8541646129411535e-07,
+    "7000-300000": -0.006896850604540628
+   }
+  },
+  "dab-9000": {
+   "family": "DAB",
+   "frozen_structure": "tests/data/spectral_regressions/dab-9000.npz",
+   "frozen_structure_sha256": "e72b5953814079264569f178bf89d128555eb308ada600ec999d162043139f72",
+   "previous_control_sha256": "663a085094c5fb190e24de60eced0cbc0b2a5206ad90a86f5ea0f8019a4749f5",
+   "new_control_sha256": "e36aa42b549accb915560851ea5ca2c836c5d66cb9dae935614107dab3fd95f0",
+   "wavelength_sha256": "feb7afd18871f4ad6c28acc9a636550698a4424a3e340083c66f6b9da3b876ec",
+   "previous_reproduced_at_test_tolerance": true,
+   "atmosphere_reconverged": false,
+   "significant_pixels": 2235,
+   "maximum_relative_change": -3.860390191456897e-05,
+   "maximum_change_wavelength_angstrom": 10851.162254465668,
+   "maximum_relative_change_below_7300_angstrom": 6.265676866235026e-11,
+   "pixels_changed_over_0p1_percent": 0,
+   "integrated_relative_change": {
+    "1150-3000": -2.3031867751325726e-16,
+    "3000-4000": -2.1777636194363322e-16,
+    "4000-7000": -1.9489674145224122e-12,
+    "7000-300000": -2.81748532014011e-07
+   }
+  },
+  "dab-20000": {
+   "family": "DAB",
+   "frozen_structure": "tests/data/spectral_regressions/dab-20000.npz",
+   "frozen_structure_sha256": "a10ac50017df7c63d8923540e743e1e838bacd2f490ed43d2c2cde168d5f512a",
+   "previous_control_sha256": "5131d608766015d6bb5f444419d1fefb9163a2b9e53ba0ce6d646155da25c9b3",
+   "new_control_sha256": "0d39938e420472fcd69f183457ec25cb9f20afc2d0127a6b49eaac3c254a48b3",
+   "wavelength_sha256": "feb7afd18871f4ad6c28acc9a636550698a4424a3e340083c66f6b9da3b876ec",
+   "previous_reproduced_at_test_tolerance": true,
+   "atmosphere_reconverged": false,
+   "significant_pixels": 2442,
+   "maximum_relative_change": -0.0878890539649897,
+   "maximum_change_wavelength_angstrom": 12783.219965898945,
+   "maximum_relative_change_below_7300_angstrom": 1.1701949553466484e-05,
+   "pixels_changed_over_0p1_percent": 90,
+   "integrated_relative_change": {
+    "1150-3000": 5.02563606097916e-10,
+    "3000-4000": 2.5501539457728996e-11,
+    "4000-7000": -2.6140654199410366e-07,
+    "7000-300000": -0.005133564764726473
+   }
+  },
+  "dz-pg1225": {
+   "family": "DZ",
+   "frozen_structure": "tests/data/spectral_regressions/dz-pg1225.npz",
+   "frozen_structure_sha256": "d425e8efde9bccd3c133b83bf31fc9c37da00e6525a50eb34b7828fa8b70e87c",
+   "previous_control_sha256": "322b677dc8ea7acb6e84fb74b5e4bb90c1b45eee057be146a3cdb37c2af20293",
+   "new_control_sha256": "45758b39fc84c6772141091f4b01353c0119a950fbe3ec3cb8a17f0849216376",
+   "wavelength_sha256": "feb7afd18871f4ad6c28acc9a636550698a4424a3e340083c66f6b9da3b876ec",
+   "previous_reproduced_at_test_tolerance": true,
+   "atmosphere_reconverged": false,
+   "significant_pixels": 2528,
+   "maximum_relative_change": -0.005090090662526747,
+   "maximum_change_wavelength_angstrom": 10851.162254465668,
+   "maximum_relative_change_below_7300_angstrom": 8.282700525441555e-09,
+   "pixels_changed_over_0p1_percent": 2,
+   "integrated_relative_change": {
+    "1150-3000": -2.4633541659648236e-16,
+    "3000-4000": -2.396481837245864e-16,
+    "4000-7000": -2.3822589267044865e-10,
+    "7000-300000": -3.895637736348629e-05
+   }
+  },
+  "dz-j0738": {
+   "family": "DZ",
+   "frozen_structure": "tests/data/spectral_regressions/dz-j0738.npz",
+   "frozen_structure_sha256": "b3f69d5870b3f812015eed77bcbe14aa7d448b4de109a7eca2c344c6df806c42",
+   "previous_control_sha256": "504cd76d2f1e08d7298e9dcdefe5f0d20ad56f11c78ce28984f5fc7cf2c2c00e",
+   "new_control_sha256": "e299ca81c337f9615624b7c5522af2ae79b1d994794579db1093c475b3450fa4",
+   "wavelength_sha256": "feb7afd18871f4ad6c28acc9a636550698a4424a3e340083c66f6b9da3b876ec",
+   "previous_reproduced_at_test_tolerance": true,
+   "atmosphere_reconverged": false,
+   "significant_pixels": 2466,
+   "maximum_relative_change": -0.06495441810617542,
+   "maximum_change_wavelength_angstrom": 18703.56536994526,
+   "maximum_relative_change_below_7300_angstrom": 1.3800724334434022e-06,
+   "pixels_changed_over_0p1_percent": 39,
+   "integrated_relative_change": {
+    "1150-3000": -2.295081800402327e-16,
+    "3000-4000": -2.3869263753315455e-16,
+    "4000-7000": -3.463968141489513e-08,
+    "7000-300000": -0.0008706363152126152
+   }
+  }
+ }
+}

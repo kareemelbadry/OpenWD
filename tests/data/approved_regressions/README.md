@@ -38,6 +38,16 @@ byte. [Integration provenance](audit_cool_h_integration_2026_11_11.json)
 records both predecessor hashes, the capture inputs and the band changes.
 All comparison tolerances are unchanged.
 
+On 2026-11-27 the helium synthesis gained the infrared He I lines
+(`HELIUM_I_IMPACT_LINES`: 10830, 20581 and the n = 3 series, 8361 Å–7.4 µm).
+`db-22000`, `dab-9000`, `dab-20000`, `dz-pg1225` and `dz-j0738` were
+re-synthesized on their unchanged frozen structures and grids with
+`research/capture_he_i_infrared_controls.py`, which first reproduces each
+previous control at the test tolerance with the new lines switched off.
+Below 7300 Å no pixel moves by more than 1.3e-5; the 7000–300000 Å band
+changes by at most 0.69% (`db-22000`). The
+[manifest](he_i_infrared_2026_11_27.json) records the hashes and band changes.
+
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of
 the corner-profile areas; midway between density nodes it had kept only
