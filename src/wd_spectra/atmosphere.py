@@ -331,6 +331,15 @@ def gray_hydrogen_atmosphere(
     )
 
 
+# Structure samples around each Paschen and Brackett line centre (Angstrom).
+# Their Stark wings span hundreds of Angstrom; the 500-point continuum grid is
+# ~1.4% (140 A at 1 um) apart there.
+HYDROGEN_INFRARED_LINE_OFFSETS_ANGSTROM = np.asarray(
+    (-300.0, -150.0, -75.0, -30.0, -10.0, -3.0, -1.0, 0.0,
+     1.0, 3.0, 10.0, 30.0, 75.0, 150.0, 300.0),
+    dtype=np.float64,
+)
+
 _CONVECTIVE_SEED_LOG_PRESSURE_STEP = 0.02
 _CONVECTIVE_SEED_MAXIMUM_PRESSURE_FACTOR = 1.0e4
 _CONVECTIVE_SEED_FIXED_POINT_PASSES = 12
@@ -1378,26 +1387,7 @@ def radiative_equilibrium_hydrogen_atmosphere(
                     )
                 )
             )
-    infrared_line_offsets = np.asarray(
-        (
-            -300.0,
-            -150.0,
-            -75.0,
-            -30.0,
-            -10.0,
-            -3.0,
-            -1.0,
-            0.0,
-            1.0,
-            3.0,
-            10.0,
-            30.0,
-            75.0,
-            150.0,
-            300.0,
-        ),
-        dtype=np.float64,
-    )
+    infrared_line_offsets = HYDROGEN_INFRARED_LINE_OFFSETS_ANGSTROM
     if include_paschen_lines:
         wavelength = np.unique(
             np.concatenate(
@@ -2617,6 +2607,15 @@ def radiative_equilibrium_helium_atmosphere(
                 *(
                     line.wavelength_vacuum_angstrom + lyman_core_offsets
                     for line in LYMAN_LINES[:3]
+                ),
+                # The Paschen and Brackett wings, sampled as in the hydrogen
+                # solver.  Five samples within 5 A of the centre left the
+                # upper-layer temperature of an sdB dependent on unrelated
+                # infrared grid points at the 1% level.
+                *(
+                    line.wavelength_vacuum_angstrom
+                    + HYDROGEN_INFRARED_LINE_OFFSETS_ANGSTROM
+                    for line in (*PASCHEN_LINES, *BRACKETT_LINES)
                 ),
             )))
     if metal_photoionization_database is not None:
