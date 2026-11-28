@@ -369,14 +369,51 @@ def motional_stark_profile(
     return result / (2.0 * s)
 
 
+def _doppler_smoothed_cdf(
+    x: FloatArray, knots: FloatArray, cumulative: FloatArray, sigma: FloatArray
+) -> FloatArray:
+    """Piecewise-linear cumulative strength through (knots, cumulative) [depth,
+    knot] convolved with a Gaussian of standard deviation sigma [depth], at the
+    sorted points x. The convolution of a linear spline is the spline plus, at
+    each knot with slope change ds, ds h(x - q), h(u) = sigma (phi(z) - |z|
+    Phi(-|z|)), z = u/sigma (the convolved ramp u Phi(z) + sigma phi(z) minus
+    max(u, 0)); h is negligible beyond 7 sigma, so only nearby x are touched.
+    Knots closer than 1e-6 sigma are spread to that distance (a step becomes a
+    steep ramp)."""
+
+    from scipy.special import ndtr
+
+    result = np.empty((x.size, sigma.size))
+    for d in range(sigma.size):
+        eps = 1.0e-6 * sigma[d] * np.arange(knots.shape[1])
+        q = np.maximum.accumulate(knots[d] - eps) + eps
+        result[:, d] = np.interp(x, q, cumulative[d])
+        kink = np.diff(np.concatenate(([0.0], np.diff(cumulative[d]) / np.diff(q), [0.0])))
+        lo, hi = np.searchsorted(x, q - 7.0 * sigma[d]), np.searchsorted(x, q + 7.0 * sigma[d])
+        j = np.repeat(np.arange(q.size), hi - lo)
+        i = np.arange(j.size) - np.repeat(np.cumsum(hi - lo) - (hi - lo), hi - lo) + lo[j]
+        z = np.abs(x[i] - q[j]) / sigma[d]
+        h = sigma[d] * (np.exp(-0.5 * z * z) / np.sqrt(2.0 * np.pi) - z * ndtr(-z))
+        result[:, d] += np.bincount(i, weights=kink[j] * h, minlength=x.size)
+    return result
+
+
 def _motional_stark_template(
     template: BalmerLineTemplate,
     component_frequency: float,
-    shift_hz: FloatArray,
+    shift_hz: FloatArray | None,
     temperature: FloatArray,
     dispersion: bool,
+    profile: tuple[FloatArray, FloatArray] | None = None,
 ) -> BalmerLineTemplate:
-    """Sample a component's motional kernel in its physical frequency frame."""
+    """Sample a component's motional kernel in its physical frequency frame.
+
+    With ``profile`` (``MotionalStarkTable.profile_at``: knots [A from the
+    component] and cumulative strength) the exact F-averaged profile, convolved
+    with the thermal Doppler Gaussian, replaces the exponential of mean
+    ``shift_hz``; its area is the strength in the component's window over the
+    F = 0 line, and it is cell-averaged on the mesh, so the area is kept.
+    """
 
     from ._compat import trapezoid
 
@@ -384,6 +421,28 @@ def _motional_stark_template(
         raise ValueError("the motional kernel needs a template with its line strength")
     sigma = component_frequency * np.sqrt(BOLTZMANN * temperature / HYDROGEN_MASS) / LIGHT_SPEED
     wide = 8.0 * sigma.max()
+    if profile is not None:
+        # knots in Hz from the component, positive towards lower frequency (red)
+        knots = component_frequency - LIGHT_SPEED / (
+            (LIGHT_SPEED / component_frequency / 1.0e-8 + profile[0]) * 1.0e-8)
+        blue = max(wide, LIGHT_SPEED / 9.0e-6 - component_frequency)
+        red = max(wide, component_frequency - LIGHT_SPEED / 2.5e-4)
+        tail = np.geomspace(sigma.min(), wide + np.abs(knots).max(), 300)
+        detuning = np.unique(np.concatenate((
+            np.arange(-wide, wide, sigma.min() / 4.0), -tail, tail,
+            -np.geomspace(wide, blue, 150), np.geomspace(wide, red, 150), knots.ravel())))
+        # knots of different depths can nearly coincide; keep nodes at least 1e-6 Doppler widths apart
+        detuning = detuning[np.concatenate(([True], np.diff(detuning) > 1.0e-6 * sigma.min()))]
+        detuning = detuning[detuning < component_frequency]
+        mesh, distinct = np.unique(
+            LIGHT_SPEED / (component_frequency - detuning) / 1.0e-8, return_index=True
+        )
+        detuning = detuning[distinct]
+        edges = np.concatenate((detuning[:1], 0.5 * (detuning[1:] + detuning[:-1]), detuning[-1:]))
+        opacity = template.strength[np.newaxis, :] * np.diff(
+            _doppler_smoothed_cdf(edges, knots, profile[1], sigma), axis=0) / np.diff(edges)[:, np.newaxis]
+        return BalmerLineTemplate(
+            mesh, opacity, frequency_hilbert_dispersion(mesh, opacity) if dispersion else None)
     tail_extent = wide + 20.0 * np.abs(shift_hz).max()
     if not np.isfinite(tail_extent):
         raise ValueError("motional Stark width must be finite")
@@ -506,7 +565,9 @@ def h2db_balmer_manifolds(
 
     With ``motional_stark_table`` every component it lists at this field takes
     the motional Stark kernel with its shift scaled by ``motional_scale`` (0:
-    Doppler only) in place of the zero-field Stark template.
+    Doppler only) in place of the zero-field Stark template: the second-order
+    exponential, or the exact profile where second order fails (its
+    wavelength offsets scaled by ``motional_scale``).
     """
 
     wavelength = _validate_grid(wavelength_angstrom)
@@ -556,6 +617,12 @@ def h2db_balmer_manifolds(
                         template, component_frequency,
                         motional_scale * motional_stark_shift_hz(delta_alpha, field, atmosphere.temperature),
                         atmosphere.temperature, dispersion)
+                    shift = 0.0
+                elif (profile := motional_stark_table.profile_at(
+                        components.labels[index], field, atmosphere.temperature)) is not None:
+                    kernel = _motional_stark_template(
+                        template, component_frequency, None, atmosphere.temperature,
+                        dispersion, (motional_scale * profile[0], profile[1]))
                     shift = 0.0
             q = int(np.sign(delta_m))
             manifolds[q] += weight * _translated_profile(kernel, wavelength, shift)

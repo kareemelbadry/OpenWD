@@ -22,6 +22,7 @@ continuum).
 """
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.special import roots_genlaguerre, roots_legendre, sph_harm_y
 
 B0_G = 2.350518e9  # atomic unit of magnetic field [G]: hbar omega_c = beta Hartree
@@ -76,7 +77,7 @@ class Hydrogen:
         self.beta, self.N, self.lmax = beta, N, lmax
         self.r, self.T = mesh(N, h)
         self.ang = Angular(lmax)
-        self.blocks = {}
+        self.blocks, self.xmats = {}, {}
 
     def block(self, m, par):
         """Eigenvalues and eigenvectors (columns, l-major: l block of N radial points) of block (m, par)."""
@@ -101,11 +102,14 @@ class Hydrogen:
 
     def xmat(self, m, par):
         """<b|x|a> between block (m+1, par) [rows] and (m, par) [cols], in the eigenbases."""
+        if (m, par) in self.xmats:
+            return self.xmats[m, par]
         _, V1, l1 = self.block(m + 1, par)
         _, V0, l0 = self.block(m, par)
         # phi part: int e^{-i(m+1)phi} cos(phi) e^{i m phi} dphi / (2 pi) = 1/2
         A = 0.5 * self.ang.mat(m + 1, l1, m, l0, lambda u: np.sqrt(1 - u ** 2))
-        return V1.T @ np.kron(A, np.diag(self.r)) @ V0
+        self.xmats[m, par] = V1.T @ np.kron(A, np.diag(self.r)) @ V0
+        return self.xmats[m, par]
 
     def alpha(self, m, par, k):
         """Transverse polarizability of the k-th state of block (m, par)."""
@@ -114,6 +118,66 @@ class Hydrogen:
         for mm, X in ((m + 1, self.xmat(m, par)[:, k]), (m - 1, self.xmat(m - 1, par)[k, :])):
             a += 2 * np.sum(X ** 2 / (self.block(mm, par)[0] - E0))
         return a
+
+
+def coupled(beta, par, mmax=60, N=60, h=0.6, lmax_low=60, dl=24, mlow=6):
+    """Crossed-field matrix H_B + F x of one z-parity in the eigenbases of the m blocks -mmax..mlow.
+
+    A motional field F along x couples m to m +- 1 at fixed z-parity, so the
+    eigenstates in F are those of diag(E0) + F X. The basis is centred on the
+    nucleus; blocks |m| <= mlow keep l <= lmax_low and their 150 lowest states,
+    higher |m| keep l <= |m| + dl and their 20 lowest states (the lowest Landau
+    level and its first z excitations), which places guiding centres out to
+    sqrt(2 mmax / beta), past the Stark saddle at ~1/sqrt(F). Infinite nuclear
+    mass: the decentred well of a moving atom (Avron, Herbst & Simon 1978, Ann.
+    Phys. 114, 431) is not modelled. Returns E0, X (dense), the m list, block
+    offsets and per block (eigenvectors, l list) for the pi operator.
+    """
+    r, T = mesh(N, h)
+    ang = Angular(mmax + dl + 2)
+    ms, E, V, L = list(range(-mmax, mlow + 1)), [], [], []
+    for m in ms:
+        ls = [l for l in range(abs(m), (lmax_low if abs(m) <= mlow else abs(m) + dl) + 1) if (-1) ** (l + m) == par]
+        S = ang.mat(m, ls, m, ls, lambda u: 1.0 - u ** 2)
+        H = np.zeros((len(ls) * N, len(ls) * N))
+        for i, l in enumerate(ls):
+            s = slice(i * N, (i + 1) * N)
+            H[s, s] = 0.5 * T + np.diag(l * (l + 1) / (2 * r ** 2) - 1.0 / r + 0.5 * beta * m)
+            for j in range(len(ls)):
+                if abs(S[i, j]) > 1e-14:
+                    H[s, slice(j * N, (j + 1) * N)] += np.diag(beta * beta / 8.0 * r ** 2 * S[i, j])
+        e, v = np.linalg.eigh(H)
+        nk = 150 if abs(m) <= mlow else 20
+        E.append(e[:nk]), V.append(v[:, :nk].copy()), L.append(ls)  # copy: a view keeps all of v
+    off = np.cumsum([0] + [e.size for e in E])
+    X = np.zeros((off[-1], off[-1]))
+    for i in range(len(ms) - 1):  # <m+1|x|m>; phi part 1/2 as in Hydrogen.xmat
+        Xm = V[i + 1].T @ np.kron(0.5 * ang.mat(ms[i] + 1, L[i + 1], ms[i], L[i], lambda u: np.sqrt(1 - u ** 2)),
+                                  np.diag(r)) @ V[i]
+        X[off[i + 1]:off[i + 2], off[i]:off[i + 1]] = Xm
+        X[off[i]:off[i + 1], off[i + 1]:off[i + 2]] = Xm.T
+    return dict(E0=np.concatenate(E), X=X, ms=ms, off=off, V=V, L=L, r=r, ang=ang)
+
+
+def dipole_operators(C):
+    """{(lower z-parity, q = m_up - m_low): <upper|r_q|lower>} (sparse) between the coupled bases C[+1], C[-1].
+
+    sigma: r_-+ = (x -+ i y)/sqrt(2) keeps the z-parity, <m-+1|r_-+|m> = sqrt(2) <m-+1|x|m>; pi: z flips it, same m.
+    """
+    out = {}
+    for p, c in C.items():
+        o, Z = c['off'], np.zeros_like(c['X'])
+        for i in range(1, len(c['ms'])):
+            Z[o[i - 1]:o[i], o[i]:o[i + 1]] = np.sqrt(2.0) * c['X'][o[i - 1]:o[i], o[i]:o[i + 1]]
+        out[p, -1], out[p, 1] = sp.csr_matrix(Z), sp.csr_matrix(Z.T)
+    up, low = C[-1], C[1]
+    Z = np.zeros((up['E0'].size, low['E0'].size))
+    o, r, ang = low['off'], low['r'], low['ang']
+    for i, m in enumerate(low['ms']):
+        Z[up['off'][i]:up['off'][i + 1], o[i]:o[i + 1]] = (
+            up['V'][i].T @ np.kron(ang.mat(m, up['L'][i], m, low['L'][i], lambda u: u), np.diag(r)) @ low['V'][i])
+    out[1, 0], out[-1, 0] = sp.csr_matrix(Z), sp.csr_matrix(Z.T)
+    return out
 
 
 def labels(m, par, nmax):

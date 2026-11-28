@@ -283,9 +283,9 @@ class ModelData:
 
     @property
     def motional_stark_table(self) -> Path:
-        """Delta alpha of the H-alpha components (tools/build_motional_stark_table.py)."""
+        """Motional Stark table of the H-alpha and H-beta components (tools/build_motional_stark_table.py)."""
 
-        return self.cache / "motional-stark/halpha_motional_stark.npz"
+        return self.cache / "motional-stark/balmer_motional_stark.npz"
 
     @property
     def h2_h2_cia(self) -> Path:
