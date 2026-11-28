@@ -63,6 +63,24 @@ start; if a Linux canary moves them by more than the 2e-5 node tolerance, take
 the gas pressure and column mass from that certified candidate, as on
 2026-11-19.
 
+The `dab-20000` cold check (`research/validate_public_cold_start.py`) is
+also affected by the infrared He I lines. On the branch that added them, its
+7000–300000 Å band fell by 0.52%, over the 0.3% bound. Re-synthesizing that
+same structure without the lines gives −0.513%, so the drop is the line
+opacity itself.
+
+On the same date, the mixed H/He structure started sampling each Paschen
+and Brackett line out to ±300 Å, as the hydrogen solver does; before, it used
+five points within 5 Å. For this DBA, that moves the structure temperature
+by at most 9.5e-4 and the band fluxes by at most 1.6e-6.
+
+`paschen_brackett_wings_2026_11_27/cold/dab-20000.npz` is a verified local
+cold start of the CI command, captured by
+`research/capture_paschen_brackett_cold_controls.py`. Its gas pressure and
+column mass equal the previous reference to 1.2e-6. The validator now reads
+the newest reviewed folder first, as the protected canaries do.
+[Provenance](paschen_brackett_wings_2026_11_27/cold/manifest.json).
+
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of
 the corner-profile areas; midway between density nodes it had kept only
@@ -122,7 +140,7 @@ and retains the previous wavelength and flux arrays. The maximum spectral
 change on the stellar energy scale is 0.111%, within the existing 0.3% limit.
 [Cold-start provenance](heh_mixed_heminus_2026_11_19/cold/manifest.json).
 
-`he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`paschen_brackett_wings_2026_11_27/cold/` (the `dab-20000` cold check only), `he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
 `montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium
