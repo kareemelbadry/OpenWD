@@ -37,6 +37,16 @@ phase change cannot call an oversized temperature correction a zero-step
 success. To force a new stationarity measurement from a supplied state, use
 `allow_initial_convergence=False`.
 
+The certificate counts the temperature correction as measured only if the
+final trust radius is at least the temperature tolerance. The local-energy
+completion solves therefore pass `require_measured_stationarity=True`. If
+the last accepted step passes its tests while the trust radius is smaller,
+the solver does not stop. It raises the radius to the tolerance and computes
+a new proposal at the accepted state. It stops with
+`stationary-residual-converged` only if that proposal is below the
+tolerance. Otherwise the Newton iteration continues. Stops at a radius of at
+least the tolerance do not change.
+
 ## Segments and work counts
 
 `nonlinear_solver_segments` has one record for each conditioning, formal-flux

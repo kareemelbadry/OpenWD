@@ -2152,6 +2152,9 @@ def solve_adaptive_lte_structure(
         nonlinear_options.update(
             allow_initial_convergence=False,
             require_unrestricted_step=True,
+            # The certificate measures stationarity only from a radius of at
+            # least temperature_tolerance; measure there before stopping.
+            require_measured_stationarity=True,
             linear_regularization=0.0,
             jacobian_refresh_interval=1,
             # Frozen row weights are renewed with each tangent. Secants
@@ -2436,6 +2439,7 @@ def solve_adaptive_lte_structure(
             nonlinear_options,
             allow_initial_convergence=False,
             require_unrestricted_step=True,
+            require_measured_stationarity=True,
             linear_regularization=0.0,
         )
         from ._thermal_conditioning import (
