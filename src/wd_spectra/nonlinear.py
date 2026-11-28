@@ -298,6 +298,7 @@ def solve_trust_region_newton(
     ] | None = None,
     converge_when_proposal_limited: bool = False,
     require_unrestricted_step: bool = False,
+    require_measured_stationarity: bool = False,
 ) -> NonlinearResult[Payload]:
     """Solve a square nonlinear system with automatic globalization.
 
@@ -356,10 +357,26 @@ def solve_trust_region_newton(
     trust clipping and backtracking to meet ``step_tolerance``. This prevents
     final physical solves from stopping merely because damping made a large
     correction small. The default preserves provisional-phase behavior.
+    ``require_measured_stationarity`` applies when the accepted-step test
+    passes while the trust radius is below ``step_tolerance``. A proposal
+    made inside such a radius cannot show that the correction is small (a
+    step builder receives the radius), so the solve does not stop there: it
+    raises the radius to ``step_tolerance``, computes a fresh proposal at the
+    accepted state, and stops only if that proposal is itself below
+    ``step_tolerance`` (``stationary-residual-converged``). Otherwise the
+    ordinary trust-region iteration continues from the raised radius. Stops
+    at a radius of at least ``step_tolerance`` are unchanged, as is the
+    iteration-cap test. Default False preserves the existing stopping rule.
     """
 
     if not isinstance(require_unrestricted_step, bool):
         raise ValueError("require_unrestricted_step must be boolean")
+    if not isinstance(require_measured_stationarity, bool):
+        raise ValueError("require_measured_stationarity must be boolean")
+    if require_measured_stationarity and maximum_trust_radius < step_tolerance:
+        raise ValueError(
+            "measured stationarity requires maximum_trust_radius >= step_tolerance"
+        )
 
     state = np.asarray(initial_state, dtype=np.float64).copy()
     if state.ndim != 1 or state.size < 2 or np.any(~np.isfinite(state)):
@@ -625,9 +642,21 @@ def solve_trust_region_newton(
     for iteration in range(1, maximum_iterations + 1):
         residual = evaluation.residual
         if accepted_step_converged():
-            return finished(
-                "residual-and-step-converged", True, iteration - 1
+            if not (require_measured_stationarity
+                    and trust_radius < step_tolerance):
+                return finished(
+                    "residual-and-step-converged", True, iteration - 1
+                )
+            # The last proposal was made inside a sub-tolerance radius, so
+            # its size does not measure the remaining correction. Measure it
+            # at this accepted state instead: the stationary test below
+            # certifies the fresh proposal only if it is below tolerance.
+            _LOGGER.info(
+                "Iteration %d: accepted-step test passed at trust radius "
+                "%.6g < %.6g; measuring the correction at that radius",
+                iteration, trust_radius, step_tolerance,
             )
+            trust_radius = float(step_tolerance)
         if (
             stationary_completion_iterations is not None
             and len(history) >= stationary_completion_iterations

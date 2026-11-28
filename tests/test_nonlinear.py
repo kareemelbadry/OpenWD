@@ -601,3 +601,98 @@ def test_unrestricted_step_policy_continues_after_damped_small_update():
     assert len(result.history) >= 2
     assert result.history[0].unrestricted_maximum_step > 3e-4
     assert result.history[-1].unrestricted_maximum_step < 3e-4
+
+
+def _radius_independent_newton(state, evaluation, jacobian, radius):
+    """Exact Newton direction that ignores the radius, like the energy solve."""
+    return np.linalg.solve(jacobian, -evaluation.residual)
+
+
+def _certificate_measured(result, tolerance):
+    """Mirror adaptive_structure's temperature_correction_measured flag."""
+    record = result.history[-1]
+    return (record.unrestricted_maximum_step is not None
+            and record.trust_radius >= tolerance)
+
+
+def test_measured_stationarity_measures_before_stopping_at_small_radius():
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(state-1.5e-4,
+            np.eye(2) if need_jacobian else None, None)
+    options = dict(allow_initial_convergence=False, require_unrestricted_step=True,
+                   step_builder=_radius_independent_newton, initial_trust_radius=1e-4,
+                   residual_tolerance=3e-3, step_tolerance=3e-4)
+    legacy = solve_trust_region_newton(np.zeros(2), evaluate, **options)
+    measured = solve_trust_region_newton(np.zeros(2), evaluate,
+                                         require_measured_stationarity=True, **options)
+    # The legacy stop accepts a step proposed inside a sub-tolerance radius.
+    assert legacy.diagnostics.terminal_reason == "residual-and-step-converged"
+    assert legacy.history[-1].trust_radius < 3e-4
+    assert not _certificate_measured(legacy, 3e-4)
+    # The opt-in measures the remaining correction at the same accepted state.
+    assert measured.converged
+    assert measured.diagnostics.terminal_reason == "stationary-residual-converged"
+    np.testing.assert_array_equal(measured.state, legacy.state)
+    assert measured.history[:-1] == legacy.history
+    record = measured.history[-1]
+    assert record.line_search_factor == 0.0
+    assert record.trust_radius == 3e-4
+    np.testing.assert_allclose(record.unrestricted_maximum_step, 5e-5, rtol=1e-10)
+    assert _certificate_measured(measured, 3e-4)
+    # The fresh proposal reuses the accepted state's evaluation and tangent.
+    assert (measured.diagnostics.residual_evaluations
+            == legacy.diagnostics.residual_evaluations)
+
+
+def test_measured_stationarity_continues_when_measured_correction_is_large():
+    # A weak but consistent tangent: residual below tolerance, root 1e-2 away.
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(0.01*(state-0.01),
+            0.01*np.eye(2) if need_jacobian else None, None)
+    options = dict(allow_initial_convergence=False, maximum_iterations=40,
+                   step_builder=_radius_independent_newton, initial_trust_radius=1e-4,
+                   residual_tolerance=3e-3, step_tolerance=3e-4)
+    legacy = solve_trust_region_newton(np.zeros(2), evaluate, **options)
+    measured = solve_trust_region_newton(np.zeros(2), evaluate,
+                                         require_measured_stationarity=True, **options)
+    # Legacy stops after one radius-limited step, far from the root.
+    assert legacy.converged and legacy.iterations == 1
+    assert np.max(abs(legacy.state-0.01)) > 9e-3
+    # The measured proposal is large, so the trust-region iteration continues.
+    assert measured.converged
+    assert len(measured.history) > 2
+    assert measured.history[1].maximum_step == pytest.approx(3e-4)
+    np.testing.assert_allclose(measured.state, 0.01, atol=3e-4)
+    assert measured.history[-1].unrestricted_maximum_step < 3e-4
+    assert _certificate_measured(measured, 3e-4)
+
+
+def test_measured_stationarity_leaves_tolerance_sized_radius_stops_unchanged():
+    # The initial residual exceeds tolerance, so the first small proposal is
+    # accepted and the solve then stops through the accepted-step test.
+    def evaluate(state, need_jacobian):
+        offset = state-1e-4
+        return NonlinearEvaluation(100*offset+1e5*offset**3,
+            np.diag(100+3e5*offset**2) if need_jacobian else None, None)
+    options = dict(allow_initial_convergence=False, require_unrestricted_step=True,
+                   step_builder=_radius_independent_newton,
+                   residual_tolerance=3e-3, step_tolerance=3e-4)
+    legacy = solve_trust_region_newton(np.zeros(2), evaluate, **options)
+    measured = solve_trust_region_newton(np.zeros(2), evaluate,
+                                         require_measured_stationarity=True, **options)
+    assert legacy.diagnostics.terminal_reason == "residual-and-step-converged"
+    assert legacy.history[-1].trust_radius >= 3e-4
+    np.testing.assert_array_equal(measured.state, legacy.state)
+    assert measured.history == legacy.history
+    assert measured.diagnostics == legacy.diagnostics
+
+
+def test_measured_stationarity_requires_a_tolerance_sized_trust_region():
+    def evaluate(state, need_jacobian):
+        return NonlinearEvaluation(state, np.eye(2) if need_jacobian else None, None)
+    with pytest.raises(ValueError, match="maximum_trust_radius"):
+        solve_trust_region_newton(np.zeros(2), evaluate, require_measured_stationarity=True,
+                                  initial_trust_radius=1e-4, maximum_trust_radius=2e-4,
+                                  step_tolerance=3e-4)
+    with pytest.raises(ValueError, match="must be boolean"):
+        solve_trust_region_newton(np.zeros(2), evaluate, require_measured_stationarity=1)

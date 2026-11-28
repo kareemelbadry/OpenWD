@@ -2138,6 +2138,13 @@ def solve_adaptive_lte_structure(
             np.max(np.abs(temperature_map() @ (new_state - old_state)))
         ),
     )
+    # The certificate measures stationarity only from a trust radius of at
+    # least temperature_tolerance, so the energy solves measure there before
+    # stopping. A tolerance above the maximum radius can never be measured;
+    # those solves keep the plain accepted-step stop.
+    measure_stationarity = bool(
+        temperature_tolerance <= nonlinear_options["maximum_trust_radius"]
+    )
     nonlinear_evaluator = evaluate_state
     if energy_completion_active:
         from ._thermal_conditioning import (
@@ -2152,6 +2159,7 @@ def solve_adaptive_lte_structure(
         nonlinear_options.update(
             allow_initial_convergence=False,
             require_unrestricted_step=True,
+            require_measured_stationarity=measure_stationarity,
             linear_regularization=0.0,
             jacobian_refresh_interval=1,
             # Frozen row weights are renewed with each tangent. Secants
@@ -2436,6 +2444,7 @@ def solve_adaptive_lte_structure(
             nonlinear_options,
             allow_initial_convergence=False,
             require_unrestricted_step=True,
+            require_measured_stationarity=measure_stationarity,
             linear_regularization=0.0,
         )
         from ._thermal_conditioning import (
