@@ -38,6 +38,49 @@ byte. [Integration provenance](audit_cool_h_integration_2026_11_11.json)
 records both predecessor hashes, the capture inputs and the band changes.
 All comparison tolerances are unchanged.
 
+On 2026-11-27 the helium synthesis gained the infrared He I lines
+(`HELIUM_I_IMPACT_LINES`: 10830, 20581 and the n = 3 series, 8361 Å–7.4 µm).
+`db-22000`, `dab-9000`, `dab-20000`, `dz-pg1225` and `dz-j0738` were
+re-synthesized on their unchanged frozen structures and grids with
+`research/capture_he_i_infrared_controls.py`, which first reproduces each
+previous control at the test tolerance with the new lines switched off.
+Below 7300 Å no pixel moves by more than 1.3e-5; the 7000–300000 Å band
+changes by at most 0.69% (`db-22000`). The
+[manifest](he_i_infrared_2026_11_27.json) records the hashes and band changes.
+The DB, DAB and DZ structure solves include the same lines. The cold-start
+canaries `db-22000` and `db-22000-standard` move by -0.65% in that band
+(-0.69% from the line opacity, the rest backwarming), over their 3e-3 bound.
+`he_i_infrared_2026_11_27/cold/` holds `db-10000`, `db-22000` and
+`db-22000-standard` from verified local cold starts of the canary models on
+the canary grid (`research/capture_he_i_infrared_cold_controls.py`). The
+22,000 K gas pressure and column mass equal the previous references; their band
+fluxes move by at most 4.6e-4 outside the infrared, and the He I 5876 core by
+2.3%. `db-10000` also includes the column-mass Rosseland remesh of the same
+date: its nodes moved onto the intended Rosseland mesh, and its UV, optical
+and infrared band fluxes fall by 0.62%, 0.22% and 0.18% (the previous mesh
+over-predicted the bolometric flux by 0.6%). Its nodes come from a macOS cold
+start; if a Linux canary moves them by more than the 2e-5 node tolerance, take
+the gas pressure and column mass from that certified candidate, as on
+2026-11-19.
+
+The `dab-20000` cold check (`research/validate_public_cold_start.py`) is
+also affected by the infrared He I lines. On the branch that added them, its
+7000–300000 Å band fell by 0.52%, over the 0.3% bound. Re-synthesizing that
+same structure without the lines gives −0.513%, so the drop is the line
+opacity itself.
+
+On the same date, the mixed H/He structure started sampling each Paschen
+and Brackett line out to ±300 Å, as the hydrogen solver does; before, it used
+five points within 5 Å. For this DBA, that moves the structure temperature
+by at most 9.5e-4 and the band fluxes by at most 1.6e-6.
+
+`paschen_brackett_wings_2026_11_27/cold/dab-20000.npz` is a verified local
+cold start of the CI command, captured by
+`research/capture_paschen_brackett_cold_controls.py`. Its gas pressure and
+column mass equal the previous reference to 1.2e-6. The validator now reads
+the newest reviewed folder first, as the protected canaries do.
+[Provenance](paschen_brackett_wings_2026_11_27/cold/manifest.json).
+
 On 2026-11-11 the hydrogen Stark-table fix (the log-bilinear interpolation
 in electron density and temperature is rescaled to the bilinear weighting of
 the corner-profile areas; midway between density nodes it had kept only
@@ -97,7 +140,7 @@ and retains the previous wavelength and flux arrays. The maximum spectral
 change on the stellar energy scale is 0.111%, within the existing 0.3% limit.
 [Cold-start provenance](heh_mixed_heminus_2026_11_19/cold/manifest.json).
 
-`heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`paschen_brackett_wings_2026_11_27/cold/` (the `dab-20000` cold check only), `he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
 `montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium

@@ -159,7 +159,11 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
     fingerprint = model_request_fingerprint(kind, config, data, physical_data_identity=identity)
     atmosphere = atmosphere_with_model_request_fingerprint(result.atmosphere, fingerprint)
     status = warn_if_atmosphere_not_converged(atmosphere, kind)
-    coefficients = model.transfer_coefficients(atmosphere, wave, result.population_state)
+    # The formal synthesis adds the He I lines redward of the tabulated set
+    # (10830, 20581, n=3 series) with the converged departures; the rate
+    # equations treat those transitions in radiative detailed balance.
+    coefficients = model.transfer_coefficients(atmosphere, wave, result.population_state,
+                                               helium_i_impact_lines=True)
     _, field, closure = transfer_field(atmosphere, coefficients, n_angle=resolution.n_angle)
     # Same NLTE populations without any bound-bound terms.
     _, continuum_field, _ = transfer_field(
@@ -180,6 +184,7 @@ def _compute(config, wavelength=None, *, data=None, initial_atmosphere=None, ite
         'flux_unit': 'erg s^-1 cm^-2 Angstrom^-1',
         'flux_convention': 'surface F_lambda', 'wavelength_medium': 'vacuum',
         'composition': kind, 'line_formation': 'restricted H/He NLTE',
+        'helium_i_impact_lines': 'formal synthesis only (STARK-B impact profiles, NLTE departures)',
         'transfer': 'column-mass Feautrier', 'source_closure_residual': closure,
         'nlte_charge_feedback': False}, continuum_field.interface_flux[:, 0])
     return ModelResult(kind, atmosphere, spectrum, config, {

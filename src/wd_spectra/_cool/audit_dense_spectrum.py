@@ -74,6 +74,9 @@ def pure_helium_opacities(atmosphere, wave, *, lines=True):
         atmosphere, wave, include_electron_scattering=False, include_rayleigh_scattering=False)
     absorption += helium.helium_i_line_mass_absorption_coefficient(
         atmosphere, wave, hi, include_occupation_probability=True)
+    from wd_spectra.helium_impact import helium_i_impact_line_mass_absorption_coefficient
+    absorption += helium_i_impact_line_mass_absorption_coefficient(
+        atmosphere, wave, include_occupation_probability=True)
     absorption += helium.helium_i_resonance_line_mass_absorption_coefficient(
         atmosphere, wave, include_occupation_probability=True)
     absorption += helium.helium_ii_line_mass_absorption_coefficient(

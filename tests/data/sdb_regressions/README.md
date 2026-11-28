@@ -39,6 +39,27 @@ by 4.6e-10 and `hd4539-hhe.npz` is retained byte for byte. `manifest.json`
 records the change under `amendments`. The cold-start control is unaffected
 at its 0.1% tolerance.
 
+On 2026-11-27 both controls were rebuilt with the recipe below. The mixed
+H/He (DAB) structure now samples each Paschen and Brackett line out to
+±300 Å, as the hydrogen solver does. It used to sample only five points
+within 5 Å of each centre, on a continuum grid 1.4% apart, and that left the
+upper layers too cool. The new structure is 1.5% hotter at
+τ_R = 10⁻⁶–10⁻³ and 0.17% hotter at 10⁻². The structure also includes the
+infrared He I lines of the DB module, which change its temperature by less
+than 2e-4. The populations converged in 264 iterations (change 7.4e-5).
+Against the previous control, the H-alpha core is 1.07% lower, H-beta 0.79%
+lower, and H-delta and H-epsilon 0.72–0.74% higher. The continuum moves by
+at most 6e-4 (at 3200 Å).
+
+A fresh public cold start agrees with the new control to 3e-6. The branch
+before the sampling fix (6e781c7) missed the previous control by 0.85% at
+H-alpha. Its infrared He I wing grids also happened to sample nearby
+hydrogen lines, and it moved the same amount with the He I line opacity set
+to zero. `manifest.json` records the previous checksums and their history
+under `supersedes`. `capture_sdb_cold_control.py` now also requires the
+recorded structure abundances to be empty, because `sdb_lte_hhe.py` has
+stored them since the metal-blanketed recipe.
+
 For an explicitly reviewed new control, use new output directories:
 
 ```bash

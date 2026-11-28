@@ -1,0 +1,89 @@
+{
+ "reason": "infrared He I lines (HELIUM_I_IMPACT_LINES) in the DB structure opacity and spectrum",
+ "capture": "local verified cold start of each canary model on the canary formal grid",
+ "git_commit": "779d4d9d5de6a04e61946035e9da61210605b9d6",
+ "source_sha256": {
+  "src/wd_spectra/helium_impact.py": "5842a1023c3b91223bb87e4f13e6f8bd83a34afd649f87c96aa1deeca830276f",
+  "src/wd_spectra/spectrum.py": "dd32bcd3aaa5ca3c33154cc004e175aa966399125ce062dc7bc10446e29c161e",
+  "src/wd_spectra/atmosphere.py": "a1ff45dff72f5029b7363a2e16e9225d8308b5504c9d8e5b409233737297ab94",
+  "src/wd_spectra/models/stellar.py": "c987f5febcf6dd2fe4c04d61eded5ac7750db070015bb5ed03ca5c32f32035ec",
+  "research/capture_he_i_infrared_cold_controls.py": "00ebae34bde798938299cd2ca4e39705a46b7ed1a2a8596fac6ab95cf0d86174"
+ },
+ "platform": "macOS-27.2.1-arm64-arm-64bit",
+ "python": "3.11.9",
+ "numpy": "2.3.5",
+ "cases": {
+  "db-10000": {
+   "previous_control": "tests/data/approved_regressions/heh_mixed_heminus_2026_11_19/cold/db-10000.npz",
+   "previous_control_sha256": "2c543531fc8f3f395deedc9c5d992e481105ffddb5312e2f93034b570837d630",
+   "new_control_sha256": "ea1f07e17cbe665e98e15a5c8d6988e491049887b5ee8ab8d022a431989d7216",
+   "local_run_sha256": "3455de0df5ce3249eba3bb16f43d139d1c1ba3da11a335ccb2497ddfe82784eb",
+   "local_run": {
+    "seconds": 1809.5945570468903,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 2.119249079699041,
+   "maximum_column_mass_change": 2.119249079699046,
+   "maximum_flux_change_below_7300_angstrom": 0.018048608990648973,
+   "integrated_relative_change": {
+    "1150-3000": -0.006217890356751934,
+    "3500-7000": -0.0022058979740208064,
+    "7000-300000": -0.0018131856441911266
+   },
+   "integrated_change_from_line_opacity_alone": {
+    "1150-3000": 0.0,
+    "3500-7000": -5.310460013064927e-12,
+    "7000-300000": -7.994409010378685e-05
+   }
+  },
+  "db-22000": {
+   "previous_control": "tests/data/approved_regressions/cold/db-22000.npz",
+   "previous_control_sha256": "5796b62501d18ac19548a770e840b465715f8fd6dcd89890a49af3bf984e4586",
+   "new_control_sha256": "b49d1c5284e6cac43317130b41f1b144fba1b6e6a2f00fff5b8d274d275e9c1d",
+   "local_run_sha256": "7a749df293ce5cfac9e8ea24afdd27f29d96e665dd82a9e544f79b0d796e3e1b",
+   "local_run": {
+    "seconds": 698.1797308921814,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 0.0,
+   "maximum_column_mass_change": 0.0,
+   "maximum_flux_change_below_7300_angstrom": 0.022838812131177888,
+   "integrated_relative_change": {
+    "1150-3000": 0.00041006671478170827,
+    "3500-7000": 0.00044230365647172145,
+    "7000-300000": -0.006529899389128817
+   },
+   "integrated_change_from_line_opacity_alone": {
+    "1150-3000": 0.0,
+    "3500-7000": -1.9999849593497724e-07,
+    "7000-300000": -0.00692438384694993
+   }
+  },
+  "db-22000-standard": {
+   "previous_control": "tests/data/approved_regressions/cold/db-22000-standard.npz",
+   "previous_control_sha256": "b78d4de5cfdfa36f259e8e8fc59a3978bb087af6375ff92e751b2ceda29c0103",
+   "new_control_sha256": "6a18f6504ebc1f689e73e6212a2c656b6d37ecb7752ce69ba75a3827f6411b00",
+   "local_run_sha256": "727bc74d7293aed2c034a321005bab2ca69725b6e9395b81e4ff2ddcccea64e0",
+   "local_run": {
+    "seconds": 175.0803120136261,
+    "status": "converged",
+    "verified": true
+   },
+   "maximum_gas_pressure_change": 0.0,
+   "maximum_column_mass_change": 0.0,
+   "maximum_flux_change_below_7300_angstrom": 0.02255913239918761,
+   "integrated_relative_change": {
+    "1150-3000": 0.00044553385991703885,
+    "3500-7000": 0.000462228454197327,
+    "7000-300000": -0.0065217451835741765
+   },
+   "integrated_change_from_line_opacity_alone": {
+    "1150-3000": 0.0,
+    "3500-7000": -2.0018250858721528e-07,
+    "7000-300000": -0.00692490440264333
+   }
+  }
+ }
+}

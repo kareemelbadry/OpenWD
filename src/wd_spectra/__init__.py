@@ -67,6 +67,10 @@ from .helium import (
     helium_rayleigh_scattering_mass_coefficient,
     neutral_helium_photoionization_cross_section,
 )
+from .helium_impact import (
+    HELIUM_I_IMPACT_LINES,
+    helium_i_impact_line_mass_absorption_coefficient,
+)
 from .helium_ii_stark import read_helium_ii_stark_table
 from .helium_molecular import (
     helium_dimer_ion_continuum_coefficient,
@@ -114,6 +118,7 @@ __all__ = [
     "DABConfig",
     "DBConfig",
     "DZConfig",
+    "HELIUM_I_IMPACT_LINES",
     "HELIUM_I_LINES",
     "HELIUM_II_LINES",
     "ModelData",
@@ -140,6 +145,7 @@ __all__ = [
     "default_lyman_stark_table",
     "default_paschen_stark_table",
     "deridder_van_rensbergen_helium_hwhm_angstrom",
+    "helium_i_impact_line_mass_absorption_coefficient",
     "emergent_flux",
     "gray_helium_atmosphere",
     "gray_hydrogen_atmosphere",

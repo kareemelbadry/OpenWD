@@ -1243,6 +1243,7 @@ def combined_helium_nlte_transfer_coefficients(
     include_helium_i_lines: bool = True,
     include_helium_i_resonance_lines: bool = True,
     include_helium_ii_lines: bool = True,
+    include_helium_i_impact_lines: bool = False,
 ) -> NLTETransferCoefficients:
     """Combine converged restricted He I/II and He II/III populations.
 
@@ -1383,6 +1384,45 @@ def combined_helium_nlte_transfer_coefficients(
         _add_line_opacity(
             absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor
         )
+    # He I lines redward of the tabulated set (wd_spectra.helium_impact).  The
+    # rate equations keep these transitions in radiative detailed balance,
+    # so they enter the formal synthesis with the converged departures only.
+    if include_helium_i_impact_lines:
+        from .helium_impact import (
+            HELIUM_I_IMPACT_LINES,
+            helium_i_impact_line_mass_absorption_coefficient,
+            helium_i_impact_line_term_indices,
+        )
+
+        for component in HELIUM_I_IMPACT_LINES:
+            lower_index, upper_index = helium_i_impact_line_term_indices(
+                component, atom
+            )
+            line = HydrogenLine(
+                component.name,
+                1,
+                2,
+                component.wavelength_vacuum_angstrom,
+                component.absorption_oscillator_strength,
+            )
+            opacity_factor, source_factor = _departure_line_factors(
+                atmosphere,
+                line,
+                neutral_state.departure_coefficient,
+                lower_state_index=lower_index,
+                upper_state_index=upper_index,
+                suppress_population_inversion=True,
+            )
+            suppressed_inversions += int(np.count_nonzero(opacity_factor == 0.0))
+            lte_opacity = _cached_transfer(
+                _cache, ('he-i-impact-line', component.name),
+                lambda: helium_i_impact_line_mass_absorption_coefficient(
+                    atmosphere, wavelength, lines=(component,)
+                ),
+            )
+            _add_line_opacity(
+                absorption, emissivity, planck, lte_opacity, opacity_factor, source_factor
+            )
     shared_he_ii_mismatch = np.max(
         np.abs(
             neutral_state.singly_ionized_he_density
@@ -1411,6 +1451,7 @@ def combined_helium_nlte_transfer_coefficients(
                 include_helium_i_resonance_lines
             ),
             "helium_ii_lines": bool(include_helium_ii_lines),
+            "helium_i_impact_lines": bool(include_helium_i_impact_lines),
         },
     )
 
@@ -1486,6 +1527,7 @@ def coupled_helium_nlte_transfer_coefficients(
     include_helium_i_lines: bool = True,
     include_helium_i_resonance_lines: bool = True,
     include_helium_ii_lines: bool = True,
+    include_helium_i_impact_lines: bool = False,
 ) -> NLTETransferCoefficients:
     """Assemble transfer coefficients from the single coupled helium atom."""
 
@@ -1504,6 +1546,7 @@ def coupled_helium_nlte_transfer_coefficients(
         include_helium_i_lines=include_helium_i_lines,
         include_helium_i_resonance_lines=include_helium_i_resonance_lines,
         include_helium_ii_lines=include_helium_ii_lines,
+        include_helium_i_impact_lines=include_helium_i_impact_lines,
     )
     metadata = dict(coefficients.metadata)
     metadata.update(

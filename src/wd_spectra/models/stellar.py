@@ -1167,6 +1167,7 @@ def compute_db(
         solver_options = dict(
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
@@ -1201,6 +1202,9 @@ def compute_db(
                 deepen_on_any_screen_failure=True,
                 restart_after_deepening=True,
                 deepening_pressure_factor=_DB_DEEPENING_PRESSURE_FACTOR,
+                # The column-mass nodes come from the gray seed's tau(m); the
+                # relaxed He- free-free opacity moves them below the photosphere.
+                remesh_depth_concentration=config.photospheric_depth_concentration,
             )
         else:
             discretization_options = {}
@@ -1489,6 +1493,7 @@ def compute_dab(
             molecular_h_he=molecular,
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,
@@ -1934,6 +1939,7 @@ def compute_dz(
             config.logg,
             stark_table=he_i,
             helium_ii_stark_table=he_ii,
+            include_helium_i_impact_lines=True,
             n_depth=resolution.n_depth,
             n_continuum_wavelength=resolution.n_continuum,
             max_iterations=resolution.maximum_iterations,

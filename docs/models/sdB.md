@@ -106,7 +106,10 @@ stage) and `converged` (metal stage) in each summary.
 
 - **Structure.** The LTE atmosphere comes from the [DAB](DAB.md) module. In the
   metal recipe it includes the metals (opacity-sampled lines, bound-free edges
-  and their electrons). `run_model` with `SdBConfig` has no metals.
+  and their electrons). `run_model` with `SdBConfig` has no metals. The
+  structure opacity includes the infrared He I lines of the [DB](DB.md) module
+  (8361 Å–7.4 µm). At HD 4539 they change the temperature by less than
+  2 × 10⁻⁴.
 - **NLTE H/He.** The populations use the [DO/DAO](DO-DAO.md) model atoms,
   extended to 16 explicit H I levels, on the fixed temperature and pressure
   structure. The electron density comes from the LTE H/He EOS. Line rates are
@@ -235,6 +238,9 @@ the same Si III 4552 Å equivalent width (30 mÅ against 65 mÅ observed).
 - The LTE structure becomes less accurate above about 40,000 K.
 - Radiation pressure and vertical abundance stratification are not included.
 - He I lines assume ⁴He.
+- The NLTE spectrum does not include the infrared He I lines that the LTE
+  structure includes. In the default 3000–9200 Å grid, this omits only
+  He I 8362 Å.
 
 See [limitations](../limitations.md) for the shared caveats.
 

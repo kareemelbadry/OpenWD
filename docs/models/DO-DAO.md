@@ -117,6 +117,10 @@ metals. `--quality standard` (40 depths) takes about 3 h in total.
   sections through n = 8 and TLUSTY/Mihalas rates above. He I collision fits
   and He II hydrogenic rates come from TLUSTY (Hubeny & Lanz 2017).
   Transitions without a computed radiation field use J = B (Planck).
+- **Infrared He I lines.** The emergent spectrum also has the infrared He I
+  lines of the DB module (10830, 20581 and the n = 3 series) with the
+  converged departure coefficients of their terms or superlevels. The rate
+  equations keep these transitions at J = B.
 - **Line profiles.** He I uses the profiles of Tremblay et al. (2026), He II
   the tables of Schöning & Butler (1989), and hydrogen the Stark profiles of
   Tremblay & Bergeron (2009). Above the He II table densities (log Ne > 17.17

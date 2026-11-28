@@ -49,6 +49,17 @@ If a production model fails its stationarity check, try
 `photospheric_depth_concentration=2`. This fixed the model at 27,000 K and
 log g = 9.25.
 
+With column-mass cells the depth points are fixed in column mass. They start
+at the gray seed's Rosseland depths, which put too many of them below the
+photosphere of a cool DB once the He⁻ free–free opacity has relaxed. After the
+lower boundary is settled, the solver moves the points onto the intended
+Rosseland-depth distribution of the relaxed model and solves again, until no
+point is more than half an interval from its target. At 7500 K and log g = 6
+this gives 28 points across 0.01 < τ < 10 instead of 13; the bolometric
+flux of the spectrum falls from 1.018 to 1.0025 σT⁴ (refinement 4) and
+agrees with depth refinement 1 to 0.2%. The UV and optical flux drop by
+3.7% and 1.5%. These cool models take about 50% longer.
+
 ## Physics
 
 ### Warm DBs
@@ -74,6 +85,20 @@ log g = 9.25.
   update [Beauchamp et al. (1997)](https://doi.org/10.1086/312961). Unsöld
   (1955) van der Waals broadening. The He I resonance series is included in
   the blanketing.
+- **Infrared He I lines.** 31 lines redward of the tables (8361 Å–7.4 µm):
+  He I 10830 and 20581 and the lines from the n = 3 terms (12528, 12785/90,
+  17002, 18686/97, 19089, 21120/32 Å and others). NIST ASD wavelengths and
+  oscillator strengths, Voigt profiles with the electron (and, for 10830,
+  20581 and 21120, He⁺) impact widths and shifts of STARK-B
+  ([Dimitrijević & Sahal-Bréchot 1990](https://ui.adsabs.harvard.edu/abs/1990A%26AS...82..519D);
+  [Terzi et al. 1998](https://doi.org/10.1051/aas:1998320)), Ali–Griem
+  resonance broadening of the np ¹P levels and Unsöld van der Waals
+  broadening. They are in the structure opacity too: at 20,000 K they cool
+  the layers above τ_R = 10⁻³ by up to 1.8% and move the He I 5876 core by
+  2.6%. Lines to the n = 4–6 nd/nf
+  levels are not isolated above Ne ≈ 10¹⁶ cm⁻³, so their profiles are
+  approximate (see `wd_spectra.helium_impact`). He I lines from n ≥ 4 terms
+  (the 3–30 µm Rydberg lines) and 3s ³S–3p ³P (4.3 µm) are not included.
 - **He II lines.** Schöning–Butler tables from SYNSPEC, with a smooth join
   to the analytic Doppler–Holtsmark profiles at high electron density.
   Other members use hydrogenic profiles.

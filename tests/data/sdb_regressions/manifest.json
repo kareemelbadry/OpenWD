@@ -1,12 +1,9 @@
 {
- "source_commit": "254cd74c212f00c1cdd128cab20ddce48e0ae335",
- "source_changes": [
-  "tests/data/approved_regressions/README.md",
-  "tests/test_protected_model_canaries.py"
- ],
+ "source_commit": "a452e74de41cc0ee68affa22c1d29d7240de3329",
+ "source_changes": [],
  "recipe": "separate sdb_lte_hhe.py + sdb_hybrid_nlte.py, no compute_sdb call",
  "driver_sha256": {
-  "research/sdb_lte_hhe.py": "c0ba374838a5f5395bde0ac5b8b862779c27dcf165a94c91d4e20967e8554960",
+  "research/sdb_lte_hhe.py": "8bf848a0a2f1dd7c926e522c6b66686d6da6ba4af206dfd5f72ee6ee29f30209",
   "research/sdb_hybrid_nlte.py": "f0ff7ffafb655facabd110f9bf5a36d548019c7c3dee26b02904da01409a26a8"
  },
  "config": {
@@ -26,7 +23,7 @@
   "verified": true,
   "checks": {
    "all_depth_flux": {
-    "value": 3.147402338754546e-10,
+    "value": 6.673106511811966e-11,
     "tolerance": 0.003,
     "passed": true,
     "measured": true
@@ -44,25 +41,25 @@
     "measured": false
    },
    "local_energy": {
-    "value": 0.00014842409572547112,
+    "value": 0.00014230195325843264,
     "tolerance": 0.003,
     "passed": true,
     "measured": true
    },
    "temperature_stationarity": {
-    "value": 1.2568722354444617e-05,
+    "value": 1.2700823518230209e-05,
     "tolerance": 0.0003,
     "passed": true,
     "measured": true
    },
    "source_closure": {
-    "value": 1.3073935379340933e-15,
+    "value": 1.2727258062470183e-15,
     "tolerance": 1e-06,
     "passed": true,
     "measured": true
    },
    "boundary_screening": {
-    "value": 1.095412119717459e-20,
+    "value": 1.0952642889302042e-20,
     "tolerance": 0.003,
     "passed": true,
     "measured": true
@@ -80,35 +77,55 @@
   "full_physics_validation": false
  },
  "nlte_populations_converged": true,
- "nlte_population_iterations": 295,
- "nlte_population_change": 9.72407299658518e-05,
- "control_sha256": "db9a1cc5ce4001d83c06ba2d2641c97a15a15545117542223bc9787d4afc62c4",
- "fixed_state_sha256": "19578352f8d69c6d273369b2de6cd6b4b4c2b235a0bb5d1b0df82e67e0007b10",
+ "nlte_population_iterations": 264,
+ "nlte_population_change": 7.357459920439087e-05,
+ "control_sha256": "b46a227739db34b303f7390d1ff333683cc2f294bf0970fe5825882f4bd9bb21",
+ "fixed_state_sha256": "60ee55ee9134fc3932a9861a944d887b07abfa1020c0be0a48dd5971e24019a1",
  "absolute_flux_rtol": 0.001,
  "fixed_spectrum_rtol": 1e-07,
  "limitations": "Spectrum-only regression of the metal-free hybrid recipe; not a new observation, grid or coupled-NLTE equilibrium qualification.",
  "supersedes": {
-  "reason": "hydrogen Stark-table interpolation rescaled to the bilinear weighting of corner-profile areas (known_bugs #26); recipe re-run 2026-11-12",
-  "previous_source_commit": "ed95a103172c5d6559c84e02cee1ab831a9864ca",
-  "previous_control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
-  "previous_fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
-  "withdrawn_interim_control_sha256": "e0fe25f1a8c37e7da54c75c506e4595ad658f1960562b16b61a4e36400f12490",
-  "withdrawn_interim_note": "fixed-state re-synthesis that kept the old NLTE populations; a fresh cold start differed from it by 1.15% at H-alpha",
-  "max_relative_change_from_previous": 0.00669,
-  "max_change_wavelength_angstrom": 6564.0,
-  "continuum_relative_change_from_previous": 0.00064
- },
- "amendments": [
-  {
-   "date": "2026-11-19",
-   "reason": "HeH+ (H+ + He <-> HeH+) added to the mixed H/He EOS by default; the LTE populations of the fixed state moved by 3.1e-9",
-   "recipe": "research/capture_heh_mixed_heminus_controls.py",
-   "previous_fixed_state_sha256": "133de220ef29ec4e24a3a2932de767c2a149a6cef9dc9c3e9f33f10157218cf6",
-   "fixed_state_sha256": "19578352f8d69c6d273369b2de6cd6b4b4c2b235a0bb5d1b0df82e67e0007b10",
-   "nlte_departure_coefficients_retained": true,
-   "maximum_lte_population_relative_change": 3.0972442388588206e-09,
-   "maximum_emergent_flux_relative_change": 4.6104231543608876e-10,
-   "control_retained_byte_for_byte": true
+  "reason": "mixed H/He (DAB) structure: Paschen/Brackett wings sampled to +-300 A as in the hydrogen solver (previously five points within 5 A), plus the infrared He I lines in the DAB structure opacity; recipe re-run 2026-11-27",
+  "previous_source_commit": "254cd74c212f00c1cdd128cab20ddce48e0ae335",
+  "previous_control_sha256": "db9a1cc5ce4001d83c06ba2d2641c97a15a15545117542223bc9787d4afc62c4",
+  "previous_fixed_state_sha256": "19578352f8d69c6d273369b2de6cd6b4b4c2b235a0bb5d1b0df82e67e0007b10",
+  "max_relative_change_from_previous": 0.01065,
+  "max_change_wavelength_angstrom": 6564.150000012966,
+  "continuum_relative_change_from_previous": 0.00062,
+  "structure_temperature_change": "+1.5% at tau_R 1e-6..1e-3, +0.17% at 1e-2, -0.05% at 0.1",
+  "infrared_he_i_lines_alone": "structure temperature <= 2e-4 (with/without the lines, same sampling)",
+  "branch_before_sampling_fix": {
+   "commit": "6e781c78d219972ebb1512f43aa29a4c6a3fdc2a",
+   "cold_canary_max_relative_change_from_previous": 0.00854194,
+   "note": "the He I infrared wing grids incidentally sampled nearby H lines; the same change appears with the He I line opacity set to zero",
+   "max_relative_difference_from_this_control": 0.00219
+  },
+  "public_cold_start_with_fix_max_relative_difference": 3.11e-06,
+  "history": {
+   "supersedes": {
+    "reason": "hydrogen Stark-table interpolation rescaled to the bilinear weighting of corner-profile areas (known_bugs #26); recipe re-run 2026-11-12",
+    "previous_source_commit": "ed95a103172c5d6559c84e02cee1ab831a9864ca",
+    "previous_control_sha256": "60d1f4631bb827b9c0744a9bf079d205b54ac626bb3f6d1e3d24eccdf4236f9d",
+    "previous_fixed_state_sha256": "9a85243208c8420164e43c51b1a64ffa07b23a3a6d779f0ec91c95d9e7ef49d7",
+    "withdrawn_interim_control_sha256": "e0fe25f1a8c37e7da54c75c506e4595ad658f1960562b16b61a4e36400f12490",
+    "withdrawn_interim_note": "fixed-state re-synthesis that kept the old NLTE populations; a fresh cold start differed from it by 1.15% at H-alpha",
+    "max_relative_change_from_previous": 0.00669,
+    "max_change_wavelength_angstrom": 6564.0,
+    "continuum_relative_change_from_previous": 0.00064
+   },
+   "amendments": [
+    {
+     "date": "2026-11-19",
+     "reason": "HeH+ (H+ + He <-> HeH+) added to the mixed H/He EOS by default; the LTE populations of the fixed state moved by 3.1e-9",
+     "recipe": "research/capture_heh_mixed_heminus_controls.py",
+     "previous_fixed_state_sha256": "133de220ef29ec4e24a3a2932de767c2a149a6cef9dc9c3e9f33f10157218cf6",
+     "fixed_state_sha256": "19578352f8d69c6d273369b2de6cd6b4b4c2b235a0bb5d1b0df82e67e0007b10",
+     "nlte_departure_coefficients_retained": true,
+     "maximum_lte_population_relative_change": 3.0972442388588206e-09,
+     "maximum_emergent_flux_relative_change": 4.6104231543608876e-10,
+     "control_retained_byte_for_byte": true
+    }
+   ]
   }
- ]
+ }
 }
