@@ -1,4 +1,7 @@
-"""Narrow He II and He I resonance line cores in the LTE helium structure grid."""
+"""Narrow He II, He I resonance and trace-H line cores in the LTE helium structure grid."""
+
+import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -77,3 +80,40 @@ def test_he_i_resonance_core_area_is_recovered_on_the_structure_grid(seed):
     # The former 0.5 A grid misses the 584 A core between its points.
     assert np.min(_window_integral(opacity, uv, center) / reference) < 0.1
     np.testing.assert_allclose(_window_integral(opacity, resolved, center), reference, rtol=0.015)
+
+
+TRACE_HYDROGEN_DZ = Path(__file__).parent / "data/spectral_regressions/dz-pg1225.npz"
+
+
+def _trace_hydrogen_dz():
+    from wd_spectra.models import DZConfig, load_atmosphere_checkpoint
+    from wd_spectra.models.common import config_from_stored
+
+    with np.load(TRACE_HYDROGEN_DZ, allow_pickle=False) as saved:
+        config = config_from_stored(DZConfig, json.loads(str(saved["config_json"])))
+    mixed = load_atmosphere_checkpoint(
+        TRACE_HYDROGEN_DZ, config.effective_temperature, config.logg, "mixed",
+        log_hydrogen_to_helium=config.log_hydrogen_abundance, include_molecules=False,
+        include_negative_hydrogen=False, trihydrogen_ion_partition_model=None,
+    )
+    return config, mixed
+
+
+def test_trace_hydrogen_lyman_alpha_core_area_is_recovered():
+    from wd_spectra.constants import HYDROGEN_MASS
+    from wd_spectra.opacity import LYMAN_LINES, lyman_mass_absorption_coefficient
+
+    _, atmosphere = _trace_hydrogen_dz()
+    line = LYMAN_LINES[0]
+    center = line.wavelength_vacuum_angstrom
+
+    def opacity(wave):
+        return lyman_mass_absorption_coefficient(atmosphere, wave, lines=(line,))
+
+    reference = _reference(opacity, center)
+    five = center + np.array([-5.0, -1.0, 0.0, 1.0, 5.0])
+    resolved = np.r_[five, _resolved_line_core_wavelengths([center], atmosphere.temperature.min(), HYDROGEN_MASS)]
+    # The five trace-H offsets give the Doppler-narrow centre a whole 1 A weight.
+    assert np.max(_window_integral(opacity, five, center) / reference) > 3.0
+    np.testing.assert_allclose(_window_integral(opacity, resolved, center), reference, rtol=0.015)
+

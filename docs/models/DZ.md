@@ -147,7 +147,13 @@ The remaining fields are numerical controls. Keep their defaults.
   (Pachucki & Komasa 2012) and the ExoMol ADJSAAM partition function,
   K = n(HeH⁺)/[n(H⁺) n(He)] = 1.9e-22 cm³ at 6000 K. Where He is dense and
   hydrogen supplies part of the electrons (cool, metal-poor DZA), the
-  electron density rises by up to ~80% (vMa2, τ_R ≈ 2).
+  electron density rises by up to ~80% (vMa2, τ_R ≈ 2). In the structure, every
+  trace-H line whose line-centre optical depth above τ_R ≈ 1 is at least
+  10⁻³ has its Doppler core resolved (logarithmic offsets from a tenth of the
+  Doppler width at the coolest layer to ±5 Å). Five points per line had
+  weighted Lyα up to ten times its area. In PG 1225-079 (10,800 K, log H/He =
+  −4.05) this resolves 58 lines, moves the Lyα core by 0.5% and the Ca II H/K
+  cores by 0.2%, and the model converges faster (1.6 → 1.3 h).
 
 ### Hydrogen hosts (DAZ)
 
