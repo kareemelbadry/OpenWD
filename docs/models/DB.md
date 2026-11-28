@@ -102,6 +102,15 @@ agrees with depth refinement 1 to 0.2%. The UV and optical flux drop by
 - **He II lines.** Schöning–Butler tables from SYNSPEC, with a smooth join
   to the analytic Doppler–Holtsmark profiles at high electron density.
   Other members use hydrogenic profiles.
+- **Narrow line cores in the structure.** In the outer layers the He II EUV
+  and He I resonance lines have thermal Doppler cores of about 0.01–0.02 Å.
+  The structure grid samples each core on logarithmic offsets from a tenth of
+  the Doppler width at the coolest layer out to ±5 Å, which recovers the line
+  area to about 1%. A linear 0.2 Å grid had weighted the He II EUV cores by up
+  to 90 times their area, and the 0.5 Å resonance grid had missed most of the
+  He I cores. At 40,000 K, log g = 6 the correction cools τ_R ≲ 10⁻⁵ by up to
+  5%. It moves the spectrum by at most 0.14% (the 5876 core); at 12,000 and
+  20,000 K, log g = 8, by less than 4 × 10⁻⁴.
 
 ## Cool helium
 

@@ -39,6 +39,51 @@ if TYPE_CHECKING:
 FloatArray = NDArray[np.float64]
 
 
+def _resolved_line_core_wavelengths(
+    centers_angstrom,
+    minimum_temperature: float,
+    particle_mass: float,
+    *,
+    half_width_angstrom: float = 5.0,
+    step_ratio: float = 1.2,
+) -> FloatArray:
+    """Wavelengths that resolve the thermal Doppler cores of narrow lines.
+
+    In optically thin layers a He II EUV line core is a ~0.01 A Doppler
+    Gaussian.  A trapezoid over a 0.2 A linear grid weights a sampled line
+    centre by a whole grid step (about 50 times the true area), and a 0.5 A
+    grid that misses the centre loses almost all of a He I resonance core.
+    Offsets here are logarithmic, from a tenth of the thermal Doppler width
+    ``sqrt(2 k T / m) lambda / c`` at ``minimum_temperature`` out to
+    ``half_width_angstrom``, in the ratio ``step_ratio``; the centre itself
+    is included.  Broader (pressure-broadened) cores are sampled at the same
+    fractional resolution.
+    """
+
+    from .constants import BOLTZMANN, LIGHT_SPEED
+
+    centers = np.atleast_1d(np.asarray(centers_angstrom, dtype=np.float64))
+    if centers.size == 0:
+        return np.empty(0, dtype=np.float64)
+    if (
+        not np.isfinite(minimum_temperature)
+        or minimum_temperature <= 0.0
+        or not np.isfinite(particle_mass)
+        or particle_mass <= 0.0
+        or not half_width_angstrom > 0.0
+        or not step_ratio > 1.0
+    ):
+        raise ValueError("line-core sampling needs positive temperature, mass, width and step ratio > 1")
+    doppler_fraction = np.sqrt(2.0 * BOLTZMANN * minimum_temperature / particle_mass) / LIGHT_SPEED
+    grids = []
+    for center in centers:
+        start = min(0.1 * doppler_fraction * center, 0.5 * half_width_angstrom)
+        count = int(np.ceil(np.log(half_width_angstrom / start) / np.log(step_ratio))) + 1
+        offsets = np.geomspace(start, half_width_angstrom, count)
+        grids.append(np.concatenate((center - offsets[::-1], [center], center + offsets)))
+    return np.concatenate(grids)
+
+
 def _metal_line_opacity_sampling_grid(
     line_centers_angstrom: FloatArray,
     *,
@@ -2166,7 +2211,7 @@ def radiative_equilibrium_helium_atmosphere(
         PLANCK,
         STEFAN_BOLTZMANN,
     )
-    from .helium import HELIUM_I_LINES, HELIUM_II_LINES, _helium_ii_level_distribution, helium_continuum_mass_absorption_coefficient, helium_minus_free_free_description, resolve_helium_minus_prescription, helium_i_line_mass_absorption_coefficient, helium_i_resonance_line_mass_absorption_coefficient, helium_ii_line_mass_absorption_coefficient, helium_rayleigh_scattering_mass_coefficient, rosseland_mean_helium_continuum_opacity
+    from .helium import HELIUM_I_LINES, HELIUM_I_RESONANCE_LINES, HELIUM_II_LINES, _helium_ii_level_distribution, helium_continuum_mass_absorption_coefficient, helium_minus_free_free_description, resolve_helium_minus_prescription, helium_i_line_mass_absorption_coefficient, helium_i_resonance_line_mass_absorption_coefficient, helium_ii_line_mass_absorption_coefficient, helium_rayleigh_scattering_mass_coefficient, rosseland_mean_helium_continuum_opacity
     if homogeneous_mixture:
         from .mixture import rosseland_mean_hydrogen_helium_continuum_opacity
     from .opacity import BALMER_LINES, BRACKETT_LINES, LYMAN_LINES, PASCHEN_LINES, balmer_mass_absorption_coefficient, brackett_mass_absorption_coefficient, electron_scattering_mass_coefficient, hydrogen_continuum_mass_absorption_coefficient, hydrogen_dissolved_level_pseudocontinuum_mass_absorption_coefficient, hydrogen_rayleigh_scattering_mass_coefficient, lyman_mass_absorption_coefficient, paschen_mass_absorption_coefficient
@@ -2494,13 +2539,26 @@ def radiative_equilibrium_helium_atmosphere(
             )
             / (STEFAN_BOLTZMANN * effective_temperature**4)
         )
+        # The He I resonance and He II lines have narrow Doppler cores in
+        # the outer layers (0.01 A for He II 304 A, 0.02 A for He I 584 A at
+        # 10 kK).  Resolve them from the coolest seed temperature; the
+        # linear grids are kept, so sampling is never coarser than before.
+        coolest_temperature = float(np.min(seed.temperature))
         if uv_flux_fraction >= 1.0e-8:
             line_grids.append(uv_resonance_grid)
+            line_grids.append(_resolved_line_core_wavelengths(
+                [line.wavelength_vacuum_angstrom for line in HELIUM_I_RESONANCE_LINES],
+                coolest_temperature, HELIUM_MASS,
+            ))
         if structure_helium_ii_lines:
             line_grids.extend(
                 line.wavelength_vacuum_angstrom + core_offsets
                 for line in structure_helium_ii_lines
             )
+            line_grids.append(_resolved_line_core_wavelengths(
+                [line.wavelength_vacuum_angstrom for line in structure_helium_ii_lines],
+                coolest_temperature, HELIUM_MASS,
+            ))
         if line_grids:
             wavelength = np.unique(np.concatenate((wavelength, *line_grids)))
     metal_wing_sampled_lines = 0

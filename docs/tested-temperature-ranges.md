@@ -85,7 +85,7 @@ Paper range: 40,000–90,000 K. See the [DO/DAO guide](models/DO-DAO.md).
 
 | Points | Settings | Evidence |
 | --- | --- | --- |
-| DO: 50000, 55000, 60000, 70000, 90000, 120000 / 8.0 | standard | Cold starts; canary `do-50000` |
+| DO: 42000, 50000, 55000, 60000, 70000, 90000, 120000 / 8.0 | standard | Cold starts; canary `do-50000` |
 | DAO: 40000/7.0 and 40000/8.0 (log N(H)/N(He) = 0); 60000/8.0 and 100000/8.0 (log N(H)/N(He) = 2) | standard | Cold starts; canary `dao-60000` |
 | Hot DA, GD 153: 40204/7.82, log N(H)/N(He) = 6 | standard; production with H8 and H20 | Cold starts |
 | Trace metals, G191-B2B: 52500/7.53, N(He)/N(H) = 1e-5 | standard and production | Cold start of host and metals |
