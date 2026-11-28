@@ -71,7 +71,10 @@ The command-line equivalent is
 - **Hydrogen lines.** As in the DA module: Tremblay & Bergeron (2009)
   charged-particle profiles and Ali–Griem self broadening, plus an
   approximate neutral-He impact width. Lyα uses the Allard tables at all
-  Teff; the 9000 K table is used for cooler gas.
+  Teff; the 9000 K table is used for cooler gas. The structure samples each
+  Paschen and Brackett line out to ±300 Å from its centre, as the DA solver
+  does. With five samples within 5 Å of the centre, the upper layers of the
+  HD 4539 sdB structure were 1.5% too cool at τ_R = 10⁻⁶–10⁻³.
 - **Helium lines.** B25 He I profiles with Unsöld broadening, the infrared
   He I lines and Schöning–Butler He II profiles, as in the DB module.
 

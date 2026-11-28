@@ -90,13 +90,19 @@ summary = dict(
 # References are opened only AFTER the fresh calculation has finished.
 # DZ remains a separate paper-comparison diagnostic; its historical reference
 # has not been promoted to a cold-canary baseline. Preserve that explicit check.
-reference_directory = (
-    "tests/data/spectral_regressions" if kind == "dz"
-    else "tests/data/approved_regressions/cold"
+# Newest reviewed cold control first (2026-11-27: infrared He I lines and the
+# Paschen/Brackett wing sampling of the mixed H/He structure).
+reference_directories = (
+    ("tests/data/spectral_regressions",) if kind == "dz"
+    else ("tests/data/approved_regressions/paschen_brackett_wings_2026_11_27/cold",
+          "tests/data/approved_regressions/cold")
 )
-with np.load(
-    Path(reference_directory) / (args.case + ".npz")
-) as saved:
+reference = next(
+    path for path in (Path(folder) / (args.case + ".npz") for folder in reference_directories)
+    if path.exists()
+)
+summary["reference"] = str(reference)
+with np.load(reference) as saved:
     w, i, j = np.intersect1d(wave, saved["wavelength"], return_indices=True)
     old = saved["checked_surface_flux" if kind == "dz" else "surface_flux"][j]
     new = result.spectrum.surface_flux_lambda[i]

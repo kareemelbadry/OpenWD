@@ -29,7 +29,11 @@ def main():
     saved_lte = json.loads((args.lte_model / 'metadata.json').read_text())
     certificate = saved_lte['atmosphere_metadata']['equilibrium_certificate']
     expected = dict(teff=23200., logg=5.20, log_he_h=-2.27, quality='standard')
-    assert lte['config'] == hybrid['config'] == expected
+    # sdb_lte_hhe.py records the structure metals (db5c89f); the control is metal-free.
+    for summary in (lte, hybrid):
+        config = dict(summary['config'])
+        assert config.pop('abundances', {}) == {}, 'the control structure must be metal-free'
+        assert config == expected
     assert lte['atmosphere_convergence_status'] == 'converged'
     assert certificate['verified'] is True
     for name in ('all_depth_flux', 'local_energy', 'temperature_stationarity',
