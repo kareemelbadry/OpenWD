@@ -115,6 +115,9 @@ class DAHConfig:
     motional_scale: float = 1.0
     # The n=3, 4 H2db components of the Paschen and Brackett lines (opt-in).
     include_paschen_brackett_lines: bool = False
+    # Magneto-ionic free electrons with the cyclotron resonance, in the synthesis only (opt-in;
+    # restored from 4e73b43 without its mean-field structure).
+    include_cyclotron_absorption: bool = False
 
 
 def _validate_stokes_config(config: DAHConfig, *, custom_surface_cells: bool = False) -> None:
@@ -142,6 +145,7 @@ DAH_PAPER_PRESCRIPTION: Mapping[str, object] = MappingProxyType({
     "include_finite_nuclear_mass": False,
     "include_intrashell_lines": False,
     "include_paschen_brackett_lines": False,
+    "include_cyclotron_absorption": False,
 })
 
 
@@ -407,7 +411,7 @@ def _structure_request_config(config: DAHConfig, *, custom_surface_cells: bool) 
     options = dict(polarized_transfer="scalar-stokes-i", return_stokes=False, sky_position_angle_deg=0.,
                    include_finite_nuclear_mass=False, include_intrashell_lines=False,
                    balmer_line_broadening="zero_field_stark", motional_scale=1.0,
-                   include_paschen_brackett_lines=False)
+                   include_paschen_brackett_lines=False, include_cyclotron_absorption=False)
     if custom_surface_cells:
         # A supplied map replaces the built-in geometry controls. The actual
         # field distribution/weights/bounds are identified separately below.
@@ -539,6 +543,7 @@ def compute_dah(
         motional_scale=config.motional_scale,
         include_intrashell_lines=config.include_intrashell_lines,
         paschen_brackett_transitions=paschen_brackett,
+        include_cyclotron_absorption=config.include_cyclotron_absorption,
         line_regime="h2db" if strong else "linear-zeeman",
     )
     if not relax_atmosphere and initial_atmosphere is None:

@@ -49,7 +49,12 @@ from .constants import (
     BOLTZMANN, ELECTRON_MASS, ELEMENTARY_CHARGE_ESU, HYDROGEN_MASS, LIGHT_SPEED, PI, PLANCK,
 )
 from .magnetic_atomic import H2dbEnergyDatabase, H2dbTransition, H2dbTransitionDatabase, MotionalStarkTable
-from .magnetic_continuum import explicit_rwa_hydrogen_bound_free_mass_absorption_coefficient
+from .magnetic_continuum import (
+    explicit_rwa_hydrogen_bound_free_mass_absorption_coefficient,
+    hydrogen_free_free_mass_absorption_coefficient,
+    isotropic_free_electron_opacity,
+    magnetized_free_electron_manifolds,
+)
 from .molecules import H2H2CollisionInducedAbsorptionTable
 from .opacity import BALMER_LINES
 from .spectrum import Spectrum, StokesSpectrum
@@ -70,6 +75,9 @@ DAH_WAVELENGTH_RANGE_ANGSTROM = (3_400.0, 8_000.0)
 # on this range and continuum manifolds on the wider one before transforming.
 _CONTINUUM_DISPERSION_RANGE_ANGSTROM = (100.0, 500_000.0)
 RWA_MAXIMUM_LEVEL = 8
+# The isotropic cyclotron profile is a superposition of Gaussians whose widths
+# scale with |cos(field, ray)|; enough nodes make that average smooth.
+CYCLOTRON_ANGULAR_NODES = 12
 
 PolarizedTransfer = Literal["full-stokes-iquv", "scalar-stokes-i"]
 
@@ -1416,6 +1424,8 @@ class MagneticPhysics:
     motional_scale: float = 1.0
     # n=3, 4 components (h2db_paschen_brackett_manifolds); None = off.
     paschen_brackett_transitions: dict[tuple[int, int], tuple[H2dbTransition, ...]] | None = None
+    # Magneto-ionic free electrons with the cyclotron resonance (synthesis only; opt-in).
+    include_cyclotron_absorption: bool = False
 
     def regime(self, maximum_field_megagauss: float) -> str:
         if self.line_regime is not None:
@@ -1694,10 +1704,23 @@ def synthesize_magnetic_hydrogen_spectrum(
                 (rwa if rwa_enabled else PolarizedOpacity.zeros(lines.isotropic().shape),
                  continuum_dispersion),
             )
-            scattering = (
-                electron_scattering_mass_coefficient(local)[np.newaxis, :]
-                + hydrogen_rayleigh_scattering_mass_coefficient(local, wavelength)
-            )
+            # Free electrons: with a field their free-free absorption and
+            # Thomson scattering become the magneto-ionic mode coefficients,
+            # replacing the zero-field values in the continuum.
+            include_cyclotron = physics.include_cyclotron_absorption and field > 0.0
+            rayleigh = hydrogen_rayleigh_scattering_mass_coefficient(local, wavelength)
+            if include_cyclotron:
+                unpolarized = unpolarized - hydrogen_free_free_mass_absorption_coefficient(
+                    local, wavelength
+                )
+                scattering = rayleigh
+                free_absorption, free_scattering = isotropic_free_electron_opacity(
+                    local, wavelength, field,
+                    angular_quadrature_order=CYCLOTRON_ANGULAR_NODES,
+                )
+            else:
+                scattering = electron_scattering_mass_coefficient(local)[np.newaxis, :] + rayleigh
+                free_absorption = free_scattering = 0.0
             planck = np.ascontiguousarray(
                 planck_lambda_angstrom(
                     wavelength[:, np.newaxis], local.temperature[np.newaxis, :]
@@ -1705,15 +1728,16 @@ def synthesize_magnetic_hydrogen_spectrum(
             )
             variants = []
             for polarized_opacity, dispersion in polarized_variants:
-                thermal_isotropic = unpolarized + polarized_opacity.isotropic()
+                thermal_isotropic = unpolarized + polarized_opacity.isotropic() + free_absorption
+                isotropic_scattering = scattering + free_scattering
                 depth = optical_depth_from_mass_opacity(
-                    local.column_mass, thermal_isotropic + scattering
+                    local.column_mass, thermal_isotropic + isotropic_scattering
                 )
                 _, radiation, _ = solve_spectrum_source(
                     depth,
                     planck,
                     thermal_isotropic,
-                    scattering,
+                    isotropic_scattering,
                     wavelength=wavelength,
                     n_angle=n_angle,
                     discretization="formal-linear",
@@ -1726,6 +1750,7 @@ def synthesize_magnetic_hydrogen_spectrum(
                 scattering,
                 planck,
                 variants,
+                include_cyclotron,
             )
         (
             local,
@@ -1733,7 +1758,10 @@ def synthesize_magnetic_hydrogen_spectrum(
             scattering,
             planck,
             variants,
+            include_cyclotron,
         ) = field_cache[field]
+        if include_cyclotron:
+            free = magnetized_free_electron_manifolds(local, wavelength, field, cosine)
         for variant, (polarized_opacity, dispersion, mean_intensity) in enumerate(variants):
             eta_i, eta_q, eta_v = polarized_opacity.stokes(cosine)
             eta_i = eta_i + unpolarized
@@ -1741,14 +1769,35 @@ def synthesize_magnetic_hydrogen_spectrum(
             rho_v = np.zeros_like(eta_i)
             if dispersion is not None:
                 _, rho_q, rho_v = dispersion.stokes(cosine)
-            extinction = eta_i + scattering
-            emission_i = eta_i * planck + scattering * mean_intensity
+            thermal_q, thermal_v = eta_q, eta_v
+            ray_scattering = scattering
+            scattered_q = scattered_v = 0.0
+            if include_cyclotron:
+                a_i, a_q, a_v = PolarizedOpacity(*free.absorption).stokes(cosine)
+                s_i, s_q, s_v = PolarizedOpacity(*free.scattering).stokes(cosine)
+                # Extinction carries both parts with their dichroism; the thermal
+                # part emits B and the scattered part re-emits J in its own
+                # polarization (unpolarized re-emission would feed the mode the
+                # resonance cannot absorb).
+                eta_i = eta_i + a_i
+                eta_q = eta_q + a_q + s_q
+                eta_v = eta_v + a_v + s_v
+                thermal_q = thermal_q + a_q
+                thermal_v = thermal_v + a_v
+                ray_scattering = scattering + s_i
+                scattered_q, scattered_v = s_q, s_v
+                if polarized:
+                    _, d_q, d_v = PolarizedOpacity(*free.dispersion).stokes(cosine)
+                    rho_q = rho_q + d_q
+                    rho_v = rho_v + d_v
+            extinction = eta_i + ray_scattering
+            emission_i = eta_i * planck + ray_scattering * mean_intensity
             source = emission_i / extinction
             if polarized:
                 emission = np.zeros(extinction.shape + (4,))
                 emission[..., 0] = emission_i
-                emission[..., 1] = eta_q * planck
-                emission[..., 3] = eta_v * planck
+                emission[..., 1] = thermal_q * planck + scattered_q * mean_intensity
+                emission[..., 3] = thermal_v * planck + scattered_v * mean_intensity
                 stokes = emergent_stokes_specific_intensity(
                     local.column_mass,
                     extinction,
@@ -1806,7 +1855,13 @@ def synthesize_magnetic_hydrogen_spectrum(
                 if physics.include_rwa_photoionization and regime == "h2db"
                 else "ordinary zero-field H I bound-free"
             ),
-            "free_electrons": "zero-field free-free and Thomson scattering",
+            "free_electrons": (
+                "magneto-ionic free-free absorption, Thomson scattering and "
+                "dispersion per circular mode, Doppler-broadened cyclotron "
+                "resonance"
+                if physics.include_cyclotron_absorption
+                else "zero-field free-free and Thomson scattering"
+            ),
             "surface_chemistry": (
                 "local-field magnetic Saha/HM equilibrium on the shared T(P)"
                 if physics.include_magnetic_eos and regime == "h2db"

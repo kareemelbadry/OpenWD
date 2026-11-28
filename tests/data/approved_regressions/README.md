@@ -27,6 +27,9 @@ neutral-impact Lorentz convolution, at most 0.26%) and `dah-default-j1018+0111`,
 `-j1254+5612`, `-j1351+5419` and `-j2247+1456` (Rohrmann RWA n=7, l=6
 photoionization coefficient, at most 8e-5);
 `research/capture_audit_fix_controls.py` wrote them.
+`dah-cyclotron-off-300mg` (2026-11-26, `tests/test_dah_cyclotron.py`) is Stokes I and V of a
+uniform 300 MG field on a gray 17 kK atmosphere, written by fork main 3b71c0e before
+`include_cyclotron_absorption` existed; the option off must reproduce it.
 
 When the audit fixes were rebased onto the cool-hydrogen revision on
 2026-11-11, `da-5000` was synthesized with both changes on its unchanged
