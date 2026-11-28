@@ -39,7 +39,8 @@ success. To force a new stationarity measurement from a supplied state, use
 
 The certificate counts the temperature correction as measured only if the
 final trust radius is at least the temperature tolerance. The local-energy
-completion solves therefore pass `require_measured_stationarity=True`. If
+completion solves therefore pass `require_measured_stationarity=True`
+whenever the tolerance is within the maximum trust radius. If
 the last accepted step passes its tests while the trust radius is smaller,
 the solver does not stop. It raises the radius to the tolerance and computes
 a new proposal at the accepted state. It stops with
