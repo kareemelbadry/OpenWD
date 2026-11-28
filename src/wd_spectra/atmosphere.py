@@ -2206,6 +2206,7 @@ def radiative_equilibrium_helium_atmosphere(
         ELEMENTARY_CHARGE_ESU,
         HELIUM_MASS,
         HYDROGEN_IONIZATION_ENERGY,
+        HYDROGEN_MASS,
         LIGHT_SPEED,
         PI,
         PLANCK,
@@ -2820,6 +2821,58 @@ def radiative_equilibrium_helium_atmosphere(
             result = atmosphere_with_metal_electrons(result, metal_state)
         return result
 
+    resolved_trace_hydrogen_lines: tuple = ()
+    if (
+        log_hydrogen_abundance is not None
+        and include_trace_hydrogen_lines
+        and not homogeneous_mixture
+    ):
+        # Trace H (DZA/DBZ) is otherwise sampled at five offsets per line
+        # (+-5, +-1 and 0 A).  In He-rich upper layers the Lyman and low
+        # Balmer cores are Doppler-narrow (0.04 A for Lyalpha at 10 kK), so
+        # the centre point carries a whole 1 A trapezoid weight: up to ten
+        # times the line area.  Resolve the cores of the lines that can
+        # matter to the structure, by the same line-centre optical-depth
+        # screen above tau_R ~= 1 as the helium lines.
+        starting = with_temperature(temperature)
+        if starting.hydrogen_lte_state is not None:
+            first_below = min(
+                int(np.searchsorted(relaxation_depth, 1.0, side="right")) + 1,
+                seed.n_depth,
+            )
+            for series_lines, series_opacity in (
+                (LYMAN_LINES, lyman_mass_absorption_coefficient),
+                (BALMER_LINES, balmer_mass_absorption_coefficient),
+                (PASCHEN_LINES, paschen_mass_absorption_coefficient),
+                (BRACKETT_LINES, brackett_mass_absorption_coefficient),
+            ):
+                centers = np.asarray(
+                    [line.wavelength_vacuum_angstrom for line in series_lines]
+                )
+                # (n_lines, n_depth): opacity at each line centre.
+                centre_opacity = np.asarray(
+                    series_opacity(starting, centers), dtype=np.float64
+                )
+                upper = trapezoid(
+                    centre_opacity[:, :first_below],
+                    seed.column_mass[:first_below],
+                    axis=1,
+                )
+                resolved_trace_hydrogen_lines += tuple(
+                    line for line, depth in zip(series_lines, upper)
+                    if depth >= 1.0e-3
+                )
+            if resolved_trace_hydrogen_lines:
+                wavelength = np.unique(np.concatenate((
+                    wavelength,
+                    _resolved_line_core_wavelengths(
+                        [line.wavelength_vacuum_angstrom
+                         for line in resolved_trace_hydrogen_lines],
+                        float(np.min(temperature)),
+                        HYDROGEN_MASS,
+                    ),
+                )))
+
     structure_absorption_cache: dict[str, object] = {}
 
     def true_absorption(current: Atmosphere) -> FloatArray:
@@ -3129,6 +3182,9 @@ def radiative_equilibrium_helium_atmosphere(
             ),
             "radiative_equilibrium_retained_helium_i_impact_lines": int(
                 len(structure_helium_i_impact_lines)
+            ),
+            "radiative_equilibrium_resolved_trace_hydrogen_lines": int(
+                len(resolved_trace_hydrogen_lines)
             ),
             "radiative_equilibrium_neutral_helium_line_broadening": (
                 "unsold" if include_lines else "disabled"
