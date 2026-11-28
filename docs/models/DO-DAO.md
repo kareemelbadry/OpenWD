@@ -131,7 +131,11 @@ metals. `--quality standard` (40 depths) takes about 3 h in total.
   own He II call (FAC = 1) keeps only 0.48 of the line strength there.
 - **Initialization.** The calculation first converges an LTE atmosphere. It
   then increases the NLTE contribution from 0 to 1 in steps and converges the
-  atmosphere at each step (Auer & Mihalas 1969; Hubeny & Lanz 2017).
+  atmosphere at each step (Auer & Mihalas 1969; Hubeny & Lanz 2017). The LTE
+  atmosphere resolves the narrow He II and He I resonance line cores, as the
+  NLTE equations do. With coarse core sampling, the 42,000 K seed put its thin
+  layers 2–5 kK too hot, on the wrong side of a thermal fold, and the first
+  (0% NLTE) stage never converged.
 - **Convergence checks.** A model passes when the population change is below
   `population_tolerance` and all five atmosphere checks pass: all-depth flux
   (3e-3), local energy balance (3e-3), temperature stationarity (3e-4),
@@ -228,6 +232,7 @@ He II 32, 3 angles, one thread). They are tested points, not a validated grid.
 
 | Model | Teff (K) | log g | log10 N(H)/N(He) | Time |
 | --- | ---: | ---: | ---: | ---: |
+| DO | 42000 | 8.0 | pure He | 0.9 h |
 | DO | 50000 | 8.0 | pure He | 1.7 h |
 | DO | 55000 | 8.0 | pure He | 2.1 h |
 | DO | 60000 | 8.0 | pure He | 1.2 h |

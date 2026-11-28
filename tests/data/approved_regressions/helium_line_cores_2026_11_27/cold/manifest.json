@@ -1,0 +1,31 @@
+{
+ "reason": "He II and He I resonance Doppler cores resolved in the LTE helium structure grid",
+ "capture": "CI cold-canary failure candidate (Linux) with a verified equilibrium certificate",
+ "ci_run": "https://github.com/kareemelbadry/OpenWD/actions/runs/46106031408",
+ "git_commit": "5392de627ac4967ebc8aa35f79c82e11a3094e52",
+ "source_sha256": {
+  "src/wd_spectra/atmosphere.py": "a0fbb77beba87d8845883ad71bfab3f4b7cb1bcbc8f87110a5e55a3468e661a1",
+  "research/capture_helium_line_core_cold_controls.py": "8ca6b2bcb8f0d3cdfc5f51bb06dcd78f58e20a3f553df7b212b346b898557f1f"
+ },
+ "platform": "macOS-27.2.1-arm64-arm-64bit",
+ "python": "3.11.9",
+ "numpy": "2.3.5",
+ "cases": {
+  "db-10000": {
+   "previous_control": "tests/data/approved_regressions/he_i_infrared_2026_11_27/cold/db-10000.npz",
+   "previous_control_sha256": "ea1f07e17cbe665e98e15a5c8d6988e491049887b5ee8ab8d022a431989d7216",
+   "new_control_sha256": "c586d3f834da816df070ba2c21a5efe05abe3b7455822c6e253e7e74902db882",
+   "candidate_atmosphere_sha256": "3e773bddf2a6cd9120403499d1daf05485ca15039783012780bfaab99703aff2",
+   "candidate_spectrum_sha256": "e8500e468c6c4e7d5589b6b1c850c5c1b346554b0af14497d626e4600e482698",
+   "n_depth": 88,
+   "maximum_gas_pressure_change": 0.6938716264144893,
+   "maximum_column_mass_change": 0.6938716264144895,
+   "maximum_flux_change_below_7300_angstrom": 0.0006144007929391737,
+   "integrated_relative_change": {
+    "1150-3000": 0.00014848809224857196,
+    "3500-7000": 1.3286298598288215e-05,
+    "7000-300000": -0.00010269590988958951
+   }
+  }
+ }
+}
