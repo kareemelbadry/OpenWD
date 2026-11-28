@@ -63,6 +63,17 @@ start; if a Linux canary moves them by more than the 2e-5 node tolerance, take
 the gas pressure and column mass from that certified candidate, as on
 2026-11-19.
 
+`helium_line_cores_2026_11_27/cold/db-10000.npz` follows the resolved He II and
+He I resonance Doppler cores in the LTE helium structure grid. The structure is
+unchanged below τ_R ≈ 10⁻¹¹ (temperature within 0.05%, τ_R(m) within 1% for
+m ≥ 10⁻⁶ g cm⁻²). The outermost layers (τ_R 10⁻¹⁴–10⁻¹¹) cool by up to 4.6%, which
+moves the top τ_R that the Rosseland remesh spreads its target depths from.
+So the remeshed nodes shift by up to 69% in column mass while the spectrum
+moves by at most 6.1e-4 (900 Å) and 7e-5 in the optical. Gas pressure, column
+mass and flux come from the certified Linux CI candidate
+(`research/capture_helium_line_core_cold_controls.py`;
+[manifest](helium_line_cores_2026_11_27/cold/manifest.json)).
+
 The `dab-20000` cold check (`research/validate_public_cold_start.py`) is
 also affected by the infrared He I lines. On the branch that added them, its
 7000–300000 Å band fell by 0.52%, over the 0.3% bound. Re-synthesizing that
@@ -140,7 +151,7 @@ and retains the previous wavelength and flux arrays. The maximum spectral
 change on the stellar energy scale is 0.111%, within the existing 0.3% limit.
 [Cold-start provenance](heh_mixed_heminus_2026_11_19/cold/manifest.json).
 
-`paschen_brackett_wings_2026_11_27/cold/` (the `dab-20000` cold check only), `he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
+`helium_line_cores_2026_11_27/cold/`, `paschen_brackett_wings_2026_11_27/cold/` (the `dab-20000` cold check only), `he_i_infrared_2026_11_27/cold/`, `heh_mixed_heminus_2026_11_19/cold/`, `stark_area_2026_11_11/cold/`, `cool_h_chemistry_2026_11_10/cold/`,
 `montreal_h_radius_2026_10_27/cold/` and `cold/` (newest first) supply comparison outputs for
 the protected cold-start canaries. Those tests always calculate a fresh
 atmosphere before reading them and still require every independent equilibrium

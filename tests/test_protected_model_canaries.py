@@ -49,7 +49,13 @@ HELIUM_MINUS_COLD = (
 HELIUM_I_INFRARED_COLD = (
     Path(__file__).parent / "data/approved_regressions/he_i_infrared_2026_11_27/cold"
 )
+# Reviewed 2026-11-27: resolved He II / He I resonance cores in the LTE helium
+# structure grid (db-10000 nodes from the certified Linux CI candidate).
+HELIUM_LINE_CORES_COLD = (
+    Path(__file__).parent / "data/approved_regressions/helium_line_cores_2026_11_27/cold"
+)
 REVIEWED_COLD = (
+    HELIUM_LINE_CORES_COLD,
     HELIUM_I_INFRARED_COLD,
     HELIUM_MINUS_COLD,
     STARK_AREA_COLD,
